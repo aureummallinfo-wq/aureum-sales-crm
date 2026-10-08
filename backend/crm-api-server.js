@@ -11,7 +11,7 @@ const sessions = new Map();
 const loginAttempts = new Map();
 
 const rolePermissions = {
-  super_admin: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'settings'],
+  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'settings'],
   sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents'],
   sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat']
 };
@@ -462,7 +462,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/leads') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    const user = requireRole(req, res, ['sales_manager']);
     if (user) {
       try {
         const body = await readBody(req);

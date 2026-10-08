@@ -9,7 +9,7 @@ const routePermissions = {
   dashboard: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   leads: ['SUPER_ADMIN', 'SALES_MANAGER'],
   'my-leads': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  'add-lead': ['SUPER_ADMIN', 'SALES_MANAGER'],
+  'add-lead': ['SALES_MANAGER'],
   customers: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   'follow-ups': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   'team-chat': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],

@@ -1,0 +1,2 @@
+import type { CreateLeadInput, Lead, LeadActivity, LeadFilters, LeadStatus } from './lead.types';
+export interface LeadsApiClient { list(filters?: LeadFilters): Promise<{ data: Lead[] }>; get(id: string): Promise<{ data: Lead }>; activity(id: string): Promise<{ data: LeadActivity[] }>; create(input: CreateLeadInput): Promise<{ data: Lead }>; updateStatus(id: string, status: LeadStatus): Promise<{ data: Lead }>; }
