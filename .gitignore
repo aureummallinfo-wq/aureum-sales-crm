@@ -21,3 +21,6 @@ node_modules/
 
 # Local-only junction retained by the original workspace
 DOC/
+
+# Product documentation is kept locally and intentionally excluded from GitHub
+*.md
