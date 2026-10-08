@@ -1,0 +1,37 @@
+/* Shared Aureum foundation tokens and accessibility behavior. */
+:root {
+  --aureum-cream: #f7f1e6;
+  --aureum-ivory: #fffdf9;
+  --aureum-soft-beige: #efe4d2;
+  --aureum-gold: #c6a15b;
+  --aureum-soft-gold: #e2c67a;
+  --aureum-deep-brown: #2a2118;
+  --aureum-charcoal: #111111;
+  --aureum-muted: #7a7167;
+  --aureum-success: #2f6b4f;
+  --aureum-warning: #c88a2d;
+  --aureum-error: #b94a48;
+  --aureum-gold-border: rgba(198, 161, 91, .35);
+  --aureum-focus: 0 0 0 3px rgba(198, 161, 91, .28);
+}
+
+.aureum-icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.12em; flex: 0 0 auto; }
+.skip-link { position: fixed; left: 14px; top: -60px; z-index: 100; padding: 10px 14px; color: var(--aureum-charcoal); border-radius: 9px; background: var(--aureum-soft-gold); transition: top .18s ease; }
+.skip-link:focus { top: 14px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 0; box-shadow: var(--aureum-focus); }
+[aria-disabled="true"], button:disabled { cursor: not-allowed; opacity: .58; }
+.aureum-loading { min-height: 120px; display: grid; place-items: center; gap: 7px; }
+.skeleton-line { display: block; width: min(220px, 70%); height: 9px; border-radius: 99px; background: linear-gradient(90deg, #efe4d2, #fffdf9, #efe4d2); background-size: 200% 100%; animation: aureumShimmer 1.4s ease-in-out infinite; }
+.aureum-error { border: 1px solid rgba(185, 74, 72, .28); background: rgba(185, 74, 72, .05); }
+.drawer, .card, .btn, .nav-item, .table-action { transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease, background-color .18s ease; }
+.card:hover { box-shadow: 0 12px 30px rgba(42, 33, 24, .07); }
+.drawer { animation: aureumDrawerIn .2s ease-out; }
+.table-wrap { scrollbar-color: var(--aureum-gold) var(--aureum-soft-beige); }
+.form-field > span { display: block; margin-bottom: 6px; color: var(--aureum-muted); font-size: 11px; font-weight: 700; }
+.form-field input[type="date"], .form-field input[type="time"] { min-height: 38px; }
+.aureum-tooltip { position: relative; }
+.aureum-tooltip:hover::after, .aureum-tooltip:focus-visible::after { content: attr(data-tooltip); position: absolute; left: 50%; bottom: calc(100% + 7px); z-index: 20; width: max-content; max-width: 220px; padding: 6px 8px; color: var(--aureum-ivory); border-radius: 6px; background: var(--aureum-charcoal); font-size: 10px; transform: translateX(-50%); }
+@keyframes aureumShimmer { to { background-position: -200% 0; } }
+@keyframes aureumDrawerIn { from { opacity: .2; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+@media (max-width: 760px) { .top-search { max-width: 150px; } .filter-bar .form-field { min-width: 130px !important; } .drawer { width: 100%; padding: 20px; } }
