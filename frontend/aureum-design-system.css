@@ -794,3 +794,23 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .followup-metrics-grid { grid-template-columns: 1fr 1fr; }
   .login-copy h1 { font-size: 31px; }
 }
+
+/* Phones keep the Aureum left sidebar; the workspace never changes to bottom navigation. */
+@media (max-width: 620px) {
+  body { padding-bottom: 0; }
+  .sidebar { inset: 0 auto 0 0; width: 72px; height: auto; padding: 18px 8px; flex-direction: column; align-items: stretch; border-top: 0; border-right: 1px solid rgba(198,161,91,.28); box-shadow: 8px 0 24px rgba(24,22,19,.12); }
+  .sidebar .nav-list { display: grid; align-content: start; gap: 4px; width: 100%; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+  .sidebar .nav-item { flex: 0 0 auto; flex-direction: row; justify-content: center; min-height: 48px; padding: 10px 4px; gap: 0; }
+  .sidebar .nav-item::after { display: none; }
+  .main { width: calc(100% - 72px); margin-left: 72px; }
+  .topbar { padding: 0 10px; }
+  .topbar-actions { gap: 5px; }
+  .top-search { width: min(37vw, 145px); }
+  .page { padding-right: 10px; padding-left: 10px; }
+}
+
+@media (max-width: 390px) {
+  .top-search { width: 102px; }
+  .sidebar { width: 68px; }
+  .main { width: calc(100% - 68px); margin-left: 68px; }
+}
