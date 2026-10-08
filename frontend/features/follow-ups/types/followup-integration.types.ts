@@ -1,0 +1,2 @@
+export interface FollowUpSummary { total: number; today: number; upcoming: number; overdue: number; completed: number; missed: number; rescheduled: number; cancelled: number; completionRate: number; overdueRate: number; }
+export interface FollowUpCreateInput { customer_id: string; lead_id?: string; assigned_agent_id?: string; follow_up_type: string; due_date: string; due_time: string; priority: string; notes?: string; }

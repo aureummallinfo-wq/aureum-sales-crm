@@ -114,7 +114,7 @@ const followUpSeed = [
 ];
 let followUps = followUpSeed.map(item => {
   const customer = customers.find(entry => entry.id === item.customer_id);
-  return { ...item, customer_name: customer?.full_name || 'Unknown customer', customer_phone: customer?.phone || '', assigned_agent_id: customer?.assigned_agent_id || null, assigned_agent: customer?.assigned_agent || 'Unassigned', assigned_team_id: customer?.assigned_team_id || null, lead_status: customer?.customer_status || 'Active', last_activity: customer?.last_contacted_at || 'Not contacted', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' };
+  return { ...item, customer_name: customer?.full_name || 'Unknown customer', customer_phone: customer?.phone || '', assigned_agent_id: customer?.assigned_agent_id || null, assigned_agent: customer?.assigned_agent || 'Unassigned', assigned_team_id: customer?.assigned_team_id || null, lead_status: customer?.customer_status || 'Active', last_activity: customer?.last_contacted_at || 'Not contacted', created_by: customer?.created_by || customer?.assigned_agent_id || null, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z', reschedule_history: [] };
 });
 const followUpActivities = new Map(followUps.map(item => [item.id, [{ id: `${item.id}_activity_1`, activity_type: 'Follow-up scheduled', description: `${item.follow_up_type} scheduled for ${item.due_date} at ${item.due_time}`, user_id: item.assigned_agent_id, created_at: item.created_at }]]));
 
@@ -756,11 +756,11 @@ async function handle(req, res) {
     if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     if (action === 'activity' && req.method === 'GET') { json(res, 200, { data: followUpActivities.get(item.id) || [] }); return; }
     const body = await readBody(req);
-    if (action === 'reschedule' && req.method === 'PATCH') { if (!body.due_date || !body.due_time) { json(res, 400, { error: 'New date and time are required' }); return; } item.rescheduled_from_date = item.due_date; item.rescheduled_from_time = item.due_time; item.reschedule_reason = body.reason || ''; item.due_date = body.due_date; item.due_time = body.due_time; item.status = 'Rescheduled'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up rescheduled', body.reason || `Moved to ${item.due_date} at ${item.due_time}`); json(res, 200, { data: followUpView(item) }); return; }
+    if (action === 'reschedule' && req.method === 'PATCH') { if (!body.due_date || !body.due_time) { json(res, 400, { error: 'New date and time are required' }); return; } const previous = { fromDate: item.due_date, fromTime: item.due_time, toDate: body.due_date, toTime: body.due_time, reason: body.reason || '' }; item.rescheduled_from_date = item.due_date; item.rescheduled_from_time = item.due_time; item.reschedule_reason = body.reason || ''; item.reschedule_history = [...(item.reschedule_history || []), previous]; item.due_date = body.due_date; item.due_time = body.due_time; item.status = 'Rescheduled'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up rescheduled', body.reason || `Moved to ${item.due_date} at ${item.due_time}`); json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'complete' && req.method === 'PATCH') { item.status = 'Completed'; item.completed_at = new Date().toISOString(); item.completed_by = user.id; item.completion_note = body.completion_note || body.note || ''; item.customer_response = body.customer_response || ''; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up completed', item.completion_note || 'Follow-up marked as completed'); if (body.next_due_date && body.next_due_time) { item.next_follow_up = { due_date: body.next_due_date, due_time: body.next_due_time }; } json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'missed' && req.method === 'PATCH') { item.status = 'Missed'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up missed', body.reason || 'Follow-up marked as missed'); json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'cancel' && req.method === 'PATCH') { item.status = 'Cancelled'; item.cancelled_at = new Date().toISOString(); item.cancelled_by = user.id; item.cancel_reason = body.reason || ''; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up cancelled', body.reason || 'Follow-up cancelled'); json(res, 200, { data: followUpView(item) }); return; }
-    if (action === 'notes' && req.method === 'POST') { if (!body.note) { json(res, 400, { error: 'Note is required' }); return; } addFollowUpActivity(item, user.id, 'Note added', body.note); item.notes = body.note; json(res, 201, { data: followUpView(item) }); return; }
+    if (action === 'notes' && req.method === 'POST') { if (!body.note) { json(res, 400, { error: 'Note is required' }); return; } addFollowUpActivity(item, user.id, 'Note added', body.note); item.notes = body.note; item.last_activity = body.note; item.updated_at = new Date().toISOString(); json(res, 201, { data: followUpView(item) }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
 
@@ -800,10 +800,18 @@ async function handle(req, res) {
   json(res, 404, { error: 'API route not found' });
 }
 
-http.createServer((req, res) => handle(req, res).catch(error => {
+function requestHandler(req, res) {
+  return handle(req, res).catch(error => {
   console.error(error);
   if (res.headersSent) { res.end(); return; }
   json(res, 500, { error: 'Something went wrong. Please try again.' });
-})).listen(PORT, () => {
-  console.log(`Aureum CRM local server running at http://127.0.0.1:${PORT}`);
-});
+  });
+}
+
+module.exports = { handle, requestHandler };
+
+if (require.main === module) {
+  http.createServer(requestHandler).listen(PORT, () => {
+    console.log(`Aureum CRM local server running at http://127.0.0.1:${PORT}`);
+  });
+}

@@ -1,0 +1,1 @@
+window.AureumMockFollowUpActivities = [{ id: 'mock_activity_001', follow_up_id: 'mock_followup_001', activity_type: 'Follow-up scheduled', description: 'Initial call scheduled.', created_at: '2026-10-07T09:00:00+05:00' }];
