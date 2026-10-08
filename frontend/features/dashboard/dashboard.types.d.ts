@@ -1,6 +1,6 @@
 export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent';
 export type DashboardScope = 'company' | 'team' | 'own';
-export type DashboardDateRange = 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'custom';
+export type DashboardDateRange = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
 
 export interface DashboardQueryParams {
   role: UserRole;
@@ -20,6 +20,7 @@ export interface DashboardKpi {
   trend?: { value: number; direction: 'up' | 'down' | 'neutral'; label: string };
   icon?: string;
   variant?: 'default' | 'success' | 'warning' | 'danger' | 'gold';
+  href?: string;
 }
 
 export interface DashboardSummary {
@@ -67,3 +68,4 @@ export interface DashboardResponse {
 }
 
 export interface UseDashboardDataResult { data?: DashboardResponse; isLoading: boolean; isError: boolean; error?: Error; refetch: () => void; }
+export interface DashboardErrorResponse { message: string; code?: string; statusCode: number; }
