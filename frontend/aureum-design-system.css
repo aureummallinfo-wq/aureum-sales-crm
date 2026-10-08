@@ -720,14 +720,16 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 /* Mobile workspace polish: keep the CRM usable with one hand on narrow phones. */
 @media (max-width: 620px) {
   html, body { min-width: 320px; overflow-x: hidden; }
-  body { padding-bottom: 70px; }
-  .sidebar { inset: auto 0 0; width: 100%; height: 64px; padding: 5px 8px; flex-direction: row; align-items: center; border-top: 1px solid rgba(198,161,91,.28); box-shadow: 0 -8px 24px rgba(24,22,19,.12); }
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  .sidebar { inset: auto 0 0; width: 100%; height: calc(66px + env(safe-area-inset-bottom)); padding: 4px 6px env(safe-area-inset-bottom); flex-direction: row; align-items: center; border-top: 1px solid rgba(198,161,91,.28); box-shadow: 0 -8px 24px rgba(24,22,19,.12); }
   .sidebar .brand, .sidebar .sidebar-label, .sidebar .sidebar-footer { display: none; }
-  .sidebar .nav-list { display: flex; align-items: center; gap: 3px; width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .sidebar .nav-list { display: flex; align-items: stretch; gap: 1px; width: 100%; overflow-x: auto; scrollbar-width: none; }
   .sidebar .nav-list::-webkit-scrollbar { display: none; }
-  .sidebar .nav-item { flex: 0 0 52px; justify-content: center; min-height: 51px; padding: 9px 5px; border-radius: 10px; }
+  .sidebar .nav-item { flex: 0 0 60px; flex-direction: column; justify-content: center; min-height: 56px; padding: 6px 3px; border-radius: 10px; gap: 3px; }
   .sidebar .nav-item span:last-child { display: none; }
   .sidebar .nav-item svg, .sidebar .nav-item > span:first-child { width: 18px; height: 18px; }
+  .sidebar .nav-item::after { display: block; overflow: hidden; max-width: 100%; color: rgba(255,255,255,.66); content: attr(aria-label); font-size: 8px; font-weight: 700; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar .nav-item.active::after { color: var(--gold-pale); }
   .main { width: 100%; margin-left: 0; }
   .topbar { min-height: 62px; padding: 0 12px; }
   .topbar-actions { gap: 7px; }
@@ -748,6 +750,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .search-box, .customer-search-field { flex: 1 1 100%; width: 100%; min-width: 0; min-height: 40px; }
   .filter-bar .select, .filter-bar select, .lead-filter-bar .select, .customer-filter-bar .select, .followup-filter-bar select { flex: 1 1 calc(50% - 4px); min-width: 0 !important; min-height: 40px; }
   .filter-bar .btn, .lead-filter-bar .btn, .customer-filter-bar .btn, .followup-filter-bar .btn { flex: 1 1 auto; min-height: 40px; }
+  .lead-summary-grid, .customer-summary-grid, .followup-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lead-summary-card, .customer-summary-card, .followup-summary-card { min-height: 104px; padding: 13px; }
+  .lead-summary-card .kpi-value, .customer-summary-card .kpi-value, .followup-summary-card .kpi-value { font-size: 24px; }
   .tabs { gap: 0; padding: 0 11px; scrollbar-width: none; }
   .tabs::-webkit-scrollbar, .followup-status-tabs::-webkit-scrollbar { display: none; }
   .tab { padding: 13px 10px 11px; }
@@ -771,7 +776,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .followup-calendar-day, .followup-calendar-empty { min-height: 38px; padding: 5px; }
   .followup-calendar-day strong { font-size: 10px; }
   .followup-calendar-legend { flex-wrap: wrap; gap: 8px; }
-  .toast { right: 11px; bottom: 76px; left: 11px; text-align: center; }
+  .table-wrap table th:first-child, .table-wrap table td:first-child { position: sticky; left: 0; z-index: 2; background: #fffdf9; box-shadow: 5px 0 8px rgba(42,33,24,.04); }
+  .table-wrap table thead th:first-child { z-index: 3; background: var(--cream-deep); }
+  .toast { right: 11px; bottom: calc(78px + env(safe-area-inset-bottom)); left: 11px; text-align: center; }
   .login-brand { min-height: 360px; padding: 24px 18px; }
   .login-brand-content { min-height: 300px; }
   .login-copy h1 { font-size: 36px; line-height: 1.04; }
@@ -783,6 +790,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .top-search { width: 112px; }
   .top-search input { font-size: 9px; }
   .page-header .header-actions { grid-template-columns: 1fr; }
+  .sidebar .nav-item { flex-basis: 56px; }
   .followup-metrics-grid { grid-template-columns: 1fr 1fr; }
   .login-copy h1 { font-size: 31px; }
 }
