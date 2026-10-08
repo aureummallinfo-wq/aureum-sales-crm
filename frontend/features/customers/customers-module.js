@@ -1,0 +1,133 @@
+(function initializeAureumCustomersModule() {
+  const options = window.AureumCustomerConstants || {};
+  const statuses = options.statuses || ['Active', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Booking Interested', 'Closed Won', 'Closed Lost', 'Not Interested'];
+  const sources = options.sources || ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'];
+  const interests = options.interests || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial Shop', 'Corporate Office', 'Food Court Space', 'Hotel Room'];
+  const priorities = options.priorities || ['High', 'Medium', 'Low'];
+  const userNames = { usr_001: 'Malik Raza', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };
+  state.customerModule = state.customerModule || { tab: 'overview', filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' } };
+
+  const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  const field = (item, key, fallback = '—') => item && item[key] !== undefined && item[key] !== null && item[key] !== '' ? item[key] : fallback;
+  const title = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+  const customerName = customer => field(customer, 'full_name', field(customer, 'fullName', 'Customer'));
+  const customerStatus = customer => field(customer, 'customer_status', field(customer, 'status', 'Active'));
+  const customerSource = customer => field(customer, 'lead_source', field(customer, 'source', 'Manual Entry'));
+  const customerInterest = customer => field(customer, 'interested_in', field(customer, 'interest'));
+  const customerAgent = customer => field(customer, 'assigned_agent', field(customer, 'agent', 'Unassigned'));
+  const initials = customer => field(customer, 'initials', String(customerName(customer)).split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase());
+  const currentCustomer = () => state.customerDetail?.data || null;
+  const statusBadge = status => typeof badge === 'function' ? badge(status) : `<span class="badge badge-neutral">${escape(status)}</span>`;
+  const selectOptions = (items, selected = '', placeholder = '') => `${placeholder ? `<option value="">${escape(placeholder)}</option>` : ''}${items.map(item => `<option value="${escape(item)}" ${String(item) === String(selected) ? 'selected' : ''}>${escape(item)}</option>`).join('')}`;
+  const tags = customer => (Array.isArray(customer?.tags) ? customer.tags : []).map(tag => `<span class="customer-tag">${escape(tag)}</span>`).join('') || '<span class="person-meta">No tags</span>';
+
+  function normalizeCustomer(customer) {
+    if (!customer) return customer;
+    return { ...customer, status: customer.status || customer.customer_status, source: customer.source || customer.lead_source, interest: customer.interest || customer.interested_in, agent: customer.agent || customer.assigned_agent, next: customer.next || customer.next_follow_up_at, last_activity: customer.last_activity || customer.last_contacted_at };
+  }
+
+  function visibleCustomers() {
+    const filters = state.customerModule.filters || {};
+    const query = String(filters.search || '').trim().toLowerCase();
+    return (state.customers?.items || []).map(normalizeCustomer).filter(customer => {
+      const haystack = [customerName(customer), customer.phone, customer.whatsapp_number, customer.email, customer.city, customerInterest(customer), customerAgent(customer)].join(' ').toLowerCase();
+      if (query && !haystack.includes(query)) return false;
+      if (filters.status && customerStatus(customer) !== filters.status) return false;
+      if (filters.source && customerSource(customer) !== filters.source) return false;
+      if (filters.city && String(customer.city || '') !== filters.city) return false;
+      if (filters.interestedIn && customerInterest(customer) !== filters.interestedIn) return false;
+      if (filters.priority && String(customer.priority || '') !== filters.priority) return false;
+      return true;
+    });
+  }
+
+  function summaryCard(label, value, detail, tone = '') { return `<div class="card customer-summary-card"><div class="kpi-label">${escape(label)}</div><div class="kpi-value">${escape(value)}</div><div class="customer-summary-detail ${tone ? `is-${tone}` : ''}">${escape(detail)}</div></div>`; }
+
+  function customerStatusTabs() {
+    const active = state.customerModule.filters?.status || '';
+    const tabs = [['All Customers', ''], ['Active', 'Active'], ['Hot', 'Hot'], ['Follow-up', 'Follow-up'], ['Booking Interested', 'Booking Interested'], ['Closed', 'Closed'], ['Lost', 'Closed Lost']];
+    return `<div class="customer-status-tabs" role="tablist">${tabs.map(([label, value]) => `<button class="customer-status-tab ${active === value ? 'active' : ''}" data-customer-module-tab="${escape(value)}" role="tab" aria-selected="${active === value}">${escape(label)}</button>`).join('')}</div>`;
+  }
+
+  function actionMenu(customer) {
+    const id = escape(customer.id);
+    return `<details class="customer-action-menu"><summary class="table-action" aria-label="Actions for ${escape(customerName(customer))}">Actions <span aria-hidden="true">⌄</span></summary><div class="customer-action-options"><button data-customer-module-open="${id}">Open profile</button><button data-customer-module-action="call" data-customer-id="${id}">Call</button><button data-customer-module-action="whatsapp" data-customer-id="${id}">WhatsApp</button><button data-customer-module-action="note" data-customer-id="${id}">Add note</button><button data-customer-module-action="follow-up" data-customer-id="${id}">Schedule follow-up</button><button data-customer-module-action="status" data-customer-id="${id}">Change status</button>${customer.lead_id ? `<button data-customer-module-action="lead" data-customer-id="${id}">Open linked lead</button>` : ''}</div></details>`;
+  }
+
+  function tableRows(items) {
+    if (!items.length) return `<tr><td colspan="11"><div class="customer-empty-inline"><strong>No customers found.</strong><span>Try clearing a filter or searching another customer.</span><button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset filters</button></div></td></tr>`;
+    return items.map(customer => `<tr><td><button class="customer-name-button" data-customer-module-open="${escape(customer.id)}">${person(escape(customerName(customer)), escape(initials(customer)), escape(customer.lead_id ? `Lead ${customer.lead_id}` : 'Customer profile'))}</button></td><td>${escape(field(customer, 'phone'))}<div class="person-meta">${escape(field(customer, 'whatsapp_number'))}</div></td><td>${escape(field(customer, 'email'))}</td><td>${escape(field(customer, 'city'))}</td><td>${escape(customerInterest(customer))}</td><td><b>${escape(field(customer, 'budget'))}</b></td><td>${escape(customerAgent(customer))}</td><td>${statusBadge(customerStatus(customer))}<div class="customer-tags">${tags(customer)}</div></td><td>${escape(field(customer, 'last_activity'))}</td><td>${escape(field(customer, 'next'))}</td><td>${actionMenu(customer)}</td></tr>`).join('');
+  }
+
+  function renderCustomerLoading() { return pageHeader('Client relationships', 'Customers', 'Loading the permitted customer registry…') + '<div class="customer-loading-grid"><div class="customer-skeleton"></div><div class="customer-skeleton customer-skeleton-tall"></div></div>'; }
+  function renderCustomerError() { return pageHeader('Client relationships', 'Customers', 'The customer registry could not load.') + `<div class="card customer-error-state"><div class="access-mark">!</div><h2>Unable to load customers</h2><p>${escape(state.customers?.error || 'Customer data is unavailable.')}</p><button class="btn btn-secondary" data-customer-module-reload>Retry</button></div>`; }
+
+  function renderCustomersModule() {
+    if (state.customers?.loading && !state.customers.items?.length) return renderCustomerLoading();
+    if (state.customers?.error && !state.customers.items?.length) return renderCustomerError();
+    const all = (state.customers?.items || []).map(normalizeCustomer);
+    const items = visibleCustomers();
+    const active = all.filter(customer => ['Active', 'Warm', 'Hot', 'Follow-up', 'Booking Interested'].includes(customerStatus(customer))).length;
+    const hot = all.filter(customer => customerStatus(customer) === 'Hot').length;
+    const due = all.filter(customer => field(customer, 'next_follow_up_at', field(customer, 'next')) !== 'Not scheduled').length;
+    const booking = all.filter(customer => customerStatus(customer) === 'Booking Interested').length;
+    const closed = all.filter(customer => ['Closed Won', 'Closed Lost'].includes(customerStatus(customer))).length;
+    const cityOptions = [...new Set(all.map(customer => customer.city).filter(Boolean))].sort();
+    return pageHeader('Client relationships', 'Customers', state.role === 'SALES_AGENT' ? 'Work only the customer relationships assigned to your advisor account.' : state.role === 'SALES_MANAGER' ? 'Review the team customer book, activity, and next commercial action.' : 'Review the complete Aureum customer book, activity, and next commercial action.', `<button class="btn btn-secondary" data-customer-module-reload>Refresh</button><button class="btn btn-secondary" data-screen="${state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'}">Open leads</button>`) + `<section class="grid grid-4 customer-summary-grid">${summaryCard('Total Customers', all.length, state.role === 'SALES_AGENT' ? 'Assigned to me' : state.role === 'SALES_MANAGER' ? 'Team customers' : 'Company-wide book')}${summaryCard('Active Customers', active, 'Relationships in motion', 'green')}${summaryCard('Hot Customers', hot, hot ? 'High intent' : 'No hot customers', hot ? 'hot' : '')}${summaryCard('Follow-ups Due', due, due ? 'Review next actions' : 'Nothing scheduled', due ? 'warm' : '')}${summaryCard('Booking Interested', booking, 'Commercial opportunity', booking ? 'booking' : '')}${summaryCard('Closed Customers', closed, 'Won or closed-lost history', 'green')}</section><section class="card table-card customer-registry-card"><div class="customer-registry-head"><div><h2>Customer registry</h2><p>${items.length} of ${all.length} visible records · access is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SUPER_ADMIN' ? 'Company scope' : state.role === 'SALES_MANAGER' ? 'Team scope' : 'Assigned only'}</span></div>${customerStatusTabs()}<div class="customer-filter-bar"><label class="customer-search-field"><span aria-hidden="true">⌕</span><input data-customer-module-search value="${escape(state.customerModule.filters?.search || '')}" placeholder="Search name, phone, WhatsApp, email…" aria-label="Search customers" /></label><select class="select" data-customer-module-source aria-label="Filter by source">${selectOptions(['', ...sources], state.customerModule.filters?.source || '', 'All sources')}</select><select class="select" data-customer-module-city aria-label="Filter by city">${selectOptions(['', ...cityOptions], state.customerModule.filters?.city || '', 'All cities')}</select><select class="select" data-customer-module-interest aria-label="Filter by interest">${selectOptions(['', ...interests], state.customerModule.filters?.interestedIn || '', 'All interests')}</select><select class="select" data-customer-module-priority aria-label="Filter by priority">${selectOptions(['', ...priorities], state.customerModule.filters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset</button></div><div class="table-wrap customer-table-wrap"><table class="customer-data-table"><thead><tr><th>Customer name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Assigned agent</th><th>Status / tags</th><th>Last activity</th><th>Next follow-up</th><th>Actions</th></tr></thead><tbody>${tableRows(items)}</tbody></table></div></section>`;
+  }
+
+  function detailItem(label, value) { return `<div><div class="detail-label">${escape(label)}</div><div class="detail-value">${escape(value ?? '—')}</div></div>`; }
+  function activityList(items) { return items?.length ? items.map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${escape(title(item.activity_type || item.activityType || 'Activity'))}</div><div class="timeline-copy">${escape(item.description || '')}</div><div class="timeline-time">${escape(item.created_at || item.createdAt || '')}</div></div></div>`).join('') : '<div class="empty-state">No activity recorded yet.</div>'; }
+  function noteList(items) { return items?.length ? items.map(note => `<article class="customer-note"><div class="customer-note-head"><strong>Note</strong><span>${escape(userNames[note.user_id] || note.userName || 'Aureum teammate')}</span></div><p>${escape(note.note)}</p><time>${escape(note.created_at || note.createdAt || '')}</time></article>`).join('') : '<div class="empty-state">No notes added yet.</div>'; }
+  function followUpList(items) { return items?.length ? items.map(item => `<div class="customer-followup-preview"><div><strong>${escape(item.type || item.follow_up_type || item.followUpType || 'Follow-up')}</strong><span>${escape(item.due_date || item.dueDate || 'Not scheduled')}${item.due_time || item.dueTime ? ` · ${escape(item.due_time || item.dueTime)}` : ''}</span></div><div>${statusBadge(item.status || 'Pending')}</div><p>${escape(item.note || item.notes || 'No note added.')}</p></div>`).join('') : '<div class="empty-state">No follow-ups found.</div>'; }
+
+  function renderCustomerDrawerModule() {
+    const detail = state.customerDetail;
+    if (!detail) return `<div class="drawer-backdrop" data-customer-module-close></div><aside class="drawer customer-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Customer relationship</div><h2>Loading profile…</h2></div><button class="drawer-close" data-customer-module-close aria-label="Close customer profile">×</button></div><div class="empty-state">Loading permitted customer details…</div></aside>`;
+    if (detail.error) return `<div class="drawer-backdrop" data-customer-module-close></div><aside class="drawer customer-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Protected profile</div><h2>Access denied</h2></div><button class="drawer-close" data-customer-module-close>×</button></div><div class="customer-error-state"><p>${escape(detail.error)}</p></div></aside>`;
+    const customer = normalizeCustomer(detail.data);
+    const tab = state.customerModule.tab || 'overview';
+    const timeline = detail.timeline || detail.activity || [];
+    const notes = detail.notes || [];
+    const followUps = detail.followUps || detail.follow_ups || [];
+    const statusEditor = ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) ? `<form id="customer-module-status-form" class="customer-status-editor"><label for="customer-module-status">Change customer status</label><div><select id="customer-module-status" name="status">${selectOptions(statuses, customerStatus(customer))}</select><button class="btn btn-gold btn-sm" type="submit">Save status</button></div></form>` : '';
+    const overview = `<div class="drawer-section"><div class="drawer-section-label">Contact information</div><div class="detail-grid">${detailItem('Full name', customerName(customer))}${detailItem('Phone number', customer.phone)}${detailItem('WhatsApp number', customer.whatsapp_number)}${detailItem('Email', customer.email)}${detailItem('City / area', `${field(customer, 'city')} · ${field(customer, 'area')}`)}${detailItem('Preferred contact', customer.preferred_contact_method || 'Phone')}</div></div><div class="drawer-section"><div class="drawer-section-label">Interest information</div><div class="detail-grid">${detailItem('Interested in', customerInterest(customer))}${detailItem('Property type', customer.property_type)}${detailItem('Budget', customer.budget)}${detailItem('Preferred location', customer.preferred_location)}${detailItem('Purpose', customer.purpose)}${detailItem('Buying timeline', customer.buying_timeline)}${detailItem('Financing required', customer.financing_required ? 'Yes' : 'No')}</div></div><div class="drawer-section"><div class="drawer-section-label">CRM information</div><div class="detail-grid">${detailItem('Customer status', customerStatus(customer))}${detailItem('Lead source', customerSource(customer))}${detailItem('Assigned agent', customerAgent(customer))}${detailItem('Last contacted', customer.last_contacted_at)}${detailItem('Next follow-up', customer.next_follow_up_at)}${detailItem('Created date', customer.created_at)} </div><div class="customer-drawer-tags">${tags(customer)}</div>${statusEditor}</div>`;
+    const notesView = `<div class="drawer-section"><form id="customer-module-note-form"><label for="customer-module-note">Add a customer note</label><textarea id="customer-module-note" name="note" rows="4" required placeholder="Capture the next useful relationship detail…"></textarea><button class="btn btn-gold btn-sm" type="submit">Save note</button></form></div><div class="customer-note-list">${noteList(notes)}</div>`;
+    const followupsView = `<div class="drawer-section"><div class="customer-placeholder"><strong>Follow-up history</strong><p>Preview the customer’s permitted follow-up records. Full scheduling and management will be delivered in Module 5.</p><button class="btn btn-gold btn-sm" data-customer-module-action="follow-up" data-customer-id="${escape(customer.id)}">Create follow-up</button></div></div><div class="customer-followup-list">${followUpList(followUps)}</div>`;
+    const body = tab === 'timeline' ? `<div class="drawer-section customer-activity-timeline">${activityList(timeline)}</div>` : tab === 'notes' ? notesView : tab === 'follow-ups' ? followupsView : overview;
+    return `<div class="drawer-backdrop" data-customer-module-close></div><aside class="drawer customer-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Customer relationship</div><h2>${escape(customerName(customer))}</h2><p class="page-subtitle">${statusBadge(customerStatus(customer))} · ${escape(customerAgent(customer))} · ${escape(customerSource(customer))}</p></div><button class="drawer-close" data-customer-module-close aria-label="Close customer profile">×</button></div><div class="drawer-section customer-quick-actions"><button class="btn btn-gold btn-sm" data-customer-module-action="call" data-customer-id="${escape(customer.id)}">Call</button><button class="btn btn-secondary btn-sm" data-customer-module-action="whatsapp" data-customer-id="${escape(customer.id)}">WhatsApp</button><button class="btn btn-secondary btn-sm" data-customer-module-action="note" data-customer-id="${escape(customer.id)}">Add note</button><button class="btn btn-secondary btn-sm" data-customer-module-action="follow-up" data-customer-id="${escape(customer.id)}">Schedule follow-up</button><button class="btn btn-secondary btn-sm" data-customer-module-action="edit" data-customer-id="${escape(customer.id)}">Edit</button></div><div class="customer-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-customer-module-drawer-tab="overview">Overview</button><button class="${tab === 'timeline' ? 'active' : ''}" data-customer-module-drawer-tab="timeline">Timeline <span>${timeline.length}</span></button><button class="${tab === 'notes' ? 'active' : ''}" data-customer-module-drawer-tab="notes">Notes <span>${notes.length}</span></button><button class="${tab === 'follow-ups' ? 'active' : ''}" data-customer-module-drawer-tab="follow-ups">Follow-ups <span>${followUps.length}</span></button></div>${body}</aside>`;
+  }
+
+  async function refreshCustomers() { try { await loadCustomers(); } catch { /* loadCustomers renders its own state */ } }
+  async function customerAction(action, id) {
+    const customer = (state.customers?.items || []).find(item => item.id === id) || currentCustomer();
+    if (!customer) return;
+    if (action === 'call') { showToast(`Call ready for ${customerName(customer)}`); return; }
+    if (action === 'whatsapp') { showToast(`WhatsApp ready for ${customerName(customer)}`); return; }
+    if (action === 'follow-up') { showToast('Follow-ups module will be available in Module 5.'); return; }
+    if (action === 'edit') { showToast('Customer editing is prepared for the persistent customer profile workflow.'); return; }
+    if (action === 'note') { state.customerModule.tab = 'notes'; await openCustomer(id); return; }
+    if (action === 'status') { state.customerModule.tab = 'overview'; await openCustomer(id); return; }
+    if (action === 'lead') { const linkedLead = customer.lead_id || customer.leadId; if (linkedLead) await openLead(linkedLead); else showToast('No linked lead is available for this customer.'); }
+  }
+
+  document.addEventListener('click', event => {
+    const close = event.target.closest('[data-customer-module-close]'); if (close) { state.drawer = null; state.customerDetail = null; render(); return; }
+    const open = event.target.closest('[data-customer-module-open]'); if (open) { event.preventDefault(); openCustomer(open.dataset.customerModuleOpen); return; }
+    const tab = event.target.closest('[data-customer-module-tab]'); if (tab) { state.customerModule.filters.status = tab.dataset.customerModuleTab || ''; render(); return; }
+    const drawerTab = event.target.closest('[data-customer-module-drawer-tab]'); if (drawerTab) { state.customerModule.tab = drawerTab.dataset.customerModuleDrawerTab; render(); return; }
+    const reset = event.target.closest('[data-customer-module-reset]'); if (reset) { state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' }; render(); return; }
+    const reload = event.target.closest('[data-customer-module-reload]'); if (reload) refreshCustomers();
+    const action = event.target.closest('[data-customer-module-action]'); if (action) { event.preventDefault(); customerAction(action.dataset.customerModuleAction, action.dataset.customerId); }
+  });
+  document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { state.customerModule.filters.search = input.value; render(); const next = document.querySelector('[data-customer-module-search]'); if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); } } });
+  document.addEventListener('change', event => { const input = event.target; const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority]')) render(); });
+  document.addEventListener('submit', event => {
+    const form = event.target;
+    if (form.matches('#customer-module-note-form')) { event.preventDefault(); const id = currentCustomer()?.id; const note = new FormData(form).get('note'); if (!id) return; apiFetch(`/api/customers/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }).then(() => { showToast('Customer note added'); return openCustomer(id); }).catch(error => showToast(`Unable to add note: ${error.message}`)); }
+    if (form.matches('#customer-module-status-form')) { event.preventDefault(); const id = currentCustomer()?.id; const status = new FormData(form).get('status'); if (!id) return; apiFetch(`/api/customers/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }).then(() => { showToast('Customer status updated'); return openCustomer(id); }).catch(error => showToast(`Unable to update customer status: ${error.message}`)); }
+  });
+
+  window.renderCustomers = renderCustomersModule;
+  window.renderCustomerDrawer = renderCustomerDrawerModule;
+})();

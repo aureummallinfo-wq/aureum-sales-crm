@@ -125,7 +125,7 @@
     if (!lead) return;
     if (action === 'call') { showToast(`Call ready for ${lead.full_name}`); return; }
     if (action === 'whatsapp') { showToast(`WhatsApp ready for ${lead.full_name}`); return; }
-    if (action === 'customer') { showToast('Customer module will be available in Module 4.'); return; }
+    if (action === 'customer') { const linked = window.AureumCustomerIntegrations?.getCustomerFromLeadId?.(id); if (linked) { await openCustomer(linked.id); } else { showToast('Customer profile is prepared from this lead.'); } return; }
     if (action === 'follow-up') { showToast('Follow-ups module will be available in Module 5.'); return; }
     if (action === 'status') { await openLead(id); state.leadModule.drawerTab = 'overview'; return; }
     if (action === 'assign') { await openLead(id); state.leadModule.drawerTab = 'overview'; return; }

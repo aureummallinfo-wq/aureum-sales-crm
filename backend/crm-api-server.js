@@ -502,7 +502,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/customers') {
-    const user = requireAuth(req, res);
+    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
       let data = customers.filter(customer => canViewCustomer(user, customer));
       const q = (url.searchParams.get('q') || '').toLowerCase();
@@ -511,7 +511,7 @@ async function handle(req, res) {
       if (q) data = data.filter(customer => [customer.full_name, customer.phone, customer.whatsapp_number, customer.email, customer.city].some(value => String(value || '').toLowerCase().includes(q)));
       if (status) data = data.filter(customer => customer.customer_status === status);
       if (source) data = data.filter(customer => customer.lead_source === source);
-      json(res, 200, { scope: user.role === 'super_admin' ? 'company' : user.role === 'sales_manager' ? 'team' : 'assigned', data: data.map(customerView) });
+      json(res, 200, { scope: user.role === 'super_admin' ? 'company' : 'team', data: data.map(customerView), meta: { total: data.length, page: 1, pageSize: data.length, totalPages: data.length ? 1 : 0 } });
     }
     return;
   }
@@ -535,7 +535,7 @@ async function handle(req, res) {
     const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerStatusMatch[1]);
     if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
-    const body = await readBody(req); const previous = customer.customer_status; customer.customer_status = body.status || previous; addCustomerActivity(customer.id, user.id, 'Status changed', `${previous} → ${customer.customer_status}`); json(res, 200, { data: customerView(customer) }); return;
+    const body = await readBody(req); const allowedStatuses = ['Active', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Booking Interested', 'Closed Won', 'Closed Lost', 'Not Interested']; if (body.status && !allowedStatuses.includes(body.status)) { json(res, 400, { error: 'Invalid customer status' }); return; } const previous = customer.customer_status; customer.customer_status = body.status || previous; addCustomerActivity(customer.id, user.id, 'Status changed', `${previous} → ${customer.customer_status}`); json(res, 200, { data: customerView(customer) }); return;
   }
 
   const customerActionMatch = url.pathname.match(/^\/api\/customers\/([^/]+)\/(notes|timeline|follow-ups)$/);
