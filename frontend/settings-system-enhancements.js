@@ -4,6 +4,7 @@ state.settings = state.settings || { loading: false, error: '', data: null, stat
 state.settingsTab = state.settingsTab || 'company';
 state.notificationOpen = false;
 state.globalSearch = state.globalSearch || { q: '', loading: false, results: null, error: '' };
+state.mobileSidebarOpen = state.mobileSidebarOpen || false;
 
 const aureumGoals68Render = render;
 const aureumGoals68Bind = bind;
@@ -62,7 +63,7 @@ function layout9(content) {
   const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${AureumUI.escape(state.authUser.full_name)}</div><div class="user-menu-role">${roleLabels[state.role]} · ${AureumUI.escape(state.authUser.email)}</div><button class="btn btn-secondary btn-sm" data-logout>Log out</button></div>` : '';
   const notifications = state.notificationsData || []; const unread = state.notificationsUnread || 0;
   const notificationPanel = state.notificationOpen ? `<div class="notification-panel"><div class="notification-head"><div><b>Notifications</b><small>${unread ? `${unread} unread` : 'All caught up'}</small></div><button class="table-action" data-notification-read-all>Mark all read</button></div>${notifications.slice(0, 8).map(item => `<button class="notification-item ${item.is_read ? '' : 'unread'}" data-notification-read="${item.id}"><span class="notification-dot"></span><span><b>${AureumUI.escape(item.title)}</b><small>${AureumUI.escape(item.message)}</small><time>${new Date(item.created_at).toLocaleString()}</time></span></button>`).join('') || '<div class="empty-state">No notifications.</div>'}</div>` : '';
-  return `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">A</div><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="secure-note"><i class="secure-dot"></i><span>Secure workspace<br/>Live sync enabled</span></div></div></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input data-global-search placeholder="Search leads, customers, agents…" aria-label="Search CRM" value="${AureumUI.escape(state.globalSearch.q || '')}" /></div>${renderGlobalSearch()}<div class="live-pill"><i></i> Sales HQ online</div><div class="notification-wrap"><button class="icon-btn notification-button" aria-label="Notifications" data-notification-toggle>${icons.bell}${unread ? `<span class="notification-count">${unread}</span>` : ''}</button>${notificationPanel}</div><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${AureumUI.escape(state.toast)}</div>` : ''}</div>`;
+  return `<div class="app-shell"><aside class="sidebar ${state.mobileSidebarOpen ? 'mobile-sidebar-open' : ''}"><button class="mobile-sidebar-close" type="button" aria-label="Close navigation" data-mobile-sidebar-close>×</button><div class="brand"><div class="brand-mark">A</div><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="secure-note"><i class="secure-dot"></i><span>Secure workspace<br/>Live sync enabled</span></div></div></aside>${state.mobileSidebarOpen ? '<div class="mobile-sidebar-backdrop" data-mobile-sidebar-close></div>' : ''}<div class="main"><header class="topbar"><button class="mobile-menu-toggle" type="button" aria-label="Open navigation" aria-expanded="${state.mobileSidebarOpen}" data-mobile-sidebar-toggle>☰</button><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input data-global-search placeholder="Search leads, customers, agents…" aria-label="Search CRM" value="${AureumUI.escape(state.globalSearch.q || '')}" /></div>${renderGlobalSearch()}<div class="live-pill"><i></i> Sales HQ online</div><div class="notification-wrap"><button class="icon-btn notification-button" aria-label="Notifications" data-notification-toggle>${icons.bell}${unread ? `<span class="notification-count">${unread}</span>` : ''}</button>${notificationPanel}</div><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${AureumUI.escape(state.toast)}</div>` : ''}</div>`;
 }
 
 async function loadSettings9() {
@@ -96,10 +97,15 @@ function bindNotifications9() {
   document.querySelectorAll('[data-search-screen]').forEach(el => el.addEventListener('click', () => { state.globalSearch = { q: '', loading: false, results: null, error: '' }; navigate(el.dataset.searchScreen); }));
 }
 
+function bindMobileSidebar9() {
+  document.querySelectorAll('[data-mobile-sidebar-toggle]').forEach(button => button.addEventListener('click', () => { state.mobileSidebarOpen = !state.mobileSidebarOpen; render(); }));
+  document.querySelectorAll('[data-mobile-sidebar-close]').forEach(button => button.addEventListener('click', () => { state.mobileSidebarOpen = false; render(); }));
+}
+
 layout = layout9;
 renderSettings = renderSettings9;
-navigate = function navigateGoals9(screen) { if (screen === 'settings' && !canAccess(screen)) { state.deniedPath = screen; state.screen = 'unauthorized'; state.drawer = null; render(); return; } aureumGoals68Navigate(screen); if (screen === 'settings') loadSettings9(); };
-bind = function bindGoals9() { aureumGoals68Bind(); bindSettings9(); bindNotifications9(); };
+navigate = function navigateGoals9(screen) { state.mobileSidebarOpen = false; if (screen === 'settings' && !canAccess(screen)) { state.deniedPath = screen; state.screen = 'unauthorized'; state.drawer = null; render(); return; } aureumGoals68Navigate(screen); if (screen === 'settings') loadSettings9(); };
+bind = function bindGoals9() { aureumGoals68Bind(); bindSettings9(); bindNotifications9(); bindMobileSidebar9(); };
 render = function renderGoals9() { aureumGoals68Render(); };
 boot = async function bootGoals9() { await window.aureumFinalBoot(); await loadNotifications9(); if (state.authUser && state.screen === 'settings') await loadSettings9(); };
 boot();
