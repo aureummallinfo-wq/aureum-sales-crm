@@ -290,15 +290,22 @@ const userActivities = new Map(users.map(user => [user.id, [{ id: `${user.id}_ac
 
 const systemSettings = {
   company: { company_name: 'Aureum Mall & Residences', crm_name: 'Aureum Sales CRM', logo_url: '', email: 'hello@aureum.com', phone: '0300-0000000', address: 'Aureum Mall & Residences, Lahore', timezone: 'Asia/Karachi', currency: 'PKR' },
-  preferences: { default_lead_status: 'New', default_lead_source: 'Manual Entry', default_dashboard_range: 'This month', default_timezone: 'Asia/Karachi', default_currency: 'PKR', default_table_page_size: 25, default_follow_up_reminder_minutes: 30 }
+  preferences: { default_lead_status: 'New', default_lead_source: 'Manual Entry', default_dashboard_range: 'This month', default_timezone: 'Asia/Karachi', default_currency: 'PKR', default_table_page_size: 25, default_follow_up_reminder_minutes: 30 },
+  security: { temporary_password_expiry_hours: 72, force_password_change_first_login: true, minimum_password_length: 8, require_uppercase: true, require_lowercase: true, require_number: true, require_special_character: true, block_inactive_suspended_login: true },
+  email_access: { sender_name: 'Aureum Sales CRM', sender_email: 'noreply@aureum.com', access_email_subject: 'Your Aureum CRM access', access_email_template: 'Welcome to the Aureum Sales CRM workspace. Use the secure access details provided by your administrator.', password_reset_subject: 'Your Aureum CRM password was reset', password_reset_template: 'Your temporary password has been reset. Sign in and change it immediately.', email_enabled: true }
 };
+const accountPreferences = new Map(users.map(user => [user.id, {
+  notifications: { new_lead_assigned: true, follow_up_due: true, follow_up_overdue: true, team_chat_message: true, daily_digest: false },
+  appearance: { theme: 'light', compact_mode: false, sidebar_collapsed: false },
+  display: { language: 'English', timezone: 'Asia/Karachi', date_format: 'DD MMM YYYY', time_format: '12-hour' }
+}]));
 const leadStatuses = [
   ['New', '#8d7658'], ['Contacted', '#6d8c9b'], ['Qualified', '#6d8c9b'], ['Hot', '#b36b55'], ['Warm', '#b6904f'], ['Cold', '#9e9a92'], ['Follow-up', '#b6904f'], ['No Response', '#9e9a92'], ['Visit Scheduled', '#6d8c9b'], ['Visit Completed', '#6d8c9b'], ['Meeting Scheduled', '#6d8c9b'], ['Negotiation', '#8a6c9c'], ['Booking', '#b6904f'], ['Closed Won', '#5d9670'], ['Closed Lost', '#a84c45'], ['Not Interested', '#9e9a92'], ['Invalid', '#a84c45']
 ].map((item, index) => ({ id: `status_${String(index + 1).padStart(3, '0')}`, name: item[0], slug: item[0].toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: item[1], sort_order: index + 1, is_active: true, is_default: item[0] === 'New', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const leadTags = ['VIP', 'Investor', 'Urgent', 'Family Buyer', 'Commercial Interest', 'High Budget', 'Payment Plan Required', 'Follow-up Needed', 'Repeat Customer'].map((name, index) => ({ id: `tag_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: index % 2 ? '#b6904f' : '#8d7658', tag_type: 'lead', is_active: true, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const leadSources = ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'].map((name, index) => ({ id: `source_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), is_active: true, is_default: name === 'Manual Entry', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const notificationDefinitions = [
-  ['new_lead_assigned', 'New lead assigned'], ['follow_up_due', 'Follow-up due'], ['follow_up_overdue', 'Follow-up overdue'], ['follow_up_completed', 'Follow-up completed'], ['lead_status_changed', 'Lead status changed'], ['customer_note_added', 'Customer note added'], ['team_chat_message', 'New team chat message'], ['agent_added', 'Agent added'], ['deal_closed', 'Deal closed'], ['lead_marked_lost', 'Lead marked lost']
+  ['new_lead_assigned', 'New lead assigned'], ['follow_up_due', 'Follow-up due'], ['follow_up_overdue', 'Follow-up overdue'], ['follow_up_completed', 'Follow-up completed'], ['lead_status_changed', 'Lead status changed'], ['customer_note_added', 'Customer note added'], ['team_chat_message', 'New team chat message'], ['user_added', 'User added'], ['deal_closed_won', 'Deal closed won'], ['deal_closed_lost', 'Deal closed lost']
 ].map(([event_key, event_name]) => ({ event_key, event_name, in_app_enabled: true, email_enabled: false, whatsapp_enabled: false, sms_enabled: false }));
 const notificationSettings = new Map(users.map(user => [user.id, notificationDefinitions.map(item => ({ ...item }))]));
 const notifications = new Map(users.map(user => [user.id, [
@@ -319,7 +326,7 @@ function normalizeUserStatus(value) { const raw = String(value || '').trim(); re
 function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
 function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_admin' || (actor?.role === 'sales_manager' && (!teamId || teamId === actor.team_id))); }
 function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); userInvites.set(target.id, { userId: target.id, temporaryPassword, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at, temporaryPasswordPreview: temporaryPassword }; }
-function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences } }; }
+function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences }, security: { ...systemSettings.security }, emailAccess: { ...systemSettings.email_access } }; }
 function settingSlug(name) { return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
 function notificationView(item) { return { ...item, actor: users.find(user => user.id === item.actor_user_id)?.full_name || 'Aureum workspace' }; }
@@ -501,6 +508,58 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/account/me') {
     const user = requireAuth(req, res);
     if (user) json(res, 200, { user: userManagementView(user, user), timezone: CRM_TIMEZONE });
+    return;
+  }
+
+  if ((req.method === 'GET' || req.method === 'PATCH') && url.pathname === '/api/account/me/profile') {
+    const user = requireAuth(req, res);
+    if (user) {
+      if (req.method === 'PATCH') {
+        const body = await readBody(req);
+        if (body.fullName !== undefined || body.full_name !== undefined) user.full_name = String(body.fullName ?? body.full_name).trim();
+        if (body.phone !== undefined) user.phone = String(body.phone || '').trim();
+        if (body.avatarUrl !== undefined || body.avatar_url !== undefined) user.avatar_url = String((body.avatarUrl ?? body.avatar_url) || '').trim();
+        if (!user.full_name) { json(res, 422, { error: 'Full name is required.' }); return; }
+        user.updated_at = new Date().toISOString(); user.last_activity_at = user.updated_at;
+        addUserAudit(user.id, user.id, 'user_updated', 'Personal profile details updated.');
+      }
+      json(res, 200, { user: userManagementView(user, user) });
+    }
+    return;
+  }
+
+  const accountPreferenceMatch = url.pathname.match(/^\/api\/account\/preferences\/(notifications|appearance|display)$/);
+  if (accountPreferenceMatch && (req.method === 'GET' || req.method === 'PATCH')) {
+    const user = requireAuth(req, res);
+    if (user) {
+      const key = accountPreferenceMatch[1];
+      const current = accountPreferences.get(user.id) || {};
+      if (req.method === 'PATCH') {
+        const body = await readBody(req);
+        const allowed = key === 'notifications'
+          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'team_chat_message', 'daily_digest']
+          : key === 'appearance' ? ['theme', 'compact_mode', 'sidebar_collapsed'] : ['language', 'date_format', 'time_format'];
+        const next = { ...(current[key] || {}) };
+        allowed.forEach(field => { if (body[field] !== undefined) next[field] = key === 'notifications' || key === 'appearance' && ['compact_mode', 'sidebar_collapsed'].includes(field) ? Boolean(body[field]) : String(body[field]); });
+        if (key === 'appearance' && !['light', 'dark', 'system'].includes(next.theme)) { json(res, 422, { error: 'Unsupported appearance theme.' }); return; }
+        current[key] = next; accountPreferences.set(user.id, current);
+        addActivityLog(user.id, 'account', user.id, 'account_preferences_updated', `Personal ${key} preferences updated.`);
+      }
+      const data = accountPreferences.get(user.id) || {};
+      json(res, 200, { data: { ...(data[key] || {}), ...(key === 'display' ? { timezone: CRM_TIMEZONE } : {}) } });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/account/login-activity') {
+    const user = requireAuth(req, res);
+    if (user) {
+      const events = [
+        { id: `${user.id}_login_current`, type: 'Successful sign-in', description: 'Current browser session', ipAddress: 'Local development session', createdAt: user.last_login_at || user.updated_at },
+        ...(userActivities.get(user.id) || []).map(item => ({ id: item.id, type: item.activity_type, description: item.description, ipAddress: 'Workspace activity', createdAt: item.created_at }))
+      ];
+      json(res, 200, { data: events.slice(0, 20), timezone: CRM_TIMEZONE });
+    }
     return;
   }
 
@@ -876,6 +935,17 @@ async function handle(req, res) {
       ['default_lead_status', 'default_lead_source', 'default_dashboard_range', 'default_timezone', 'default_currency', 'default_table_page_size', 'default_follow_up_reminder_minutes'].forEach(field => { if (body[field] !== undefined) systemSettings.preferences[field] = ['default_table_page_size', 'default_follow_up_reminder_minutes'].includes(field) ? Number(body[field]) : String(body[field]); });
       addActivityLog(user.id, 'settings', 'preferences', 'Settings updated', 'CRM preferences were updated.'); json(res, 200, { data: settingsView().preferences }); return;
     }
+    if (req.method === 'GET' && url.pathname === '/api/settings/security') { json(res, 200, { data: systemSettings.security }); return; }
+    if (req.method === 'PATCH' && url.pathname === '/api/settings/security') {
+      const body = await readBody(req); const numeric = ['temporary_password_expiry_hours', 'minimum_password_length']; const flags = ['force_password_change_first_login', 'require_uppercase', 'require_lowercase', 'require_number', 'require_special_character', 'block_inactive_suspended_login'];
+      numeric.forEach(field => { if (body[field] !== undefined) systemSettings.security[field] = Math.max(field === 'minimum_password_length' ? 8 : 1, Number(body[field])); }); flags.forEach(field => { if (body[field] !== undefined) systemSettings.security[field] = Boolean(body[field]); });
+      addActivityLog(user.id, 'settings', 'security', 'Security policy updated', 'Global authentication and password policy was updated.'); json(res, 200, { data: systemSettings.security }); return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/settings/email-access') { json(res, 200, { data: systemSettings.email_access }); return; }
+    if (req.method === 'PATCH' && url.pathname === '/api/settings/email-access') {
+      const body = await readBody(req); ['sender_name', 'sender_email', 'access_email_subject', 'access_email_template', 'password_reset_subject', 'password_reset_template'].forEach(field => { if (body[field] !== undefined) systemSettings.email_access[field] = String(body[field]).trim(); }); if (body.email_enabled !== undefined) systemSettings.email_access.email_enabled = Boolean(body.email_enabled);
+      addActivityLog(user.id, 'settings', 'email-access', 'Email settings updated', 'Access email and password reset templates were updated.'); json(res, 200, { data: systemSettings.email_access }); return;
+    }
     if (req.method === 'GET' && url.pathname === '/api/settings/permissions') {
       const roleKey = { super_admin: 'SUPER_ADMIN', sales_manager: 'SALES_MANAGER', sales_agent: 'SALES_AGENT' };
       const data = permissionCatalog.map(([key, label]) => ({ key, label, super_admin: key === 'settings.manage' || key.startsWith('settings') ? true : true, sales_manager: ['dashboard.view', 'leads.view_all', 'leads.view_own', 'leads.create', 'leads.assign', 'customers.view', 'followups.manage', 'chat.use', 'reports.view', 'agents.manage'].includes(key), sales_agent: ['dashboard.view', 'leads.view_own', 'customers.view', 'followups.manage', 'chat.use'].includes(key) }));
@@ -885,7 +955,7 @@ async function handle(req, res) {
     if (req.method === 'GET' && url.pathname === '/api/settings/notifications') { json(res, 200, { data: notificationSettings.get(user.id) || notificationDefinitions }); return; }
     if (req.method === 'PATCH' && url.pathname === '/api/settings/notifications') {
       const body = await readBody(req); const entries = notificationSettings.get(user.id) || notificationDefinitions.map(item => ({ ...item })); const updates = Array.isArray(body.notifications) ? body.notifications : [body];
-      updates.forEach(update => { const item = entries.find(entry => entry.event_key === update.event_key); if (item && update.in_app_enabled !== undefined) item.in_app_enabled = Boolean(update.in_app_enabled); }); notificationSettings.set(user.id, entries); addActivityLog(user.id, 'settings', 'notifications', 'Notification preferences updated', 'In-app notification preferences were updated.'); json(res, 200, { data: entries }); return;
+      updates.forEach(update => { const item = entries.find(entry => entry.event_key === update.event_key); if (!item) return; ['in_app_enabled', 'email_enabled', 'whatsapp_enabled', 'sms_enabled'].forEach(field => { if (update[field] !== undefined) item[field] = Boolean(update[field]); }); }); notificationSettings.set(user.id, entries); addActivityLog(user.id, 'settings', 'notifications', 'Notification preferences updated', 'Notification channel preferences were updated.'); json(res, 200, { data: entries }); return;
     }
     const collectionMatch = url.pathname.match(/^\/api\/settings\/(lead-statuses|lead-tags|lead-sources)$/);
     if (collectionMatch && req.method === 'GET') { const collection = collectionMatch[1] === 'lead-statuses' ? leadStatuses : collectionMatch[1] === 'lead-tags' ? leadTags : leadSources; json(res, 200, { data: collection }); return; }

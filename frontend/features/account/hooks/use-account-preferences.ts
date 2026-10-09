@@ -1,0 +1,1 @@
+export const accountPreferenceEndpoints = { profile: '/api/account/me/profile', notifications: '/api/account/preferences/notifications', appearance: '/api/account/preferences/appearance', display: '/api/account/preferences/display', activity: '/api/account/login-activity' } as const;

@@ -1076,3 +1076,28 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .chat-file-name { order: 1; max-width: 150px; }
   .chat-modal { width: 100%; max-height: 100%; min-height: 100%; border: 0; border-radius: 0; }
 }
+
+/* MODULE 9 — settings and account surfaces */
+.settings-tab { display: grid; gap: 3px; width: 100%; padding: 12px 13px; color: var(--muted); border: 0; border-left: 3px solid transparent; background: transparent; text-align: left; cursor: pointer; }
+.settings-tab span { color: inherit; font-size: 11px; font-weight: 800; }
+.settings-tab small { color: inherit; font-size: 9px; }
+.settings-tab:hover, .settings-tab.active { color: var(--ink); border-left-color: var(--gold); background: rgba(201,162,77,.1); }
+.settings-content { min-width: 0; display: grid; gap: 18px; }
+.module9-form { display: grid; gap: 18px; }
+.settings-channel-table th, .settings-channel-table td { text-align: center; }
+.settings-channel-table th:first-child, .settings-channel-table td:first-child { text-align: left; }
+.settings-channel-table input, .settings-toggle-row input { accent-color: var(--gold); }
+.settings-save-actions { display: flex; gap: 8px; }
+.user-menu-link { display: block; width: 100%; padding: 8px 0; color: var(--ink); border: 0; background: transparent; text-align: left; font-size: 11px; cursor: pointer; }
+.user-menu-link:hover { color: var(--gold); }
+.account-module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.account-module-grid > :first-child, .account-activity-card { grid-column: 1 / -1; }
+.account-readonly-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; grid-column: 1 / -1; }
+.account-readonly-grid > div { padding: 11px; border: 1px solid var(--line); border-radius: 8px; }
+.account-readonly-grid span { display: block; margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+.account-readonly-grid b { font-size: 11px; }
+.account-preference-card { min-width: 0; }
+.account-preference-card .settings-save-bar { margin-top: 18px; }
+@media (max-width: 900px) { .account-module-grid { grid-template-columns: 1fr; } .account-module-grid > :first-child, .account-activity-card { grid-column: auto; } }
+@media (max-width: 760px) { .settings-sidebar { display: flex; gap: 5px; overflow-x: auto; padding: 8px; } .settings-sidebar-title { display: none; } .settings-tab { min-width: 150px; border-left: 0; border-bottom: 3px solid transparent; } .settings-tab:hover, .settings-tab.active { border-bottom-color: var(--gold); } .settings-channel-table { min-width: 610px; } .settings-content { overflow: hidden; } .settings-save-bar { align-items: flex-start; flex-direction: column; gap: 10px; } .settings-save-actions { width: 100%; justify-content: flex-end; } }
+@media (max-width: 480px) { .account-readonly-grid { grid-template-columns: 1fr; } .settings-tab { min-width: 132px; } }

@@ -1,0 +1,1 @@
+export const settingsPageContract = { route: '/settings', requiredRole: 'super_admin', sections: ['company', 'crm', 'permissions', 'statuses', 'sources', 'notifications', 'security', 'email', 'audit'] as const };
