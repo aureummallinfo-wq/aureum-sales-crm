@@ -1139,7 +1139,7 @@ async function handle(req, res) {
   }
   const groupArchiveMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/archive$/);
   if (groupArchiveMatch && req.method === 'PATCH') {
-    const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupArchiveMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to archive this group' }); return; } group.is_archived = true; group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_archived' }); return;
+    const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupArchiveMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; } if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to archive this group' }); return; } group.is_archived = true; group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_archived' }); return;
   }
   const groupMessagesMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/messages$/);
   if (groupMessagesMatch) {
