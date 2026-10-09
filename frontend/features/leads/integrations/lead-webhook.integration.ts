@@ -1,0 +1,1 @@
+export const leadWebhookIntegration = { importedFilter: 'imported', unassignedFilter: 'unassigned', visibility: { superAdmin: 'all', manager: 'all-imported-and-team', agent: 'assigned-only' } } as const;

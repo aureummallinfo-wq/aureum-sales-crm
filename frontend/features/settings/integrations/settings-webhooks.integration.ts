@@ -1,0 +1,1 @@
+export const settingsWebhooksIntegration = { area: 'settings', permission: 'settings.manage', endpoint: '/api/settings/webhooks', publicDeliveryEndpoint: '/api/webhooks/leads/:connectionId' } as const;

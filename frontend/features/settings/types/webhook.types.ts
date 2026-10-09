@@ -1,0 +1,5 @@
+export type WebhookStatus = 'Active' | 'Inactive' | 'Testing' | 'Failed';
+export type WebhookLogStatus = 'Success' | 'Duplicate' | 'Failed' | 'Rejected' | 'Unauthorized';
+export type WebhookSourceType = 'meta_lead_ads' | 'facebook_form' | 'instagram_form' | 'website_form' | 'n8n' | 'zapier_placeholder' | 'make_placeholder' | 'custom_webhook';
+export interface WebhookConnection { id: string; connectionName: string; sourceType: WebhookSourceType; sourcePlatform: string; webhookUrl: string; secretTokenMasked: string; status: WebhookStatus; healthStatus: string; defaultLeadSource: string; defaultLeadStatus: string; defaultTags: string[]; autoAssignLead: boolean; duplicateCheckRule: string; createdBy: string; createdAt: string; updatedAt: string; lastReceivedAt?: string | null; fieldMappings?: Record<string, string>; }
+export interface WebhookLog { id: string; connectionId: string; receivedAt: string; status: WebhookLogStatus; result: string; errorMessage?: string | null; leadName?: string | null; leadPhone?: string | null; leadEmail?: string | null; externalLeadId?: string | null; payloadPreview?: Record<string, unknown>; }

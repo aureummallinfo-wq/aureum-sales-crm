@@ -1,0 +1,21 @@
+.webhook-settings-content { min-width: 0; }
+.webhook-health-grid { gap: 12px; }
+.webhook-health-card { padding: 15px; }
+.webhook-health-card .kpi-value { margin: 3px 0; font-size: 25px; }
+.webhook-table { min-width: 980px; }
+.webhook-url { display: inline-block; max-width: 210px; overflow: hidden; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 10px; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.secret-notice { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-color: rgba(201,162,77,.35); background: rgba(201,162,77,.08); }
+.secret-notice h3 { margin: 4px 0; }
+.secret-notice p { margin: 0; color: var(--muted); font-size: 11px; }
+.webhook-modal-backdrop { position: fixed; inset: 0; z-index: 49; background: rgba(0,0,0,.54); backdrop-filter: blur(3px); }
+.webhook-drawer { position: fixed; top: 0; right: 0; z-index: 50; display: grid; grid-auto-rows: max-content; gap: 18px; width: min(560px, 100vw); height: 100vh; overflow: auto; padding: 24px; color: var(--ink); background: var(--surface); box-shadow: -20px 0 55px rgba(0,0,0,.18); }
+.webhook-drawer .drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.webhook-drawer .drawer-header h2 { margin: 5px 0; font-family: "Playfair Display", serif; }
+.webhook-drawer .drawer-close { width: 32px; height: 32px; color: var(--muted); border: 1px solid var(--line); border-radius: 50%; background: transparent; font-size: 20px; cursor: pointer; }
+.webhook-drawer .form-grid { align-content: start; }
+.secret-reveal { display: grid; gap: 12px; padding: 17px; border: 1px solid rgba(201,162,77,.35); border-radius: 10px; background: rgba(201,162,77,.08); }
+.secret-reveal-label { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.secret-reveal code { display: block; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; line-height: 1.6; }
+.n8n-guide ol { margin: 0 0 15px; padding-left: 21px; color: var(--muted); font-size: 11px; line-height: 1.8; }
+.n8n-guide pre { max-width: 100%; overflow: auto; padding: 14px; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; background: var(--surface-muted); font-size: 10px; line-height: 1.55; }
+@media (max-width: 760px) { .secret-notice { align-items: flex-start; flex-direction: column; } .webhook-drawer { padding: 18px; } .webhook-health-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

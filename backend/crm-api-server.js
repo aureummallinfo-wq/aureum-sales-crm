@@ -10,6 +10,10 @@ const ROOT = path.resolve(__dirname, '..');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
 const sessions = new Map();
 const loginAttempts = new Map();
+const webhookRateLimits = new Map();
+const webhookConnections = [];
+const webhookLogs = [];
+const failedWebhookLeads = [];
 
 const rolePermissions = {
   super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
@@ -171,6 +175,7 @@ function passwordPolicySatisfied(password) { const policy = systemSettings.secur
 function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
 
 function canViewLead(user, lead) {
+  if (user?.role === 'sales_manager' && lead?.is_imported && !lead.assigned_team_id) return true;
   return canViewOwnedRecord(user, lead, 'assigned_agent_id', 'assigned_team_id');
 }
 
@@ -331,6 +336,62 @@ function settingSlug(name) { return String(name || '').trim().toLowerCase().repl
 function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
 function notificationView(item) { return { ...item, actor: users.find(user => user.id === item.actor_user_id)?.full_name || 'Aureum workspace' }; }
 
+const WEBHOOK_SOURCE_TYPES = ['meta_lead_ads', 'facebook_form', 'instagram_form', 'website_form', 'n8n', 'zapier_placeholder', 'make_placeholder', 'custom_webhook'];
+const WEBHOOK_PLATFORMS = ['meta', 'facebook', 'instagram', 'website', 'n8n', 'zapier', 'make', 'custom'];
+const WEBHOOK_STATUSES = ['Active', 'Inactive', 'Testing', 'Failed'];
+const WEBHOOK_LOG_STATUSES = ['Success', 'Duplicate', 'Failed', 'Rejected', 'Unauthorized'];
+const WEBHOOK_DUPLICATE_RULES = ['externalLeadId', 'idempotencyKey', 'payloadHash', 'phone', 'whatsapp', 'email'];
+function webhookHash(value) { return crypto.createHash('sha256').update(String(value || '')).digest('hex'); }
+function webhookSecret() { return `aureum_wh_${crypto.randomBytes(24).toString('hex')}`; }
+function maskSensitiveContact(value) { const raw = String(value || ''); if (!raw) return ''; return raw.length <= 4 ? '••••' : `${raw.slice(0, 2)}••••${raw.slice(-2)}`; }
+function stableJson(value) { if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`; if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`; return JSON.stringify(value); }
+function safePayloadPreview(payload) { const allowed = ['source', 'platform', 'form_name', 'form_id', 'external_lead_id', 'meta_lead_id', 'idempotency_key', 'full_name', 'name', 'city', 'area', 'interested_in', 'property_type', 'budget', 'purpose', 'buying_timeline', 'campaign_name', 'ad_name']; return Object.fromEntries(allowed.filter(key => payload?.[key] !== undefined).map(key => [key, safeText(payload[key], 240)])); }
+function webhookConnectionView(connection) {
+  const { secret_hash, ...safe } = connection;
+  return { ...safe, connectionName: connection.connection_name, sourceType: connection.source_type, sourcePlatform: connection.source_platform, webhookUrl: connection.webhook_url, secretTokenMasked: connection.secret_token_masked || '••••••••', defaultLeadSource: connection.default_lead_source, defaultLeadStatus: connection.default_lead_status, defaultTags: connection.default_tags, defaultAssignedTeam: connection.default_assigned_team, defaultAssignedAgent: connection.default_assigned_agent, autoAssignLead: connection.auto_assign_lead, duplicateCheckRule: connection.duplicate_check_rule, fieldMappings: connection.field_mappings || {}, createdBy: connection.created_by, createdAt: connection.created_at, updatedAt: connection.updated_at, lastReceivedAt: connection.last_received_at || null, healthStatus: webhookHealth(connection) };
+}
+function webhookHealth(connection) { if (connection.status === 'Inactive') return 'Disabled'; if (connection.failed_attempts >= 3) return 'Failing'; if (connection.unauthorized_attempts >= 3) return 'Unauthorized Attempts Detected'; if (!connection.last_received_at) return 'No Recent Data'; return Date.now() - new Date(connection.last_received_at).getTime() <= 7 * 24 * 60 * 60 * 1000 ? 'Healthy' : 'No Recent Data'; }
+function webhookConnectionById(id) { return webhookConnections.find(item => item.id === id); }
+function webhookTokenMatches(connection, token) { const supplied = Buffer.from(webhookHash(token)); const expected = Buffer.from(connection?.secret_hash || ''); return Boolean(connection && token && supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)); }
+function webhookLogView(item) { return { ...item, leadName: item.lead_name || null, leadPhone: maskSensitiveContact(item.lead_phone), leadEmail: maskSensitiveContact(item.lead_email), receivedAt: item.received_at, connectionName: item.connection_name, externalLeadId: item.external_lead_id || null, sourceFormName: item.source_form_name || null, payloadPreview: item.payload_preview || {}, errorMessage: item.error_message || null, attemptNumber: item.attempt_number || 1, lastAttemptAt: item.last_attempt_at || item.received_at, retryStatus: item.retry_status || 'not_required' }; }
+function webhookPayloadFields(connection, payload) {
+  const raw = payload && typeof payload === 'object' && payload.data && typeof payload.data === 'object' ? { ...payload, ...payload.data } : payload || {};
+  const fullName = safeText(raw.full_name || raw.name || raw.fullName, 120);
+  const phone = safeText(raw.phone || raw.phone_number || raw.mobile, 32);
+  const whatsapp = safeText(raw.whatsapp || raw.whatsapp_number || raw.whatsapp_phone || phone, 32);
+  const email = safeText(raw.email, 160).toLowerCase();
+  const externalLeadId = safeText(raw.external_lead_id || raw.meta_lead_id || raw.lead_id || raw.id, 160);
+  const idempotencyKey = safeText(raw.idempotency_key || raw.idempotencyKey || raw.event_id, 160);
+  const payloadHash = safeText(raw.payload_hash, 160) || webhookHash(stableJson(raw));
+  const sourceFormName = safeText(raw.form_name || raw.formName || raw.source_form_name, 160);
+  return { raw, fullName, phone, whatsapp, email, externalLeadId, idempotencyKey, payloadHash, sourceFormName, sourcePlatform: safeText(raw.platform || connection.source_platform, 40), city: safeText(raw.city, 80), area: safeText(raw.area, 80), interestedIn: safeText(raw.interested_in || raw.interest, 160), propertyType: safeText(raw.property_type, 80), budget: safeText(raw.budget, 80), purpose: safeText(raw.purpose, 80), buyingTimeline: safeText(raw.buying_timeline, 80), notes: safeText(raw.message || raw.notes, 2000), campaignName: safeText(raw.campaign_name || raw.campaign, 160), formId: safeText(raw.form_id, 160), receivedAt: raw.received_at || raw.created_time || new Date().toISOString() };
+}
+function findWebhookDuplicate(fields) {
+  const matches = (lead, field, value) => Boolean(value && String(lead[field] || '').toLowerCase() === String(value).toLowerCase());
+  return leads.find(lead => matches(lead, 'external_lead_id', fields.externalLeadId) || matches(lead, 'idempotency_key', fields.idempotencyKey) || matches(lead, 'payload_hash', fields.payloadHash) || matches(lead, 'phone', fields.phone) || matches(lead, 'whatsapp_number', fields.whatsapp) || matches(lead, 'email', fields.email));
+}
+function createWebhookLog(connection, status, result, fields, errorMessage = '', lead = null, actorId = 'system') {
+  const entry = { id: `whlog_${crypto.randomUUID().slice(0, 12)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', source: connection?.default_lead_source || fields?.sourcePlatform || 'Webhook', platform: connection?.source_platform || fields?.sourcePlatform || 'custom', received_at: new Date().toISOString(), lead_id: lead?.id || null, lead_name: lead?.full_name || fields?.fullName || null, lead_phone: lead?.phone || fields?.phone || null, lead_email: lead?.email || fields?.email || null, status, result: safeText(result, 240), error_message: safeText(errorMessage, 500), external_lead_id: fields?.externalLeadId || null, source_form_name: fields?.sourceFormName || null, payload_preview: safePayloadPreview(fields?.raw || {}), attempt_number: 1, last_attempt_at: new Date().toISOString(), retry_status: status === 'Failed' ? 'eligible' : 'not_required', actor_id: actorId };
+  webhookLogs.unshift(entry);
+  if (connection) { connection.last_received_at = entry.received_at; if (status === 'Failed') connection.failed_attempts = (connection.failed_attempts || 0) + 1; if (status === 'Unauthorized') connection.unauthorized_attempts = (connection.unauthorized_attempts || 0) + 1; if (status === 'Success' || status === 'Duplicate') connection.failed_attempts = 0; connection.updated_at = entry.received_at; }
+  return entry;
+}
+function saveFailedWebhook(connection, payload, fields, reason) { const item = { id: `failed_wh_${crypto.randomUUID().slice(0, 12)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', received_at: new Date().toISOString(), reason: safeText(reason, 500), normalized_preview: { fullName: fields?.fullName || '', phone: fields?.phone || '', email: fields?.email || '', source: connection?.default_lead_source || 'Webhook' }, payload_preview: safePayloadPreview(payload), payload: payload && typeof payload === 'object' ? JSON.parse(JSON.stringify(payload)) : {}, converted: false, converted_lead_id: null }; failedWebhookLeads.unshift(item); return item; }
+function ingestWebhookLead(connection, payload, options = {}) {
+  const fields = webhookPayloadFields(connection, payload);
+  if (!fields.fullName && !fields.phone && !fields.email) { const failed = saveFailedWebhook(connection, payload, fields, 'Payload must include a name, phone, or email.'); createWebhookLog(connection, 'Rejected', 'Payload missing contact identity', fields, 'Missing contact identity', null, options.actorId); return { ok: false, statusCode: 422, error: 'Payload does not contain a usable lead identity.', fields, failed }; }
+  const duplicate = findWebhookDuplicate(fields);
+  if (duplicate) { if (!options.dryRun) addLeadActivity(duplicate.id, options.actorId || 'system', 'Duplicate webhook received', `Duplicate inbound lead matched existing record ${duplicate.id}.`, { connection_id: connection.id, external_lead_id: fields.externalLeadId || undefined }); createWebhookLog(connection, 'Duplicate', 'Matched existing lead; no duplicate created', fields, '', duplicate, options.actorId); return { ok: true, duplicate: true, lead: leadView(duplicate), fields }; }
+  if (options.dryRun) return { ok: true, duplicate: false, fields, preview: { full_name: fields.fullName || 'Inbound lead', phone: fields.phone, email: fields.email, source: connection.default_lead_source, status: connection.default_lead_status, tags: connection.default_tags } };
+  const assigned = connection.auto_assign_lead ? users.find(item => item.id === connection.default_assigned_agent && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)) : null;
+  const tags = [...new Set([...(connection.default_tags || []), 'Imported Lead', 'Webhook Lead', connection.source_platform === 'meta' ? 'Meta Lead' : ''].filter(Boolean))].slice(0, 10);
+  const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fields.fullName || 'Inbound lead', initials: (fields.fullName || 'Inbound lead').split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone: fields.phone || fields.whatsapp || '', whatsapp_number: fields.whatsapp || fields.phone || '', email: fields.email, city: fields.city, area: fields.area, interested_in: fields.interestedIn || 'Not specified', property_type: fields.propertyType || 'Not specified', budget: fields.budget || 'Not specified', preferred_location: '', purpose: fields.purpose || 'Not specified', buying_timeline: fields.buyingTimeline || 'Not specified', financing_required: false, lead_source: connection.default_lead_source || 'Webhook', status: connection.default_lead_status || 'New', priority: 'Medium', tags, assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || null, created_by: 'system', last_contacted_at: 'Not contacted', next_follow_up_at: 'Not scheduled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), is_imported: true, imported_from: connection.source_platform, webhook_connection_id: connection.id, external_lead_id: fields.externalLeadId || null, idempotency_key: fields.idempotencyKey || null, payload_hash: fields.payloadHash, source_platform: fields.sourcePlatform, source_form_id: fields.formId || null, source_form_name: fields.sourceFormName || null, campaign_name: fields.campaignName || null, webhook_received_at: new Date().toISOString(), duplicate_checked: true };
+  leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, options.actorId || 'system', 'Webhook lead created', `Lead imported from ${connection.connection_name}.`, { connection_id: connection.id, source_form_name: fields.sourceFormName || undefined }); createWebhookLog(connection, 'Success', 'Lead created from webhook payload', fields, '', lead, options.actorId); return { ok: true, duplicate: false, lead: leadView(lead), fields };
+}
+
+const demoWebhookSecretHash = webhookHash('aureum-demo-webhook-secret');
+webhookConnections.push({ id: 'wh_demo_meta', connection_name: 'Meta Lead Ads · Demo intake', source_type: 'meta_lead_ads', source_platform: 'meta', webhook_url: '/api/webhooks/leads/wh_demo_meta', secret_hash: demoWebhookSecretHash, secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: 'Meta Lead Ads', default_lead_status: 'New', default_tags: ['Meta Lead', 'Imported Lead'], default_assigned_team: null, default_assigned_agent: null, auto_assign_lead: false, duplicate_check_rule: 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: 'usr_001', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' });
+
 function canViewChannel(user, channel) { return Boolean(user && (channel.visibility !== 'management' || ['super_admin', 'sales_manager'].includes(user.role))); }
 function chatUserView(user) { return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: user.status === 'active' }; }
 function chatMessageView(message) { const sender = users.find(user => user.id === message.sender_id); return { ...message, sender: sender ? chatUserView(sender) : { full_name: 'Unknown user', initials: '??' } }; }
@@ -443,6 +504,14 @@ function readBody(req) {
     req.on('error', reject);
   });
 }
+function readBodyLimited(req, limit = 100_000) {
+  return new Promise((resolve, reject) => {
+    let raw = ''; let tooLarge = false;
+    req.on('data', chunk => { raw += chunk; if (raw.length > limit) tooLarge = true; });
+    req.on('end', () => { if (tooLarge) { const error = new Error('Payload too large'); error.code = 'PAYLOAD_TOO_LARGE'; reject(error); return; } try { resolve(raw ? JSON.parse(raw) : {}); } catch { const error = new Error('Invalid JSON'); error.code = 'INVALID_JSON'; reject(error); } });
+    req.on('error', reject);
+  });
+}
 
 function staticFile(res, pathname) {
   const relative = pathname === '/' ? path.join('frontend', 'index.html') : pathname.replace(/^\/+/, '');
@@ -471,10 +540,23 @@ function staticFile(res, pathname) {
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (!url.pathname.startsWith('/api/')) { staticFile(res, url.pathname); return; }
-  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
+  const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
+  if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
     const forwardedProto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
     const expectedOrigin = `${forwardedProto}://${req.headers.host || 'localhost'}`;
     if (req.headers.origin !== expectedOrigin) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+  }
+
+  if (isPublicWebhook) {
+    const connectionId = url.pathname.split('/').pop(); const connection = webhookConnectionById(connectionId); const ip = req.socket.remoteAddress || 'unknown';
+    if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; }
+    const rateKey = `${connectionId}:${ip}`; const now = Date.now(); const rate = webhookRateLimits.get(rateKey) || { count: 0, startedAt: now }; if (now - rate.startedAt > 60_000) { rate.count = 0; rate.startedAt = now; } rate.count += 1; webhookRateLimits.set(rateKey, rate);
+    if (rate.count > 60) { connection.unauthorized_attempts = (connection.unauthorized_attempts || 0) + 1; createWebhookLog(connection, 'Unauthorized', 'Webhook rate limit exceeded', null, 'Rate limit exceeded'); json(res, 429, { error: 'Webhook temporarily rate limited.' }); return; }
+    const suppliedSecret = String(req.headers['x-aureum-webhook-secret'] || '');
+    if (connection.status !== 'Active') { createWebhookLog(connection, 'Rejected', 'Inactive connection rejected request', null, 'Connection inactive'); json(res, 403, { error: 'Webhook connection is inactive.' }); return; }
+    if (!webhookTokenMatches(connection, suppliedSecret)) { createWebhookLog(connection, 'Unauthorized', 'Webhook authentication failed', null, 'Invalid webhook secret'); json(res, 401, { error: 'Webhook authentication failed.' }); return; }
+    try { const payload = await readBodyLimited(req, 100_000); const result = ingestWebhookLead(connection, payload, { actorId: 'system' }); if (!result.ok) { json(res, result.statusCode || 400, { error: result.error, failedLeadId: result.failed?.id }); return; } json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead.id, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } catch (error) { const fields = {}; createWebhookLog(connection, error.code === 'PAYLOAD_TOO_LARGE' ? 'Rejected' : 'Failed', 'Webhook payload could not be processed', fields, error.code === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Malformed JSON'); if (error.code === 'PAYLOAD_TOO_LARGE') { json(res, 413, { error: 'Webhook payload is too large.' }); return; } json(res, 400, { error: 'Webhook payload is invalid.' }); }
+    return;
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/login') {
@@ -665,10 +747,14 @@ async function handle(req, res) {
       const status = url.searchParams.get('status');
       const source = url.searchParams.get('source');
       const agentId = url.searchParams.get('agentId');
+      const imported = url.searchParams.get('imported');
       if (q) data = data.filter(lead => [lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city].some(value => String(value || '').toLowerCase().includes(q)));
       if (status) data = data.filter(lead => lead.status === status);
       if (source) data = data.filter(lead => lead.lead_source === source);
       if (agentId) data = data.filter(lead => lead.assigned_agent_id === agentId);
+      if (imported === 'true' || imported === 'imported') data = data.filter(lead => lead.is_imported);
+      if (imported === 'unassigned') data = data.filter(lead => lead.is_imported && !lead.assigned_agent_id);
+      if (imported === 'webhook') data = data.filter(lead => lead.is_imported && lead.webhook_connection_id);
       json(res, 200, { scope: 'all', requestedBy: user.role, data: data.map(leadView) });
     }
     return;
@@ -951,6 +1037,37 @@ async function handle(req, res) {
       json(res, 200, { data: visible });
     }
     return;
+  }
+
+  if (url.pathname === '/api/settings/webhooks' || url.pathname.startsWith('/api/settings/webhooks/')) {
+    const user = requireRole(req, res, ['super_admin']);
+    if (!user) return;
+    if (req.method === 'GET' && url.pathname === '/api/settings/webhooks') { json(res, 200, { data: webhookConnections.map(webhookConnectionView), meta: { total: webhookConnections.length } }); return; }
+    if (req.method === 'POST' && url.pathname === '/api/settings/webhooks') {
+      const body = await readBody(req); const connectionName = safeText(body.connectionName || body.connection_name, 120); const sourceType = safeText(body.sourceType || body.source_type, 60); const sourcePlatform = safeText(body.sourcePlatform || body.source_platform, 40);
+      if (!connectionName || !WEBHOOK_SOURCE_TYPES.includes(sourceType) || !WEBHOOK_PLATFORMS.includes(sourcePlatform)) { json(res, 422, { error: 'Connection name, source type, and platform are required.' }); return; }
+      const assignedAgent = users.find(item => item.id === (body.defaultAssignedAgent || body.default_assigned_agent) && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)); const now = new Date().toISOString(); const id = `wh_${crypto.randomUUID().slice(0, 12)}`; const secret = webhookSecret();
+      const created = { id, connection_name: connectionName, source_type: sourceType, source_platform: sourcePlatform, webhook_url: `/api/webhooks/leads/${id}`, secret_hash: webhookHash(secret), secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: safeText(body.defaultLeadSource || body.default_lead_source || (sourcePlatform === 'meta' ? 'Meta Lead Ads' : 'Webhook'), 80), default_lead_status: WEBHOOK_STATUSES.includes(body.defaultLeadStatus) ? body.defaultLeadStatus : safeText(body.defaultLeadStatus || body.default_lead_status || 'New', 80), default_tags: (Array.isArray(body.defaultTags || body.default_tags) ? (body.defaultTags || body.default_tags) : ['Imported Lead', 'Webhook Lead']).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10), default_assigned_team: safeText(body.defaultAssignedTeam || body.default_assigned_team, 80) || null, default_assigned_agent: assignedAgent?.id || null, auto_assign_lead: Boolean(body.autoAssignLead || body.auto_assign_lead) && Boolean(assignedAgent), duplicate_check_rule: WEBHOOK_DUPLICATE_RULES.includes(body.duplicateCheckRule || body.duplicate_check_rule) ? (body.duplicateCheckRule || body.duplicate_check_rule) : 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: user.id, created_at: now, updated_at: now };
+      webhookConnections.unshift(created); addActivityLog(user.id, 'settings', id, 'webhook_connection_created', `${connectionName} webhook connection was created.`); json(res, 201, { data: webhookConnectionView(created), secretToken: secret, message: 'Copy this secret now. It will not be shown again.' }); return;
+    }
+    const failedPath = url.pathname === '/api/settings/webhooks/failed-leads';
+    if (failedPath && req.method === 'GET') { json(res, 200, { data: failedWebhookLeads.map(item => ({ ...item, payload: undefined })), meta: { total: failedWebhookLeads.length } }); return; }
+    const convertMatch = url.pathname.match(/^\/api\/settings\/webhooks\/failed-leads\/([^/]+)\/convert$/);
+    if (convertMatch && req.method === 'POST') { const item = failedWebhookLeads.find(entry => entry.id === convertMatch[1]); const connection = webhookConnectionById(item?.connection_id); if (!item || !connection) { json(res, 404, { error: 'Failed webhook lead not found.' }); return; } const result = ingestWebhookLead(connection, item.payload, { actorId: user.id }); if (!result.ok) { json(res, 422, { error: result.error }); return; } item.converted = true; item.converted_lead_id = result.lead.id; json(res, 200, { data: result.lead }); return; }
+    const detailMatch = url.pathname.match(/^\/api\/settings\/webhooks\/([^/]+)$/);
+    if (detailMatch && req.method === 'GET') { const item = webhookConnectionById(detailMatch[1]); if (!item) { json(res, 404, { error: 'Webhook connection not found.' }); return; } json(res, 200, { data: webhookConnectionView(item) }); return; }
+    const logsMatch = url.pathname.match(/^\/api\/settings\/webhooks\/([^/]+)\/logs$/);
+    if (logsMatch && req.method === 'GET') { const connection = webhookConnectionById(logsMatch[1]); if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; } let data = webhookLogs.filter(item => item.connection_id === connection.id); const status = url.searchParams.get('status'); if (status) data = data.filter(item => item.status === status); json(res, 200, { data: data.slice(0, 200).map(webhookLogView), meta: { total: data.length } }); return; }
+    const mappingsMatch = url.pathname.match(/^\/api\/settings\/webhooks\/([^/]+)\/field-mappings$/);
+    if (mappingsMatch) { const connection = webhookConnectionById(mappingsMatch[1]); if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; } if (req.method === 'GET') { json(res, 200, { data: connection.field_mappings || {} }); return; } if (req.method === 'PATCH') { const body = await readBody(req); if (!body.mappings || typeof body.mappings !== 'object' || Array.isArray(body.mappings)) { json(res, 422, { error: 'Mappings must be an object.' }); return; } connection.field_mappings = Object.fromEntries(Object.entries(body.mappings).slice(0, 50).map(([key, value]) => [safeText(key, 80), safeText(value, 160)])); connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_field_mappings_updated', `${connection.connection_name} field mappings were updated.`); json(res, 200, { data: connection.field_mappings }); return; } }
+    const actionMatch = url.pathname.match(/^\/api\/settings\/webhooks\/([^/]+)\/(enable|disable|regenerate-secret|test|test-payload)$/);
+    if (actionMatch) { const connection = webhookConnectionById(actionMatch[1]); const action = actionMatch[2]; if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; }
+      if (action === 'enable' || action === 'disable') { if (req.method !== 'PATCH') { json(res, 405, { error: 'Method not allowed.' }); return; } connection.status = action === 'enable' ? 'Active' : 'Inactive'; connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, `webhook_${action}d`, `${connection.connection_name} was ${action}d.`); json(res, 200, { data: webhookConnectionView(connection) }); return; }
+      if (action === 'regenerate-secret') { if (req.method !== 'POST') { json(res, 405, { error: 'Method not allowed.' }); return; } const secret = webhookSecret(); connection.secret_hash = webhookHash(secret); connection.secret_token_masked = '••••••••'; connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_secret_regenerated', `${connection.connection_name} secret was regenerated.`); json(res, 200, { data: webhookConnectionView(connection), secretToken: secret, message: 'Copy this secret now. The previous secret is invalid.' }); return; }
+      if (action === 'test' || action === 'test-payload') { if (req.method !== 'POST') { json(res, 405, { error: 'Method not allowed.' }); return; } const body = await readBody(req); if (action === 'test') { connection.status = 'Active'; createWebhookLog(connection, 'Success', 'Connection test passed', { raw: { source: 'connection_test', platform: connection.source_platform } }, '', null, user.id); json(res, 200, { data: { success: true, message: 'Connection test passed. The connection is active.' } }); return; } const result = ingestWebhookLead(connection, body.payload || body, { dryRun: true, actorId: user.id }); if (!result.ok) { json(res, 422, { error: result.error, preview: result.fields }); return; } json(res, 200, { data: { normalizedLead: result.preview, duplicate: Boolean(result.duplicate), existingLead: result.duplicate ? result.lead : null } }); return; }
+    }
+    if (detailMatch && req.method === 'PATCH') { const connection = webhookConnectionById(detailMatch[1]); if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; } const body = await readBody(req); const nextName = safeText(body.connectionName || body.connection_name, 120); if (nextName) connection.connection_name = nextName; if (body.status !== undefined && WEBHOOK_STATUSES.includes(body.status)) connection.status = body.status; if (body.defaultLeadSource || body.default_lead_source) connection.default_lead_source = safeText(body.defaultLeadSource || body.default_lead_source, 80); if (body.defaultLeadStatus || body.default_lead_status) connection.default_lead_status = safeText(body.defaultLeadStatus || body.default_lead_status, 80); if (Array.isArray(body.defaultTags || body.default_tags)) connection.default_tags = (body.defaultTags || body.default_tags).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10); connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_connection_updated', `${connection.connection_name} webhook connection was updated.`); json(res, 200, { data: webhookConnectionView(connection) }); return; }
+    json(res, 404, { error: 'Webhook route not found.' }); return;
   }
 
   if (url.pathname === '/api/settings' || url.pathname.startsWith('/api/settings/')) {

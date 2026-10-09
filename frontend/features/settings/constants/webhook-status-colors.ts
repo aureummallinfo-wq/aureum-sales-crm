@@ -1,0 +1,1 @@
+export const WEBHOOK_STATUS_COLORS: Record<string, string> = { Active: 'success', Inactive: 'neutral', Testing: 'warning', Failed: 'danger', Healthy: 'success', Failing: 'danger', Duplicate: 'warning', Unauthorized: 'danger' };

@@ -1,0 +1,1 @@
+export function webhookHealthTone(status: string) { return ({ Healthy: 'success', Failing: 'danger', Disabled: 'neutral', 'No Recent Data': 'neutral' } as Record<string, string>)[status] || 'warning'; }
