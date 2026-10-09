@@ -27,3 +27,10 @@ test('notification center is wired after the final module binding layer', () => 
   assert.match(runtime, /data-notification-toggle/);
   assert.match(runtime, /data-notification-read-all/);
 });
+
+test('final drawer router uses the feature module renderers', () => {
+  const runtime = read('frontend/team-chat-reports-agents.js');
+  assert.match(runtime, /window\.renderCustomerDrawer \? window\.renderCustomerDrawer\(\)/);
+  assert.match(runtime, /window\.renderFollowupDrawer \? window\.renderFollowupDrawer\(\)/);
+  assert.match(runtime, /window\.renderLeadDrawer \? window\.renderLeadDrawer\(\)/);
+});

@@ -97,9 +97,9 @@ function openFollowup(id, mode = '') {
 }
 
 function renderDrawer() {
-  if (state.drawer === 'customer') return renderCustomerDrawer();
-  if (state.drawer === 'followup' || state.drawer === 'create-followup') return renderFollowupDrawer();
-  if (state.drawer === 'lead') return renderLeadDrawer();
+  if (state.drawer === 'customer') return window.renderCustomerDrawer ? window.renderCustomerDrawer() : renderCustomerDrawer();
+  if (state.drawer === 'followup' || state.drawer === 'create-followup') return window.renderFollowupDrawer ? window.renderFollowupDrawer() : renderFollowupDrawer();
+  if (state.drawer === 'lead') return window.renderLeadDrawer ? window.renderLeadDrawer() : renderLeadDrawer();
   return legacyRenderDrawer();
 }
 
