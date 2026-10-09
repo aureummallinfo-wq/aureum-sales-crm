@@ -67,7 +67,7 @@
       const name = escape(valueOf(lead, 'full_name', 'Unnamed lead'));
       const id = escape(lead.id);
       const tags = formatTags(lead);
-      return my ? `<tr><td><button class="lead-name-button" data-leads-open="${id}">${person(name, initials(lead), escape(lead.email || ''))}</button></td><td>${escape(contact)}</td><td>${escape(valueOf(lead, 'interested_in'))}</td><td><b>${escape(valueOf(lead, 'budget'))}</b></td><td>${statusBadge(valueOf(lead, 'status'))}</td><td><div class="lead-tags">${tags}</div></td><td>${safeDate(valueOf(lead, 'next_follow_up_at'))}</td><td>${safeDate(valueOf(lead, 'last_contacted_at'))}</td><td>${leadActionMenu(lead)}</td></tr>` : `<tr><td><button class="lead-name-button" data-leads-open="${id}">${person(name, initials(lead), escape(lead.email || ''))}</button></td><td>${escape(contact)}</td><td>${escape(valueOf(lead, 'email'))}</td><td>${escape(valueOf(lead, 'city'))}</td><td>${escape(valueOf(lead, 'interested_in'))}</td><td><b>${escape(valueOf(lead, 'budget'))}</b></td><td>${escape(valueOf(lead, 'lead_source', valueOf(lead, 'source')))}</td><td>${escape(valueOf(lead, 'assigned_agent', valueOf(lead, 'agent')))}</td><td>${statusBadge(valueOf(lead, 'status'))}</td><td><div class="lead-tags">${tags}</div></td><td>${safeDate(valueOf(lead, 'next_follow_up_at'))}</td><td>${safeDate(valueOf(lead, 'created_at'))}</td><td>${safeDate(valueOf(lead, 'last_contacted_at'))}</td><td>${leadActionMenu(lead)}</td></tr>`;
+      return my ? `<tr data-lead-module-row="${id}" tabindex="0" aria-label="Open ${name} details"><td><button class="lead-name-button" data-leads-open="${id}">${person(name, initials(lead), escape(lead.email || ''))}</button></td><td>${escape(contact)}</td><td>${escape(valueOf(lead, 'interested_in'))}</td><td><b>${escape(valueOf(lead, 'budget'))}</b></td><td>${statusBadge(valueOf(lead, 'status'))}</td><td><div class="lead-tags">${tags}</div></td><td>${safeDate(valueOf(lead, 'next_follow_up_at'))}</td><td>${safeDate(valueOf(lead, 'last_contacted_at'))}</td><td>${leadActionMenu(lead)}</td></tr>` : `<tr data-lead-module-row="${id}" tabindex="0" aria-label="Open ${name} details"><td><button class="lead-name-button" data-leads-open="${id}">${person(name, initials(lead), escape(lead.email || ''))}</button></td><td>${escape(contact)}</td><td>${escape(valueOf(lead, 'email'))}</td><td>${escape(valueOf(lead, 'city'))}</td><td>${escape(valueOf(lead, 'interested_in'))}</td><td><b>${escape(valueOf(lead, 'budget'))}</b></td><td>${escape(valueOf(lead, 'lead_source', valueOf(lead, 'source')))}</td><td>${escape(valueOf(lead, 'assigned_agent', valueOf(lead, 'agent')))}</td><td>${statusBadge(valueOf(lead, 'status'))}</td><td><div class="lead-tags">${tags}</div></td><td>${safeDate(valueOf(lead, 'next_follow_up_at'))}</td><td>${safeDate(valueOf(lead, 'created_at'))}</td><td>${safeDate(valueOf(lead, 'last_contacted_at'))}</td><td>${leadActionMenu(lead)}</td></tr>`;
     }).join('');
   }
 
@@ -147,6 +147,8 @@
   }
 
   document.addEventListener('click', event => {
+    const row = event.target.closest('[data-lead-module-row]');
+    if (row && !event.target.closest('button, a, input, select, textarea, summary, details')) { openLead(row.dataset.leadModuleRow); return; }
     const close = event.target.closest('[data-lead-module-close]');
     if (close) { state.drawer = null; state.leadDetail = null; render(); return; }
     const open = event.target.closest('[data-leads-open]');
@@ -161,6 +163,11 @@
     if (drawerTab) { state.leadModule.drawerTab = drawerTab.dataset.leadDrawerTab; render(); return; }
     const reload = event.target.closest('[data-leads-reload]');
     if (reload) refreshLeads();
+  });
+
+  document.addEventListener('keydown', event => {
+    const row = event.target.closest('[data-lead-module-row]');
+    if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openLead(row.dataset.leadModuleRow); }
   });
 
   document.addEventListener('input', event => { const input = event.target.closest('[data-leads-search]'); if (input) { state.leadFilters.q = input.value; render(); const next = document.querySelector('[data-leads-search]'); if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); } } });

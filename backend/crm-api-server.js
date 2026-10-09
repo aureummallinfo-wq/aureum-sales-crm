@@ -282,20 +282,80 @@ function addFollowUpActivity(item, userId, activityType, description, metadata =
   if (customer?.lead_id) addLeadActivity(customer.lead_id, userId, activityType, description, metadata);
 }
 
-function dashboardForUser(user) {
-  const visibleLeads = leads.filter(lead => canViewLead(user, lead));
-  const visibleCustomers = customers.filter(customer => canViewCustomer(user, customer));
-  const visibleFollowUps = followUps.filter(item => canViewFollowUp(user, item));
+function dashboardBudgetMillions(value) {
+  const match = String(value || '').replace(/,/g, '').match(/(\d+(?:\.\d+)?)\s*M/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function dashboardBookingVolume(visibleLeads) {
+  const total = visibleLeads.filter(item => ['Booking', 'Closed Won'].includes(item.status)).reduce((sum, item) => sum + dashboardBudgetMillions(item.budget), 0);
+  return `PKR ${Number(total.toFixed(1))}M`;
+}
+
+function dashboardDateBuckets(bounds) {
+  const start = new Date(`${bounds.startDate}T00:00:00Z`);
+  const end = new Date(`${bounds.endDate}T00:00:00Z`);
+  const days = Math.round((end - start) / 86400000) + 1;
+  if (days > 45) {
+    const buckets = [];
+    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1));
+    while (cursor <= end) {
+      const monthStart = new Date(cursor);
+      const monthEnd = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0));
+      buckets.push({ label: cursor.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }), start: monthStart, end: monthEnd > end ? end : monthEnd });
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    return buckets;
+  }
+  return Array.from({ length: Math.max(days, 1) }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(start.getUTCDate() + index);
+    return { label: days === 1 ? 'Today' : date.toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', timeZone: 'UTC' }), start: date, end: date };
+  });
+}
+
+function dashboardLeadInflow(visibleLeads, bounds) {
+  return dashboardDateBuckets(bounds).map(bucket => ({
+    label: bucket.label,
+    leads: visibleLeads.filter(item => {
+      const date = reportValueDate(item.created_at || item.updated_at);
+      const calendarDate = date ? reportCalendarDate(date) : '';
+      return calendarDate >= bucket.start.toISOString().slice(0, 10) && calendarDate <= bucket.end.toISOString().slice(0, 10);
+    }).length
+  }));
+}
+
+function dashboardAgentPerformance(user, bounds) {
+  const scopedAgents = users.filter(agent => agent.role === 'sales_agent' && (user.role === 'super_admin' || agent.team_id === user.team_id));
+  return scopedAgents.map(agent => {
+    const agentLeads = leads.filter(item => item.assigned_agent_id === agent.id && reportInRange(item.created_at || item.updated_at, bounds));
+    const agentFollowUps = followUps.filter(item => item.assigned_agent_id === agent.id && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds));
+    const closedDeals = agentLeads.filter(item => item.status === 'Closed Won').length;
+    const conversionRate = agentLeads.length ? Number(((closedDeals / agentLeads.length) * 100).toFixed(1)) : 0;
+    return { agentId: agent.id, agentName: agent.full_name, teamName: userTeamName(agent.team_id), assignedLeads: agentLeads.length, contactedLeads: agentLeads.filter(item => REPORT_CONTACTED_STATUSES.includes(item.status) || item.last_contacted_at !== 'Not contacted').length, completedFollowUps: agentFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: agentFollowUps.filter(item => item.status === 'Overdue').length, closedDeals, conversionRate };
+  });
+}
+
+function dashboardForUser(user, searchParams = new URLSearchParams()) {
+  refreshFollowUpStatuses();
+  const bounds = reportDateBounds(Object.fromEntries(searchParams.entries()));
+  const visibleLeads = leads.filter(item => canViewLead(user, item) && reportInRange(item.created_at || item.updated_at, bounds));
+  const visibleCustomers = customers.filter(item => canViewCustomer(user, item) && reportInRange(item.created_at || item.updated_at, bounds));
+  const visibleFollowUps = followUps.filter(item => canViewFollowUp(user, item) && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds));
   const completed = visibleFollowUps.filter(item => item.status === 'Completed').length;
   const overdue = visibleFollowUps.filter(item => item.status === 'Overdue').length;
   const pending = visibleFollowUps.filter(item => ['Pending', 'Rescheduled'].includes(item.status)).length;
-  const closed = visibleLeads.filter(lead => lead.status === 'Closed Won').length;
-  const today = new Date().toISOString().slice(0, 10);
-  const summary = { totalLeads: visibleLeads.length, newLeads: visibleLeads.filter(lead => lead.status === 'New').length, hotLeads: visibleLeads.filter(lead => ['Hot', 'Booking'].includes(lead.status)).length, followUpsDue: pending, overdueFollowUps: overdue, activeCustomers: visibleCustomers.filter(customer => !['Closed Won', 'Closed Lost', 'Not Interested'].includes(customer.customer_status)).length, closedDeals: closed, conversionRate: visibleLeads.length ? Number(((closed / visibleLeads.length) * 100).toFixed(1)) : 0, bookingVolume: 'PKR 18M' };
-  const todayFollowUps = visibleFollowUps.filter(item => item.due_date === today || item.status === 'Overdue').slice(0, 8).map(item => ({ time: item.due_time, customer: item.customer_name, type: item.follow_up_type, agent: item.assigned_agent, status: item.status }));
-  const recentLeads = visibleLeads.slice(0, 8).map(lead => ({ name: lead.full_name, initials: lead.initials, source: lead.lead_source, interest: lead.interested_in, agent: lead.assigned_agent, status: lead.status, created: lead.created_at }));
+  const closed = visibleLeads.filter(item => item.status === 'Closed Won').length;
+  const sourceCounts = new Map();
+  visibleLeads.forEach(item => sourceCounts.set(item.lead_source || 'Manual Entry', (sourceCounts.get(item.lead_source || 'Manual Entry') || 0) + 1));
+  const totalLeads = visibleLeads.length;
+  const leadSources = [...sourceCounts.entries()].sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value, count: value, percentage: totalLeads ? Number(((value / totalLeads) * 100).toFixed(1)) : 0 }));
+  const conversionOverview = REPORT_CONVERSION_STAGES.map(name => { const value = visibleLeads.filter(item => item.status === name).length; return { name, value, stage: name, count: value, percentage: totalLeads ? Number(((value / totalLeads) * 100).toFixed(1)) : 0 }; });
+  const todayFollowUps = [...visibleFollowUps].sort((a, b) => `${a.due_date} ${a.due_time}`.localeCompare(`${b.due_date} ${b.due_time}`)).slice(0, 8).map(item => ({ id: item.id, time: item.due_time, dueDate: item.due_date, customer: item.customer_name, type: item.follow_up_type, agent: item.assigned_agent, status: item.status }));
+  const recentLeads = [...visibleLeads].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8).map(item => ({ id: item.id, name: item.full_name, initials: item.initials, phone: item.phone, source: item.lead_source, interest: item.interested_in, agent: item.assigned_agent, status: item.status, created: item.created_at }));
   const base = dashboardByRole[user.role] || dashboardByRole.sales_agent;
-  return { ...base, summary, todayFollowUps, recentLeads, followUpPerformance: [{ name: 'Completed', value: completed }, { name: 'Pending', value: pending }, { name: 'Overdue', value: overdue }, { name: 'Missed', value: visibleFollowUps.filter(item => item.status === 'Missed').length }] };
+  const summary = { totalLeads, newLeads: visibleLeads.filter(item => item.status === 'New').length, hotLeads: visibleLeads.filter(item => ['Hot', 'Booking'].includes(item.status)).length, followUpsDue: pending, overdueFollowUps: overdue, activeCustomers: visibleCustomers.filter(item => !['Closed Won', 'Closed Lost', 'Not Interested'].includes(item.customer_status)).length, closedDeals: closed, conversionRate: totalLeads ? Number(((closed / totalLeads) * 100).toFixed(1)) : 0, bookingVolume: dashboardBookingVolume(visibleLeads) };
+  return { ...base, scopeLabel: user.role === 'super_admin' ? 'Company-wide data' : user.role === 'sales_manager' ? `${userTeamName(user.team_id)} · Team data` : 'My data only', summary, leadInflow: dashboardLeadInflow(visibleLeads, bounds), leadSources, conversionOverview, agentPerformance: user.role === 'sales_agent' ? null : dashboardAgentPerformance(user, bounds), todayFollowUps, recentLeads, followUpPerformance: [{ name: 'Completed', value: completed }, { name: 'Pending', value: pending }, { name: 'Overdue', value: overdue }, { name: 'Missed', value: visibleFollowUps.filter(item => item.status === 'Missed').length }, { name: 'Rescheduled', value: visibleFollowUps.filter(item => item.status === 'Rescheduled').length }], dateRange: bounds.dateRange, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, startDate: bounds.startDate, endDate: bounds.endDate } };
 }
 
 const chatChannels = [
@@ -1396,13 +1456,13 @@ async function handle(req, res) {
   };
   if (req.method === 'GET' && dashboardRoutes[url.pathname]) {
     const user = requireAuth(req, res);
-    if (user) { const dashboard = dashboardForUser(user); json(res, 200, { scope: dashboard.scopeLabel, data: dashboardRoutes[url.pathname] === 'summary' ? dashboard.summary : dashboard[dashboardRoutes[url.pathname]] }); }
+    if (user) { const dashboard = dashboardForUser(user, url.searchParams); json(res, 200, { scope: dashboard.scopeLabel, data: dashboardRoutes[url.pathname] === 'summary' ? dashboard.summary : dashboard[dashboardRoutes[url.pathname]] }); }
     return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/dashboard/agent-performance') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
-    if (user) json(res, 200, { scope: dashboardForUser(user).scopeLabel, data: dashboardForUser(user).agentPerformance });
+    if (user) { const dashboard = dashboardForUser(user, url.searchParams); json(res, 200, { scope: dashboard.scopeLabel, data: dashboard.agentPerformance }); }
     return;
   }
 

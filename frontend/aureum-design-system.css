@@ -613,6 +613,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .lead-table-wrap { border-radius: 0 0 12px 12px; }
 .lead-data-table { min-width: 1450px; }
 .lead-data-table th { white-space: nowrap; }
+.lead-data-table tbody tr[data-lead-module-row], .customer-data-table tbody tr[data-customer-module-row] { cursor: pointer; }
+.lead-data-table tbody tr[data-lead-module-row]:hover, .customer-data-table tbody tr[data-customer-module-row]:hover { background: #fffaf0; }
+.lead-data-table tbody tr[data-lead-module-row]:focus-visible, .customer-data-table tbody tr[data-customer-module-row]:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
 .lead-name-button { padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .lead-name-button .person-name { color: var(--ink); }
 .lead-name-button:hover .person-name { color: var(--gold); }

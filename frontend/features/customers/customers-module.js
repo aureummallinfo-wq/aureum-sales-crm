@@ -57,7 +57,7 @@
 
   function tableRows(items) {
     if (!items.length) return `<tr><td colspan="11"><div class="customer-empty-inline"><strong>No customers found.</strong><span>Try clearing a filter or searching another customer.</span><button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset filters</button></div></td></tr>`;
-    return items.map(customer => `<tr><td><button class="customer-name-button" data-customer-module-open="${escape(customer.id)}">${person(escape(customerName(customer)), escape(initials(customer)), escape(customer.lead_id ? `Lead ${customer.lead_id}` : 'Customer profile'))}</button></td><td>${escape(field(customer, 'phone'))}<div class="person-meta">${escape(field(customer, 'whatsapp_number'))}</div></td><td>${escape(field(customer, 'email'))}</td><td>${escape(field(customer, 'city'))}</td><td>${escape(customerInterest(customer))}</td><td><b>${escape(field(customer, 'budget'))}</b></td><td>${escape(customerAgent(customer))}</td><td>${statusBadge(customerStatus(customer))}<div class="customer-tags">${tags(customer)}</div></td><td>${escape(field(customer, 'last_activity'))}</td><td>${escape(field(customer, 'next'))}</td><td>${actionMenu(customer)}</td></tr>`).join('');
+    return items.map(customer => `<tr data-customer-module-row="${escape(customer.id)}" tabindex="0" aria-label="Open ${escape(customerName(customer))} profile"><td><button class="customer-name-button" data-customer-module-open="${escape(customer.id)}">${person(escape(customerName(customer)), escape(initials(customer)), escape(customer.lead_id ? `Lead ${customer.lead_id}` : 'Customer profile'))}</button></td><td>${escape(field(customer, 'phone'))}<div class="person-meta">${escape(field(customer, 'whatsapp_number'))}</div></td><td>${escape(field(customer, 'email'))}</td><td>${escape(field(customer, 'city'))}</td><td>${escape(customerInterest(customer))}</td><td><b>${escape(field(customer, 'budget'))}</b></td><td>${escape(customerAgent(customer))}</td><td>${statusBadge(customerStatus(customer))}<div class="customer-tags">${tags(customer)}</div></td><td>${escape(field(customer, 'last_activity'))}</td><td>${escape(field(customer, 'next'))}</td><td>${actionMenu(customer)}</td></tr>`).join('');
   }
 
   function renderCustomerLoading() { return pageHeader('Client relationships', 'Customers', 'Loading the permitted customer registry…') + '<div class="customer-loading-grid"><div class="customer-skeleton"></div><div class="customer-skeleton customer-skeleton-tall"></div></div>'; }
@@ -119,6 +119,8 @@
   }
 
   document.addEventListener('click', event => {
+    const row = event.target.closest('[data-customer-module-row]');
+    if (row && !event.target.closest('button, a, input, select, textarea, summary, details')) { openCustomer(row.dataset.customerModuleRow); return; }
     const close = event.target.closest('[data-customer-module-close]'); if (close) { state.drawer = null; state.customerDetail = null; render(); return; }
     const open = event.target.closest('[data-customer-module-open]'); if (open) { event.preventDefault(); openCustomer(open.dataset.customerModuleOpen); return; }
     const tab = event.target.closest('[data-customer-module-tab]'); if (tab) { state.customerModule.filters.status = tab.dataset.customerModuleTab || ''; render(); return; }
@@ -128,6 +130,7 @@
     const exportButton = event.target.closest('[data-customer-module-export]'); if (exportButton) exportCustomers();
     const action = event.target.closest('[data-customer-module-action]'); if (action) { event.preventDefault(); customerAction(action.dataset.customerModuleAction, action.dataset.customerId); }
   });
+  document.addEventListener('keydown', event => { const row = event.target.closest('[data-customer-module-row]'); if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openCustomer(row.dataset.customerModuleRow); } });
   document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { state.customerModule.filters.search = input.value; render(); const next = document.querySelector('[data-customer-module-search]'); if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); } } });
   document.addEventListener('change', event => { const input = event.target; const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority]')) render(); });
   document.addEventListener('submit', event => {
