@@ -863,6 +863,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .drawer-header h2 { font-size: 25px; }
   .drawer-action-row, .header-actions { gap: 7px; }
   .drawer-action-row .btn { flex: 1 1 calc(50% - 7px); min-height: 40px; }
+  .customer-quick-actions .btn { flex: 1 1 calc(50% - 7px); min-height: 40px; }
   .form-field input, .form-field select, .form-field textarea, .form-grid input, .form-grid select, .form-grid textarea { min-height: 42px; font-size: 13px; }
   .form-field textarea, .form-grid textarea { min-height: 92px; }
   .form-grid { gap: 0; }

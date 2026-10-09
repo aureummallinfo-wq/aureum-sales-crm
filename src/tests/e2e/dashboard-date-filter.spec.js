@@ -28,3 +28,18 @@ test('dashboard date ranges recalculate metrics and preserve user scope', async 
   assert.equal(managerInflow.response.status, 200);
   assert.equal(managerInflow.body.data.reduce((sum, point) => sum + point.leads, 0), 6);
 });
+
+test('sales managers can edit, note, and schedule from a permitted customer profile', async t => {
+  const api = await startApiServer(t);
+  const manager = await api.login('manager@aureum.com');
+
+  const jsonHeaders = { cookie: manager, 'content-type': 'application/json' };
+  const updated = await api.request('/api/customers/customer_001', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ area: 'DHA Phase 6' }) });
+  const note = await api.request('/api/customers/customer_001/notes', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ note: 'Manager confirmed the next site-visit requirement.' }) });
+  const followUp = await api.request('/api/customers/customer_001/follow-ups', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ type: 'Phone call', due_date: '2026-10-12', note: 'Confirm site visit timing.' }) });
+
+  assert.equal(updated.response.status, 200);
+  assert.equal(note.response.status, 201);
+  assert.equal(followUp.response.status, 201);
+  assert.equal(followUp.body.followUp.type, 'Phone call');
+});
