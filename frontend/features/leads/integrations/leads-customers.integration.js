@@ -1,2 +1,2 @@
 window.AureumLeadIntegrations = window.AureumLeadIntegrations || {};
-window.AureumLeadIntegrations.createCustomerFromLead = lead => ({ available: false, message: 'Customer module will be available in Module 4.', leadId: lead?.id });
+window.AureumLeadIntegrations.createCustomerFromLead = lead => ({ available: true, leadId: lead?.id, customerId: lead?.customer_id || lead?.customerId || null, action: 'create-or-open-customer' });

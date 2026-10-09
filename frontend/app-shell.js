@@ -28,6 +28,15 @@ screenForPath['/access-denied'] = 'unauthorized';
 async function apiFetch(path, options = {}) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
   const body = await response.json().catch(() => ({}));
+  if (response.status === 401 && state?.authUser && state.screen !== 'login') {
+    state.authUser = null;
+    state.ready = true;
+    state.screen = 'login';
+    state.drawer = null;
+    state.loginError = 'Your session has expired. Please sign in again.';
+    window.history.replaceState({}, '', '/');
+    if (typeof render === 'function') render();
+  }
   if (!response.ok) throw new Error(body.error || 'Request failed');
   return body;
 }
@@ -67,6 +76,7 @@ const state = {
   loginError: '',
   deniedPath: '',
   drawer: null,
+  followupPrefill: null,
   selectedChannel: 'Sales Team',
   toast: ''
 };
@@ -534,7 +544,7 @@ function baseBind() {
   document.querySelectorAll('[data-followup-missed]').forEach(el => el.addEventListener('click', async () => { await apiFetch(`/api/follow-ups/${el.dataset.followupMissed}/missed`, { method: 'PATCH', body: JSON.stringify({ reason: 'Marked missed from workspace' }) }); state.followupMode = ''; await refreshFollowupDetail(); }));
   document.querySelectorAll('[data-followup-complete]').forEach(el => el.addEventListener('click', async () => { if (state.drawer === 'followup') { state.followupMode = 'complete'; render(); return; } await apiFetch(`/api/follow-ups/${el.dataset.followupComplete}/complete`, { method: 'PATCH', body: JSON.stringify({ completion_note: 'Completed from follow-up list' }) }); await loadFollowups(); }));
   const createForm = document.querySelector('#create-followup-form');
-  if (createForm) createForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(createForm).entries()); try { await apiFetch('/api/follow-ups', { method: 'POST', body: JSON.stringify(data) }); state.drawer = null; state.followupMode = ''; await loadFollowups(); showToast('Follow-up scheduled'); } catch (error) { showToast(error.message); } });
+  if (createForm) createForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(createForm).entries()); try { await apiFetch('/api/follow-ups', { method: 'POST', body: JSON.stringify(data) }); state.drawer = null; state.followupMode = ''; state.followupPrefill = null; await loadFollowups(); showToast('Follow-up scheduled'); } catch (error) { showToast(error.message); } });
   const rescheduleForm = document.querySelector('#reschedule-followup-form');
   if (rescheduleForm) rescheduleForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(rescheduleForm).entries()); try { await apiFetch(`/api/follow-ups/${state.followupDetail.data.id}/reschedule`, { method: 'PATCH', body: JSON.stringify(data) }); state.followupMode = ''; await refreshFollowupDetail(); } catch (error) { showToast(error.message); } });
   const completeForm = document.querySelector('#complete-followup-form');

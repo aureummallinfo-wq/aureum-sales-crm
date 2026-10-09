@@ -191,6 +191,48 @@ function addLeadActivity(leadId, userId, activityType, description, metadata = {
 
 function findLead(id) { return leads.find(lead => lead.id === id); }
 
+function ensureCustomerForLead(user, lead) {
+  if (!lead) return null;
+  const existing = customers.find(item => item.lead_id === lead.id);
+  if (existing) return existing;
+  const now = new Date().toISOString();
+  const customer = {
+    id: `customer_${String(customers.length + 1).padStart(3, '0')}`,
+    lead_id: lead.id,
+    full_name: lead.full_name,
+    phone: lead.phone,
+    whatsapp_number: lead.whatsapp_number || lead.phone,
+    email: lead.email,
+    city: lead.city,
+    area: lead.area,
+    preferred_contact_method: lead.preferred_contact_method || 'Phone call',
+    interested_in: lead.interested_in,
+    property_type: lead.property_type,
+    budget: lead.budget,
+    preferred_location: lead.preferred_location,
+    purpose: lead.purpose,
+    buying_timeline: lead.buying_timeline,
+    financing_required: Boolean(lead.financing_required),
+    customer_status: lead.status === 'Closed Won' ? 'Closed Won' : 'Active',
+    lead_source: lead.lead_source,
+    tags: [...(lead.tags || [])],
+    assigned_agent_id: lead.assigned_agent_id || user.id,
+    assigned_agent: lead.assigned_agent || user.full_name,
+    assigned_team_id: lead.assigned_team_id || user.team_id || null,
+    created_by: user.id,
+    last_contacted_at: lead.last_contacted_at || 'Not contacted',
+    next_follow_up_at: lead.next_follow_up_at || 'Not scheduled',
+    created_at: now,
+    updated_at: now
+  };
+  customers.push(customer);
+  customerActivities.set(customer.id, [{ id: `${customer.id}_activity_1`, activity_type: 'Customer profile created', description: `Profile created from lead ${lead.id}`, user_id: user.id, created_at: now }]);
+  customerNotes.set(customer.id, []);
+  customerFollowUps.set(customer.id, []);
+  addLeadActivity(lead.id, user.id, 'Customer profile created', `Customer profile created from ${lead.full_name}`);
+  return customer;
+}
+
 function canViewCustomer(user, customer) {
   if (!user) return false;
   if (user.role === 'super_admin') return true;
@@ -395,6 +437,14 @@ webhookConnections.push({ id: 'wh_demo_meta', connection_name: 'Meta Lead Ads ·
 function canViewChannel(user, channel) { return Boolean(user && (channel.visibility !== 'management' || ['super_admin', 'sales_manager'].includes(user.role))); }
 function chatUserView(user) { return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: user.status === 'active' }; }
 function chatMessageView(message) { const sender = users.find(user => user.id === message.sender_id); return { ...message, sender: sender ? chatUserView(sender) : { full_name: 'Unknown user', initials: '??' } }; }
+function chatAttachmentPayload(body) {
+  const name = safeText(body.attachment_name, 180);
+  if (!name) return null;
+  if (!/\.(pdf|png|jpe?g|docx?|xlsx?|csv|txt)$/i.test(name)) return { error: 'Attachment name must use an allowed file type.' };
+  const content = typeof body.attachment_content === 'string' ? body.attachment_content : '';
+  if (!content.startsWith('data:') || content.length > 2400000) return { error: 'Attachment content is missing or exceeds the 1.5 MB limit.' };
+  return { name, url: content, type: safeText(body.attachment_mime || 'application/octet-stream', 120), size: Number(body.attachment_size) || 0 };
+}
 function directKey(first, second) { return [first, second].sort().join(':'); }
 function canMessageUser(user, target) { return Boolean(user && target && user.id !== target.id && (user.role === 'super_admin' || target.team_id === user.team_id)); }
 function canCreateGroup(user) { return Boolean(user && ['super_admin', 'sales_manager'].includes(user.role)); }
@@ -456,6 +506,22 @@ function reportAgentDetailFor(user, agentId, searchParams) { const response = re
 function json(res, status, payload, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...headers });
   res.end(JSON.stringify(payload));
+}
+
+function csvCell(value) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function reportCsvFor(user, searchParams = new URLSearchParams(), reportType = 'agent_report') {
+  const report = reportResponseFor(user, searchParams);
+  let headers = ['Agent', 'Role', 'Assigned Leads', 'Contacted Leads', 'Follow-ups Assigned', 'Follow-ups Completed', 'Overdue Follow-ups', 'Closed Deals', 'Conversion Rate'];
+  let rows = report.agentReports.map(row => [row.agentName, row.agentRole, row.assignedLeads, row.contactedLeads, row.followUpsAssigned, row.followUpsCompleted, row.overdueFollowUps, row.closedDeals, `${row.conversionRate}%`]);
+  if (reportType === 'lead_report') { headers = Object.keys(report.leadReport); rows = [Object.values(report.leadReport)]; }
+  if (reportType === 'customer_report') { headers = Object.keys(report.customerReport); rows = [Object.values(report.customerReport)]; }
+  if (reportType === 'followup_report') { headers = Object.keys(report.followUpReport); rows = [Object.values(report.followUpReport)]; }
+  if (reportType === 'conversion_report') { headers = ['Stage', 'Count', 'Percentage']; rows = (report.charts.conversionOverview || []).map(item => [item.stage, item.count, `${item.percentage}%`]); }
+  return [headers.map(csvCell).join(','), ...rows.map(row => row.map(csvCell).join(','))].join('\n');
 }
 
 function parseCookies(req) {
@@ -776,6 +842,15 @@ async function handle(req, res) {
     return;
   }
 
+  const leadCustomerMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/customer$/);
+  if (leadCustomerMatch && req.method === 'POST') {
+    const user = requireAuth(req, res); const lead = findLead(leadCustomerMatch[1]);
+    if (!lead) { json(res, 404, { error: 'Lead not found' }); return; }
+    if (!canViewLead(user, lead)) { json(res, 403, { error: 'Access denied — lead is outside your ownership scope' }); return; }
+    const customer = ensureCustomerForLead(user, lead);
+    json(res, 201, { data: customerView(customer), created: customer.created_at === customer.updated_at }); return;
+  }
+
   if (req.method === 'PATCH' && leadMatch) {
     const user = requireAuth(req, res);
     const lead = findLead(leadMatch[1]);
@@ -866,6 +941,22 @@ async function handle(req, res) {
     json(res, 200, { data: customerView(customer), notes: customerNotes.get(customer.id) || [], timeline: customerActivities.get(customer.id) || [], followUps: customerFollowUps.get(customer.id) || [] }); return;
   }
 
+  if (customerMatch && req.method === 'PATCH') {
+    const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerMatch[1]);
+    if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
+    if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
+    const body = await readBody(req);
+    if (body.email !== undefined && body.email && !validateEmail(String(body.email))) { json(res, 422, { error: 'Enter a valid email address.' }); return; }
+    if (body.phone !== undefined && !validatePhone(String(body.phone))) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
+    const textFields = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'preferred_contact_method', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline'];
+    textFields.forEach(field => { if (body[field] !== undefined) customer[field] = safeText(body[field], field === 'full_name' ? 120 : 240); });
+    if (body.financing_required !== undefined) customer.financing_required = Boolean(body.financing_required);
+    if (Array.isArray(body.tags)) customer.tags = body.tags.map(tag => safeText(tag, 60)).filter(Boolean).slice(0, 20);
+    customer.updated_at = new Date().toISOString();
+    addCustomerActivity(customer.id, user.id, 'Customer profile updated', 'Customer profile details were updated.');
+    json(res, 200, { data: customerView(customer) }); return;
+  }
+
   const customerStatusMatch = url.pathname.match(/^\/api\/customers\/([^/]+)\/status$/);
   if (customerStatusMatch && req.method === 'PATCH') {
     const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerStatusMatch[1]);
@@ -945,10 +1036,21 @@ async function handle(req, res) {
   if (groupMessagesMatch) {
     const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupMessagesMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
     if (req.method === 'GET') { json(res, 200, { data: (groupMessages.get(group.id) || []).map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), group_id: group.id, sender_id: user.id, message_type: attachmentName ? 'attachment' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString() }; groupMessages.set(group.id, [...(groupMessages.get(group.id) || []), message]); group.updated_at = message.created_at; if (message.attachment_name) { const files = chatAttachments.get(group.id) || []; files.push({ id: crypto.randomUUID(), chat_id: group.id, message_id: message.id, file_name: message.attachment_name, file_type: 'other', file_size: 'Pending upload', uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(group.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBodyLimited(req, 3000000); const messageText = safeText(body.message_text, 4000); const attachment = chatAttachmentPayload(body); if (attachment?.error) { json(res, 400, { error: attachment.error }); return; } if (!messageText && !attachment) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), group_id: group.id, sender_id: user.id, message_type: attachment ? 'attachment' : 'text', message_text: messageText, attachment_name: attachment?.name || '', attachment_url: attachment?.url || '', attachment_mime: attachment?.type || '', attachment_size: attachment?.size || 0, created_at: new Date().toISOString() }; groupMessages.set(group.id, [...(groupMessages.get(group.id) || []), message]); group.updated_at = message.created_at; if (attachment) { const files = chatAttachments.get(group.id) || []; files.push({ id: crypto.randomUUID(), chat_id: group.id, message_id: message.id, file_name: attachment.name, file_type: attachment.type, file_size: attachment.size, attachment_url: attachment.url, uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(group.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
   const chatAssetsMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(attachments|links)$/);
+  if (chatAssetsMatch && req.method === 'POST' && chatAssetsMatch[2] === 'links') {
+    const user = requireAuth(req, res); if (!user) return;
+    const chatId = chatAssetsMatch[1]; const channel = chatChannels.find(item => item.id === chatId); const group = groupChats.find(item => item.id === chatId);
+    if (channel && !canViewChannel(user, channel)) { json(res, 403, { error: 'You do not have access to this channel' }); return; }
+    if (group && !canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
+    if (!channel && !group) { json(res, 404, { error: 'Chat not found' }); return; }
+    const body = await readBody(req); const title = safeText(body.title, 160); const sharedUrl = safeText(body.url, 1000);
+    if (!title || !/^https?:\/\//i.test(sharedUrl)) { json(res, 400, { error: 'A title and valid http(s) URL are required.' }); return; }
+    const link = { id: crypto.randomUUID(), chat_id: chatId, title, url: sharedUrl, shared_by: user.id, shared_at: new Date().toISOString() };
+    chatLinks.set(chatId, [...(chatLinks.get(chatId) || []), link]); json(res, 201, { data: chatLinkView(link) }); return;
+  }
   if (chatAssetsMatch && req.method === 'GET') {
     const user = requireAuth(req, res); if (!user) return; const chatId = chatAssetsMatch[1]; const channel = chatChannels.find(item => item.id === chatId); const group = groupChats.find(item => item.id === chatId); if (channel && !canViewChannel(user, channel)) { json(res, 403, { error: 'You do not have access to this channel' }); return; } if (group && !canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; } if (!channel && !group) { json(res, 404, { error: 'Chat not found' }); return; } json(res, 200, { data: chatAssetsMatch[2] === 'attachments' ? (chatAttachments.get(chatId) || []).map(chatAttachmentView) : (chatLinks.get(chatId) || []).map(chatLinkView) }); return;
   }
@@ -962,7 +1064,7 @@ async function handle(req, res) {
     if (!channel) { json(res, 404, { error: 'Channel not found' }); return; }
     if (!canViewChannel(user, channel)) { json(res, 403, { error: 'Access denied — private channel' }); return; }
     if (req.method === 'GET') { json(res, 200, { data: (chatMessages.get(channel.id) || []).map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), channel_id: channel.id, sender_id: user.id, message_type: attachmentName ? 'file' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString() }; chatMessages.set(channel.id, [...(chatMessages.get(channel.id) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBodyLimited(req, 3000000); const messageText = safeText(body.message_text, 4000); const attachment = chatAttachmentPayload(body); if (attachment?.error) { json(res, 400, { error: attachment.error }); return; } if (!messageText && !attachment) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), channel_id: channel.id, sender_id: user.id, message_type: attachment ? 'file' : 'text', message_text: messageText, attachment_name: attachment?.name || '', attachment_url: attachment?.url || '', attachment_mime: attachment?.type || '', attachment_size: attachment?.size || 0, created_at: new Date().toISOString() }; chatMessages.set(channel.id, [...(chatMessages.get(channel.id) || []), message]); if (attachment) { const files = chatAttachments.get(channel.id) || []; files.push({ id: crypto.randomUUID(), chat_id: channel.id, message_id: message.id, file_name: attachment.name, file_type: attachment.type, file_size: attachment.size, attachment_url: attachment.url, uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(channel.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
   if (req.method === 'GET' && url.pathname === '/api/chat/direct') {
@@ -976,10 +1078,10 @@ async function handle(req, res) {
     if (!canMessageUser(user, target)) { json(res, 403, { error: 'Access denied — direct message scope' }); return; }
     const key = directKey(user.id, target.id);
     if (req.method === 'GET') { const messages = directMessages.get(key) || []; messages.filter(item => item.receiver_id === user.id).forEach(item => { item.read_at = item.read_at || new Date().toISOString(); }); json(res, 200, { data: messages.map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), sender_id: user.id, receiver_id: target.id, message_type: attachmentName ? 'file' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString(), read_at: null }; directMessages.set(key, [...(directMessages.get(key) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBodyLimited(req, 3000000); const messageText = safeText(body.message_text, 4000); const attachment = chatAttachmentPayload(body); if (attachment?.error) { json(res, 400, { error: attachment.error }); return; } if (!messageText && !attachment) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), sender_id: user.id, receiver_id: target.id, message_type: attachment ? 'file' : 'text', message_text: messageText, attachment_name: attachment?.name || '', attachment_url: attachment?.url || '', attachment_mime: attachment?.type || '', attachment_size: attachment?.size || 0, created_at: new Date().toISOString(), read_at: null }; directMessages.set(key, [...(directMessages.get(key) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
-  if (req.method === 'POST' && url.pathname === '/api/chat/attachments') { const user = requireAuth(req, res); if (user) { const body = await readBody(req); const attachmentName = safeText(body.attachment_name, 180); const allowed = /\.(pdf|png|jpe?g|docx?|xlsx?|csv|txt)$/i.test(attachmentName); if (!attachmentName || !allowed) { json(res, 400, { error: 'Attachment name is required and must use an allowed file type.' }); return; } json(res, 201, { data: { id: crypto.randomUUID(), attachment_name: attachmentName, attachment_url: '', uploaded_by: user.id, created_at: new Date().toISOString() } }); } return; }
+  if (req.method === 'POST' && url.pathname === '/api/chat/attachments') { const user = requireAuth(req, res); if (user) { const body = await readBodyLimited(req, 3000000); const attachment = chatAttachmentPayload(body); if (!attachment || attachment.error) { json(res, 400, { error: attachment?.error || 'Attachment content is required.' }); return; } json(res, 201, { data: { id: crypto.randomUUID(), attachment_name: attachment.name, attachment_url: attachment.url, attachment_mime: attachment.type, attachment_size: attachment.size, uploaded_by: user.id, created_at: new Date().toISOString() } }); } return; }
   if (req.method === 'PATCH' && url.pathname.match(/^\/api\/chat\/messages\/([^/]+)\/read$/)) { const user = requireAuth(req, res); if (user) json(res, 200, { ok: true, read_at: new Date().toISOString() }); return; }
   if (req.method === 'GET' && url.pathname === '/api/chat/unread-counts') { const user = requireAuth(req, res); if (user) { const channels = { channel_general: 0, channel_sales: 4, channel_announcements: 0, channel_followups: 2, channel_bookings: 0, channel_management: user.role === 'sales_agent' ? 0 : 1 }; const direct = {}; const total = Object.values(channels).reduce((sum, value) => sum + value, 0); json(res, 200, { data: { total, channels, direct } }); } return; }
 
@@ -991,6 +1093,21 @@ async function handle(req, res) {
   if (reportAgentDetailMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const detail = reportAgentDetailFor(user, reportAgentDetailMatch[1], url.searchParams); if (!detail) { json(res, 404, { error: 'Agent report not found in your permitted scope' }); return; } json(res, 200, { data: detail }); } return; }
   const reportAgentMatch = url.pathname.match(/^\/api\/reports\/agents\/([^/]+)(?:\/(leads|follow-ups|customers|activity))?$/);
   if (reportAgentMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === reportAgentMatch[1]); if (!target) { json(res, 404, { error: 'Agent not found' }); return; } if (!agentInScope(user, target)) { json(res, 403, { error: 'Access denied — agent is outside your reporting scope' }); return; } const tab = reportAgentMatch[2]; if (tab === 'leads') { json(res, 200, { data: leads.filter(item => item.assigned_agent_id === target.id).map(leadView) }); return; } if (tab === 'follow-ups') { json(res, 200, { data: followUps.filter(item => item.assigned_agent_id === target.id).map(followUpView) }); return; } if (tab === 'customers') { json(res, 200, { data: customers.filter(item => item.assigned_agent_id === target.id).map(customerView) }); return; } if (tab === 'activity') { json(res, 200, { data: userActivities.get(target.id) || [] }); return; } json(res, 200, { data: agentView(user, target) }); return; }
+  if (req.method === 'POST' && url.pathname === '/api/reports/export') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    if (user) {
+      const body = await readBody(req);
+      const allowedTypes = ['agent_report', 'lead_report', 'customer_report', 'followup_report', 'conversion_report'];
+      const reportType = allowedTypes.includes(body.reportType) ? body.reportType : 'agent_report';
+      const params = new URLSearchParams();
+      ['dateRange', 'teamId', 'agentId', 'leadStatus', 'leadSource', 'followUpStatus', 'startDate', 'endDate'].forEach(key => { if (body[key] && body[key] !== 'all') params.set(key, String(body[key])); });
+      const csv = reportCsvFor(user, params, reportType);
+      const stamp = new Date().toISOString().slice(0, 10);
+      res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="aureum-${reportType}-${stamp}.csv"`, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+      res.end(csv);
+    }
+    return;
+  }
   if (req.method === 'GET' && url.pathname.match(/^\/api\/reports\/export\/(pdf|excel)$/)) { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const rows = reportRowsFor(user); const csv = ['Agent,Role,Assigned Leads,Follow-ups Completed,Overdue Follow-ups,Closed Deals,Conversion Rate', ...rows.map(row => [row.name, row.role, row.assignedLeads, row.followUpsCompleted, row.overdueFollowUps, row.closedDeals, row.conversionRate].join(','))].join('\n'); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aureum-agent-report.csv"' }); res.end(csv); } return; }
 
   if (req.method === 'GET' && url.pathname === '/api/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportUsersFor(user).map(target => agentView(user, target)) }); return; }
@@ -1160,7 +1277,12 @@ async function handle(req, res) {
     const user = requireAuth(req, res);
     if (!user) return;
     const body = await readBody(req);
-    const customer = customers.find(item => item.id === body.customer_id);
+    let customer = customers.find(item => item.id === body.customer_id);
+    const lead = body.lead_id ? findLead(body.lead_id) : null;
+    if (!customer && lead) {
+      if (!canViewLead(user, lead)) { json(res, 403, { error: 'Access denied — lead is outside your ownership scope' }); return; }
+      customer = ensureCustomerForLead(user, lead);
+    }
     if (!customer) { json(res, 400, { error: 'A valid customer is required' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
     let assigned = users.find(item => item.id === body.assigned_agent_id && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role));
@@ -1223,11 +1345,6 @@ async function handle(req, res) {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).charts.conversionOverview });
     return;
   }
-  if (req.method === 'POST' && url.pathname === '/api/reports/export') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 202, { data: { success: true, message: 'Report export will be available in a future update.', fileName: 'aureum-report-placeholder' } });
-    return;
-  }
-
   if (req.method === 'GET' && url.pathname === '/api/settings') {
     const user = requireRole(req, res, ['super_admin']);
     if (user) json(res, 200, { requestedBy: user.role, data: {} });

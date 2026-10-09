@@ -42,17 +42,33 @@ function followupAgentOptions() {
 function followupCustomerOptions() {
   const source = state.customers.items?.length ? state.customers.items : leadRows.slice(0, 5).map((item, index) => ({ id: `customer_${String(index + 1).padStart(3, '0')}`, full_name: item.name, phone: item.meta.split(' · ')[0], assigned_agent_id: index < 2 ? 'usr_003' : 'usr_002' }));
   const items = state.role === 'SALES_AGENT' ? source.filter(item => item.assigned_agent_id === state.authUser?.id) : source;
-  return items.map(item => `<option value="${item.id}">${item.full_name} · ${item.phone || ''}</option>`).join('');
+  const prefill = state.followupPrefill || {};
+  const selectedCustomer = prefill.customer_id && !items.some(item => item.id === prefill.customer_id)
+    ? [{ id: prefill.customer_id, full_name: 'Selected customer', phone: '' }, ...items]
+    : items;
+  return selectedCustomer.map(item => `<option value="${item.id}" ${item.id === prefill.customer_id ? 'selected' : ''}>${item.full_name} · ${item.phone || ''}</option>`).join('');
 }
 
 function followupLeadOptions() {
   const leads = state.leads?.items?.length ? state.leads.items : leadRows.slice(0, 5).map((item, index) => ({ id: `lead_${String(index + 1).padStart(3, '0')}`, full_name: item.name }));
-  return `<option value="">No linked lead</option>${leads.map(item => `<option value="${item.id}">${item.full_name}</option>`).join('')}`;
+  const selectedLead = state.followupPrefill?.lead_id || '';
+  return `<option value="">No linked lead</option>${leads.map(item => `<option value="${item.id}" ${item.id === selectedLead ? 'selected' : ''}>${item.full_name}</option>`).join('')}`;
 }
 
 function renderCreateFollowupDrawer() {
-  return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">New commitment</div><h2>Schedule follow-up</h2><p class="page-subtitle">Create a dated next action for a permitted customer.</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><form id="create-followup-form"><div class="drawer-section"><div class="form-grid"><div class="form-field full"><label>Customer</label><select name="customer_id" required>${followupCustomerOptions()}</select></div><div class="form-field"><label>Lead (optional)</label><select name="lead_id">${followupLeadOptions()}</select></div><div class="form-field"><label>Assigned agent</label><select name="assigned_agent_id" ${state.role === 'SALES_AGENT' ? 'disabled' : ''}>${followupAgentOptions()}</select></div><div class="form-field"><label>Type</label><select name="follow_up_type">${followupTypes.map(type => `<option>${type}</option>`).join('')}</select></div><div class="form-field"><label>Priority</label><select name="priority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div class="form-field"><label>Due date</label><input name="due_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" required value="10:00" /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?"></textarea></div></div></div><div class="drawer-section"><button class="btn btn-gold" type="submit">Schedule follow-up</button></div></form></aside>`;
+  const prefill = state.followupPrefill || {};
+  const linkedLead = prefill.lead_id ? (state.leads?.items || []).find(item => item.id === prefill.lead_id) : null;
+  const customerRequired = !prefill.lead_id;
+  return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">New commitment</div><h2>Schedule follow-up</h2><p class="page-subtitle">Create a dated next action with a clear owner, time, and outcome.</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><form id="create-followup-form"><div class="drawer-section"><div class="form-grid"><div class="form-field full"><label>Customer${customerRequired ? ' *' : ''}</label><select name="customer_id" ${customerRequired ? 'required' : ''}>${customerRequired ? '<option value="">Choose a customer</option>' : '<option value="">Create customer from linked lead</option>'}${followupCustomerOptions()}</select>${!customerRequired ? '<small class="form-hint">The linked lead will be converted into a customer profile automatically if needed.</small>' : ''}</div><div class="form-field"><label>Lead (optional)</label><select name="lead_id">${followupLeadOptions()}</select></div><div class="form-field"><label>Assigned agent</label><select name="assigned_agent_id" ${state.role === 'SALES_AGENT' ? 'disabled' : ''}>${followupAgentOptions()}</select></div><div class="form-field"><label>Type</label><select name="follow_up_type">${followupTypes.map(type => `<option>${type}</option>`).join('')}</select></div><div class="form-field"><label>Priority</label><select name="priority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div class="form-field"><label>Due date</label><input name="due_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" required value="10:00" /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?${linkedLead ? ` For ${linkedLead.full_name}` : ''}"></textarea></div></div></div><div class="drawer-section"><button class="btn btn-gold" type="submit">Schedule follow-up</button></div></form></aside>`;
 }
+
+function openFollowupComposer(prefill = {}) {
+  state.followupPrefill = { ...prefill };
+  state.drawer = 'create-followup';
+  state.followupMode = '';
+  render();
+}
+window.openFollowupComposer = openFollowupComposer;
 
 function renderCustomers() {
   const all = state.customers.items || [];
