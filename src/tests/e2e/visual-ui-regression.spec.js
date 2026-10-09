@@ -20,6 +20,9 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   assert.match(css, /\.table-wrap/);
   assert.match(css, /\.dashboard-chart-tooltip/);
   assert.match(css, /\.dashboard-line-hotspot/);
+  assert.match(css, /\.chat-workspace \{[^}]*height:\s*clamp\(520px/);
+  assert.match(css, /\.chat-workspace \.messages \{[^}]*overflow-y:\s*auto/);
+  assert.match(css, /\.chat-workspace \.chat-compose \{[^}]*flex:\s*0 0 auto/);
   assert.match(foundation, /:focus-visible/);
   assert.match(shell, /renderAccessDenied/);
   assert.match(html, /skip-link/);
