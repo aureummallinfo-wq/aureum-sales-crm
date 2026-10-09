@@ -307,6 +307,21 @@ function dashboardDateBuckets(bounds) {
     }
     return buckets;
   }
+  if (days > 14) {
+    const buckets = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const bucketStart = new Date(cursor);
+      const bucketEnd = new Date(cursor);
+      bucketEnd.setUTCDate(bucketEnd.getUTCDate() + 6);
+      if (bucketEnd > end) bucketEnd.setTime(end.getTime());
+      const startLabel = bucketStart.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+      const endLabel = bucketEnd.toLocaleDateString('en-US', { month: 'short', day: '2-digit', timeZone: 'UTC' });
+      buckets.push({ label: startLabel.slice(0, 4) === endLabel.slice(0, 4) ? `${startLabel}–${endLabel.slice(4)}` : `${startLabel}–${endLabel}`, start: bucketStart, end: bucketEnd });
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+    }
+    return buckets;
+  }
   return Array.from({ length: Math.max(days, 1) }, (_, index) => {
     const date = new Date(start);
     date.setUTCDate(start.getUTCDate() + index);
