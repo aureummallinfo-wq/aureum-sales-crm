@@ -36,3 +36,38 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
   const settings = await api.request('/api/settings/webhooks', { headers: { cookie } });
   assert.equal(settings.response.status, 403);
 });
+
+test('E2E Sales Manager can manage an accessible group created by another leader', async t => {
+  const api = await startApiServer(t);
+  const cookie = await api.login('manager@aureum.com');
+
+  const rename = await api.request('/api/chat/groups/group_bookings', {
+    method: 'PATCH',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ groupName: 'Booking Discussion QA' })
+  });
+  assert.equal(rename.response.status, 200);
+  assert.equal(rename.body.data.groupName, 'Booking Discussion QA');
+
+  const add = await api.request('/api/chat/groups/group_bookings/members', {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ memberIds: ['usr_004'] })
+  });
+  assert.equal(add.response.status, 200);
+  assert.ok(add.body.data.memberIds.includes('usr_004'));
+
+  const remove = await api.request('/api/chat/groups/group_bookings/members/usr_004', {
+    method: 'DELETE',
+    headers: { cookie }
+  });
+  assert.equal(remove.response.status, 200);
+  assert.equal(remove.body.event, 'member_removed');
+
+  const archive = await api.request('/api/chat/groups/group_bookings/archive', {
+    method: 'PATCH',
+    headers: { cookie }
+  });
+  assert.equal(archive.response.status, 200);
+  assert.equal(archive.body.event, 'group_archived');
+});

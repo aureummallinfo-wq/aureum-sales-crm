@@ -120,12 +120,15 @@ function dashboardLineChart(points) {
   const plot = { left: 54, right: 18, top: 18, bottom: 48 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
-  const roughStep = rawMax / 4;
+  // Keep the executive chart legible when a workspace has only a few records.
+  // Tooltips and accessible labels still expose the exact point value.
+  const minimumScale = 60;
+  const roughStep = Math.max(rawMax, minimumScale) / 6;
   const magnitude = 10 ** Math.floor(Math.log10(roughStep || 1));
   const normalizedStep = roughStep / magnitude;
   const stepUnit = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
-  const tickStep = stepUnit * magnitude;
-  const chartMax = Math.max(tickStep, Math.ceil(rawMax / tickStep) * tickStep);
+  const tickStep = Math.max(10, stepUnit * magnitude);
+  const chartMax = Math.max(minimumScale, Math.ceil(rawMax / tickStep) * tickStep);
   const tickValues = Array.from({ length: Math.round(chartMax / tickStep) + 1 }, (_, index) => index * tickStep);
   const formatTick = value => Number.isInteger(value) ? dashboardFormatNumber(value) : value.toFixed(1);
   const xFor = index => plot.left + index * (plotWidth / Math.max(values.length - 1, 1));

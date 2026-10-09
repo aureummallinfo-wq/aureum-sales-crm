@@ -758,9 +758,10 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 }
 
 /* Follow-ups module */
-.followup-summary-grid { margin-bottom: 18px; }
-.followup-summary-card { min-height: 118px; }
-.followup-summary-detail { margin-top: 9px; color: var(--muted); font-size: 10px; }
+.followup-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 18px; }
+.followup-summary-card { min-height: 132px; padding: 20px 22px; display: flex; flex-direction: column; justify-content: space-between; }
+.followup-summary-card .kpi-value { margin: 10px 0 0; line-height: 1; }
+.followup-summary-detail { margin-top: 12px; color: var(--muted); font-size: 10px; line-height: 1.35; }
 .followup-summary-detail.is-hot { color: #a84d3d; }
 .followup-summary-detail.is-warm { color: #a4772d; }
 .followup-summary-detail.is-green { color: #3f795a; }
@@ -816,6 +817,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .followup-history-row span, .followup-history-row small { color: var(--muted); font-size: 10px; }
 
 @media (max-width: 960px) {
+  .followup-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .followup-metrics-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 760px) {
@@ -968,7 +970,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   font-family: "Inter", "DM Sans", sans-serif;
 }
 .app-shell .main, .app-shell .page { background: #0b0b0b; }
-.app-shell .sidebar { background: #101820; border-right: 1px solid rgba(201, 162, 77, .16); }
+.app-shell .sidebar { overflow-x: hidden; overflow-y: auto; background: #101820; border-right: 1px solid rgba(201, 162, 77, .16); }
+.app-shell .nav-list, .app-shell .nav-item { min-width: 0; }
+.app-shell .nav-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .sidebar-soft, .app-shell .nav-item:hover, .app-shell .nav-item.active { background: #151f2a; }
 .app-shell .nav-item { color: #a9a7a5; }
 .app-shell .nav-item.active { color: #f7f3ea; box-shadow: inset 3px 0 0 #c9a24d; }
@@ -1071,6 +1075,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .shared-link:hover { background: rgba(201,162,77,.08); }
 .chat-placeholder { padding: 10px; color: #85898d; border: 1px dashed rgba(201,162,77,.22); border-radius: 8px; font-size: 10px; line-height: 1.5; }
 .chat-info-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+.chat-group-management { margin-top: 18px; padding: 13px; border: 1px solid rgba(201,162,77,.2); border-radius: 9px; background: rgba(21,31,42,.72); }
+.chat-group-management > p { margin: 5px 0 0; color: #85898d; font-size: 10px; line-height: 1.45; }
 .chat-member-manager { display: grid; gap: 7px; margin-top: 15px; padding: 10px; border: 1px solid rgba(201,162,77,.15); border-radius: 8px; background: #151f2a; }
 .chat-member-manager label { display: flex; align-items: center; gap: 6px; color: #c5c6cb; font-size: 10px; }
 .chat-member-manager label small { color: #85898d; }
@@ -1120,6 +1126,13 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .user-menu-link { display: block; width: 100%; padding: 8px 0; color: var(--ink); border: 0; background: transparent; text-align: left; font-size: 11px; cursor: pointer; }
 .user-menu-link:hover { color: var(--gold); }
 .account-module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.account-settings-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; align-items: start; }
+.account-settings-sidebar { position: sticky; top: 92px; display: grid; gap: 4px; padding: 12px; }
+.account-settings-sidebar-title { padding: 7px 11px 10px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.account-settings-tab { display: grid; gap: 3px; padding: 11px; color: var(--muted); border: 0; border-left: 3px solid transparent; border-radius: 7px; background: transparent; text-align: left; cursor: pointer; }
+.account-settings-tab span { color: inherit; font-size: 11px; font-weight: 800; }
+.account-settings-tab small { color: inherit; font-size: 9px; }
+.account-settings-tab:hover, .account-settings-tab:focus-visible { color: var(--ink); border-left-color: var(--gold); background: rgba(201,162,77,.1); outline: 0; }
 .account-module-grid > :first-child, .account-activity-card { grid-column: 1 / -1; }
 .account-readonly-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; grid-column: 1 / -1; }
 .account-readonly-grid > div { padding: 11px; border: 1px solid var(--line); border-radius: 8px; }
@@ -1127,6 +1140,6 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .account-readonly-grid b { font-size: 11px; }
 .account-preference-card { min-width: 0; }
 .account-preference-card .settings-save-bar { margin-top: 18px; }
-@media (max-width: 900px) { .account-module-grid { grid-template-columns: 1fr; } .account-module-grid > :first-child, .account-activity-card { grid-column: auto; } }
+@media (max-width: 900px) { .account-settings-layout { grid-template-columns: 1fr; } .account-settings-sidebar { position: static; display: flex; overflow-x: auto; padding: 8px; } .account-settings-sidebar-title { display: none; } .account-settings-tab { flex: 0 0 145px; border-left: 0; border-bottom: 3px solid transparent; } .account-settings-tab:hover, .account-settings-tab:focus-visible { border-bottom-color: var(--gold); } .account-module-grid { grid-template-columns: 1fr; } .account-module-grid > :first-child, .account-activity-card { grid-column: auto; } }
 @media (max-width: 760px) { .settings-sidebar { display: flex; gap: 5px; overflow-x: auto; padding: 8px; } .settings-sidebar-title { display: none; } .settings-tab { min-width: 150px; border-left: 0; border-bottom: 3px solid transparent; } .settings-tab:hover, .settings-tab.active { border-bottom-color: var(--gold); } .settings-channel-table { min-width: 610px; } .settings-content { overflow: hidden; } .settings-save-bar { align-items: flex-start; flex-direction: column; gap: 10px; } .settings-save-actions { width: 100%; justify-content: flex-end; } }
 @media (max-width: 480px) { .account-readonly-grid { grid-template-columns: 1fr; } .settings-tab { min-width: 132px; } }

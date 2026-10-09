@@ -524,7 +524,7 @@ function chatAttachmentPayload(body) {
 function directKey(first, second) { return [first, second].sort().join(':'); }
 function canMessageUser(user, target) { return Boolean(user && target && user.id !== target.id && (user.role === 'super_admin' || target.team_id === user.team_id)); }
 function canCreateGroup(user) { return Boolean(user && ['super_admin', 'sales_manager'].includes(user.role)); }
-function canManageGroup(user, group) { return Boolean(user && group && (user.role === 'super_admin' || (user.role === 'sales_manager' && group.created_by === user.id))); }
+function canManageGroup(user, group) { return Boolean(user && group && ['super_admin', 'sales_manager'].includes(user.role)); }
 function canAccessGroup(user, group) { return Boolean(user && group && !group.is_archived && group.member_ids.includes(user.id)); }
 function canAddGroupMember(user, target) { return Boolean(user && target && (user.role === 'super_admin' || (user.role === 'sales_manager' && target.team_id === user.team_id))); }
 function groupView(user, group) {
