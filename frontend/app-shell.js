@@ -26,7 +26,7 @@ const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen
 screenForPath['/access-denied'] = 'unauthorized';
 
 async function apiFetch(path, options = {}) {
-  const response = await fetch(path, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  const response = await fetch(path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && state?.authUser && state.screen !== 'login') {
     state.authUser = null;
