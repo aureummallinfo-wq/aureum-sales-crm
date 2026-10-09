@@ -59,7 +59,10 @@ function passwordHash(password, salt = 'aureum-local-demo') {
 const users = [
   { id: 'usr_001', full_name: 'Malik Raza', email: 'admin@aureum.com', phone: '0300-0000001', password_hash: passwordHash('Aureum123!'), role: 'super_admin', team_id: null, status: 'active' },
   { id: 'usr_002', full_name: 'Sales Manager', email: 'manager@aureum.com', phone: '0300-0000002', password_hash: passwordHash('Aureum123!'), role: 'sales_manager', team_id: 'team_a', status: 'active' },
-  { id: 'usr_003', full_name: 'Ali Raza', email: 'advisor@aureum.com', phone: '0300-0000003', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' }
+  { id: 'usr_003', full_name: 'Ali Raza', email: 'advisor@aureum.com', phone: '0300-0000003', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_004', full_name: 'Hamza Khan', email: 'hamza@aureum.com', phone: '0300-0000004', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_005', full_name: 'Sara Ahmed', email: 'sara@aureum.com', phone: '0300-0000005', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_006', full_name: 'Ayesha Noor', email: 'ayesha@aureum.com', phone: '0300-0000006', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'active' }
 ];
 
 let leads = [
@@ -223,6 +226,24 @@ const chatMessages = new Map([
 ]);
 const directMessages = new Map();
 const chatReadReceipts = new Map();
+const groupChats = [
+  { id: 'group_hot_leads', group_name: 'Hot Leads Team', description: 'High-intent opportunities requiring coordinated attention.', created_by: 'usr_002', member_ids: ['usr_001', 'usr_002', 'usr_003', 'usr_004'], is_archived: false, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T10:24:00.000Z' },
+  { id: 'group_followups_today', group_name: 'Today Follow-ups', description: 'Time-sensitive client touchpoints for today.', created_by: 'usr_002', member_ids: ['usr_001', 'usr_002', 'usr_003', 'usr_005'], is_archived: false, created_at: '2026-10-08T08:10:00.000Z', updated_at: '2026-10-08T09:45:00.000Z' },
+  { id: 'group_bookings', group_name: 'Booking Discussion', description: 'Booking readiness, documents, and handoffs.', created_by: 'usr_001', member_ids: ['usr_001', 'usr_002', 'usr_003', 'usr_005'], is_archived: false, created_at: '2026-10-08T08:20:00.000Z', updated_at: '2026-10-08T10:05:00.000Z' }
+];
+const groupMessages = new Map([
+  ['group_hot_leads', [{ id: 'msg_group_hot_1', group_id: 'group_hot_leads', sender_id: 'usr_002', message_text: 'Please keep the high-intent apartment inquiries updated before the afternoon review.', created_at: '2026-10-08T10:15:00.000Z' }]],
+  ['group_followups_today', [{ id: 'msg_group_follow_1', group_id: 'group_followups_today', sender_id: 'usr_003', message_text: 'I have confirmed Ahmed Khan for the 4 PM payment-plan follow-up.', created_at: '2026-10-08T09:45:00.000Z' }]],
+  ['group_bookings', [{ id: 'msg_group_booking_1', group_id: 'group_bookings', sender_id: 'usr_001', message_text: 'Use this group for booking documents and reservation handoffs.', created_at: '2026-10-08T10:05:00.000Z' }]]
+]);
+const chatAttachments = new Map([
+  ['channel_sales', [{ id: 'attachment_sales_1', chat_id: 'channel_sales', message_id: 'msg_sales_2', file_name: 'October-payment-plan.pdf', file_type: 'pdf', file_size: '1.8 MB', uploaded_by: 'usr_002', uploaded_at: '2026-10-08T10:24:00.000Z' }]],
+  ['group_bookings', [{ id: 'attachment_booking_1', chat_id: 'group_bookings', message_id: 'msg_group_booking_1', file_name: 'Booking-checklist.docx', file_type: 'document', file_size: '248 KB', uploaded_by: 'usr_001', uploaded_at: '2026-10-08T10:05:00.000Z' }]]
+]);
+const chatLinks = new Map([
+  ['channel_sales', [{ id: 'link_sales_1', chat_id: 'channel_sales', title: 'Aureum payment plan workspace', url: 'https://aureum.example/internal/payment-plan', shared_by: 'usr_002', shared_at: '2026-10-08T10:24:00.000Z' }]],
+  ['group_hot_leads', [{ id: 'link_hot_1', chat_id: 'group_hot_leads', title: 'Hot lead review board', url: 'https://aureum.example/internal/hot-leads', shared_by: 'usr_002', shared_at: '2026-10-08T10:15:00.000Z' }]]
+]);
 const userActivities = new Map(users.map(user => [user.id, [{ id: `${user.id}_activity_1`, activity_type: 'User profile active', description: `${user.full_name} is available in the Aureum workspace.`, created_at: '2026-10-08T08:00:00.000Z' }]]));
 
 const systemSettings = {
@@ -259,7 +280,17 @@ function canViewChannel(user, channel) { return Boolean(user && (channel.visibil
 function chatUserView(user) { return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: user.status === 'active' }; }
 function chatMessageView(message) { const sender = users.find(user => user.id === message.sender_id); return { ...message, sender: sender ? chatUserView(sender) : { full_name: 'Unknown user', initials: '??' } }; }
 function directKey(first, second) { return [first, second].sort().join(':'); }
-function canMessageUser(user, target) { return Boolean(user && target && (user.role !== 'sales_agent' || target.id !== 'usr_001' || target.team_id === user.team_id)); }
+function canMessageUser(user, target) { return Boolean(user && target && user.id !== target.id); }
+function canCreateGroup(user) { return Boolean(user && ['super_admin', 'sales_manager'].includes(user.role)); }
+function canManageGroup(user, group) { return Boolean(user && group && (user.role === 'super_admin' || (user.role === 'sales_manager' && group.created_by === user.id))); }
+function canAccessGroup(user, group) { return Boolean(user && group && !group.is_archived && group.member_ids.includes(user.id)); }
+function canAddGroupMember(user, target) { return Boolean(user && target && (user.role === 'super_admin' || (user.role === 'sales_manager' && target.team_id === user.team_id))); }
+function groupView(user, group) {
+  const messages = groupMessages.get(group.id) || []; const last = messages[messages.length - 1]; const creator = users.find(item => item.id === group.created_by);
+  return { id: group.id, groupName: group.group_name, description: group.description, createdBy: group.created_by, createdByName: creator?.full_name || 'Aureum user', ownerRole: creator?.role || 'sales_manager', memberIds: [...group.member_ids], members: group.member_ids.map(id => users.find(item => item.id === id)).filter(Boolean).map(chatUserView), isArchived: group.is_archived, createdAt: group.created_at, updatedAt: group.updated_at, lastMessage: last ? { messageId: last.id, senderId: last.sender_id, senderName: users.find(item => item.id === last.sender_id)?.full_name || 'Aureum user', body: last.message_text, messageType: last.message_type || 'text', createdAt: last.created_at } : undefined, unreadCount: 0, canManage: canManageGroup(user, group) };
+}
+function chatAttachmentView(attachment) { const uploader = users.find(item => item.id === attachment.uploaded_by); return { ...attachment, fileName: attachment.file_name, fileType: attachment.file_type, fileSize: attachment.file_size, uploadedBy: attachment.uploaded_by, uploadedByName: uploader?.full_name || 'Aureum user', uploadedAt: attachment.uploaded_at }; }
+function chatLinkView(link) { const sharer = users.find(item => item.id === link.shared_by); return { ...link, sharedBy: link.shared_by, sharedByName: sharer?.full_name || 'Aureum user', sharedAt: link.shared_at }; }
 
 function reportUsersFor(user) { return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id)); }
 function reportRowsFor(user) {
@@ -560,12 +591,66 @@ async function handle(req, res) {
     addCustomerActivity(customer.id, user.id, 'Customer updated', 'Customer profile details updated'); json(res, 200, { data: customerView(customer) }); return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/chat/users') {
+    const user = requireAuth(req, res); if (user) { const visible = user.role === 'sales_manager' ? users.filter(target => target.team_id === user.team_id || target.id === user.id) : users; json(res, 200, { data: visible.filter(target => target.id !== user.id).map(target => ({ ...chatUserView(target), team_id: target.team_id, team_name: target.team_id === 'team_a' ? 'Sales Team A' : target.team_id === 'team_b' ? 'Sales Team B' : 'Leadership' })) }); } return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/chat/groups') {
+    const user = requireAuth(req, res); if (user) json(res, 200, { data: groupChats.filter(group => canAccessGroup(user, group)).map(group => groupView(user, group)) }); return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/chat/groups') {
+    const actor = requireAuth(req, res); if (!actor) return;
+    if (!canCreateGroup(actor)) { json(res, 403, { error: 'Sales Agents cannot create group chats' }); return; }
+    const body = await readBody(req); const groupName = String(body.groupName || '').trim(); const requestedMembers = Array.isArray(body.memberIds) ? body.memberIds : [];
+    if (!groupName) { json(res, 400, { error: 'Group name is required' }); return; }
+    const uniqueMembers = [...new Set([actor.id, ...requestedMembers])]; const selectedUsers = uniqueMembers.map(id => users.find(item => item.id === id));
+    if (selectedUsers.some(item => !item)) { json(res, 400, { error: 'One or more selected users are invalid' }); return; }
+    if (actor.role === 'sales_manager' && selectedUsers.some(item => !canAddGroupMember(actor, item))) { json(res, 403, { error: 'Managers can only add users from their own team' }); return; }
+    const group = { id: `group_${crypto.randomUUID().slice(0, 8)}`, group_name: groupName, description: String(body.description || '').trim(), created_by: actor.id, member_ids: uniqueMembers, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    groupChats.push(group); groupMessages.set(group.id, [{ id: crypto.randomUUID(), group_id: group.id, sender_id: actor.id, message_type: 'system', message_text: `Group created by ${actor.full_name}.`, created_at: new Date().toISOString() }]);
+    addActivityLog(actor.id, 'team_chat_group', group.id, 'Group created', `${group.group_name} created by ${actor.full_name}.`); json(res, 201, { data: groupView(actor, group), event: 'group_created' }); return;
+  }
+  const groupMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)$/);
+  if (groupMatch) {
+    const user = requireAuth(req, res); const group = groupChats.find(item => item.id === groupMatch[1]);
+    if (!user) return;
+    if (!group) { json(res, 404, { error: 'Group chat not found' }); return; }
+    if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
+    if (req.method === 'PATCH') { if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to manage this group' }); return; } const body = await readBody(req); if (body.groupName !== undefined && !String(body.groupName).trim()) { json(res, 400, { error: 'Group name cannot be empty' }); return; } if (body.groupName !== undefined) group.group_name = String(body.groupName).trim(); if (body.description !== undefined) group.description = String(body.description).trim(); group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_updated' }); return; }
+    json(res, 405, { error: 'Method not allowed' }); return;
+  }
+  const groupMembersMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/members(?:\/([^/]+))?$/);
+  if (groupMembersMatch) {
+    const user = requireAuth(req, res); const group = groupChats.find(item => item.id === groupMembersMatch[1]);
+    if (!user) return;
+    if (!group) { json(res, 404, { error: 'Group chat not found' }); return; }
+    if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
+    if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to manage members' }); return; }
+    if (req.method === 'POST') { const body = await readBody(req); const memberIds = Array.isArray(body.memberIds) ? body.memberIds : []; const selectedUsers = memberIds.map(id => users.find(item => item.id === id)); if (selectedUsers.some(item => !item || !canAddGroupMember(user, item))) { json(res, 403, { error: 'One or more members are outside your permitted scope' }); return; } group.member_ids = [...new Set([...group.member_ids, ...memberIds])]; group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'member_added' }); return; }
+    if (req.method === 'DELETE' && groupMembersMatch[2]) { const removeId = groupMembersMatch[2]; if (removeId === group.created_by) { json(res, 400, { error: 'The group owner cannot be removed' }); return; } group.member_ids = group.member_ids.filter(id => id !== removeId); group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'member_removed' }); return; }
+    json(res, 405, { error: 'Method not allowed' }); return;
+  }
+  const groupArchiveMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/archive$/);
+  if (groupArchiveMatch && req.method === 'PATCH') {
+    const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupArchiveMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to archive this group' }); return; } group.is_archived = true; group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_archived' }); return;
+  }
+  const groupMessagesMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/messages$/);
+  if (groupMessagesMatch) {
+    const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupMessagesMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
+    if (req.method === 'GET') { json(res, 200, { data: (groupMessages.get(group.id) || []).map(chatMessageView) }); return; }
+    if (req.method === 'POST') { const body = await readBody(req); if (!body.message_text && !body.attachment_name) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), group_id: group.id, sender_id: user.id, message_type: body.attachment_name ? 'attachment' : 'text', message_text: body.message_text || '', attachment_name: body.attachment_name || '', attachment_url: body.attachment_url || '', created_at: new Date().toISOString() }; groupMessages.set(group.id, [...(groupMessages.get(group.id) || []), message]); group.updated_at = message.created_at; if (message.attachment_name) { const files = chatAttachments.get(group.id) || []; files.push({ id: crypto.randomUUID(), chat_id: group.id, message_id: message.id, file_name: message.attachment_name, file_type: 'other', file_size: body.attachment_size || 'Pending upload', uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(group.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    json(res, 405, { error: 'Method not allowed' }); return;
+  }
+  const chatAssetsMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(attachments|links)$/);
+  if (chatAssetsMatch && req.method === 'GET') {
+    const user = requireAuth(req, res); if (!user) return; const chatId = chatAssetsMatch[1]; const channel = chatChannels.find(item => item.id === chatId); const group = groupChats.find(item => item.id === chatId); if (channel && !canViewChannel(user, channel)) { json(res, 403, { error: 'You do not have access to this channel' }); return; } if (group && !canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; } if (!channel && !group) { json(res, 404, { error: 'Chat not found' }); return; } json(res, 200, { data: chatAssetsMatch[2] === 'attachments' ? (chatAttachments.get(chatId) || []).map(chatAttachmentView) : (chatLinks.get(chatId) || []).map(chatLinkView) }); return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/chat/channels') {
-    const user = requireAuth(req, res); if (user) json(res, 200, { data: chatChannels.filter(channel => canViewChannel(user, channel)).map(channel => ({ ...channel, unread: 0, memberCount: channel.members.length })) }); return;
+    const user = requireAuth(req, res); if (user) { const unread = { channel_general: 0, channel_sales: 4, channel_announcements: 0, channel_followups: 2, channel_bookings: 0, channel_management: 1 }; json(res, 200, { data: chatChannels.filter(channel => canViewChannel(user, channel)).map(channel => ({ ...channel, unread: unread[channel.id] || 0, memberCount: channel.members.length, memberIds: channel.members })) }); } return;
   }
   const chatChannelMessagesMatch = url.pathname.match(/^\/api\/chat\/channels\/([^/]+)\/messages$/);
   if (chatChannelMessagesMatch) {
     const user = requireAuth(req, res); const channel = chatChannels.find(item => item.id === chatChannelMessagesMatch[1]);
+    if (!user) return;
     if (!channel) { json(res, 404, { error: 'Channel not found' }); return; }
     if (!canViewChannel(user, channel)) { json(res, 403, { error: 'Access denied — private channel' }); return; }
     if (req.method === 'GET') { json(res, 200, { data: (chatMessages.get(channel.id) || []).map(chatMessageView) }); return; }
@@ -578,6 +663,7 @@ async function handle(req, res) {
   const directMessagesMatch = url.pathname.match(/^\/api\/chat\/direct\/([^/]+)\/messages$/);
   if (directMessagesMatch) {
     const user = requireAuth(req, res); const target = users.find(item => item.id === directMessagesMatch[1]);
+    if (!user) return;
     if (!target) { json(res, 404, { error: 'User not found' }); return; }
     if (!canMessageUser(user, target)) { json(res, 403, { error: 'Access denied — direct message scope' }); return; }
     const key = directKey(user.id, target.id);
@@ -587,7 +673,7 @@ async function handle(req, res) {
   }
   if (req.method === 'POST' && url.pathname === '/api/chat/attachments') { const user = requireAuth(req, res); if (user) { const body = await readBody(req); if (!body.attachment_name) { json(res, 400, { error: 'Attachment name is required' }); return; } json(res, 201, { data: { id: crypto.randomUUID(), attachment_name: body.attachment_name, attachment_url: body.attachment_url || '', uploaded_by: user.id, created_at: new Date().toISOString() } }); } return; }
   if (req.method === 'PATCH' && url.pathname.match(/^\/api\/chat\/messages\/([^/]+)\/read$/)) { const user = requireAuth(req, res); if (user) json(res, 200, { ok: true, read_at: new Date().toISOString() }); return; }
-  if (req.method === 'GET' && url.pathname === '/api/chat/unread-counts') { const user = requireAuth(req, res); if (user) json(res, 200, { data: { total: 0, channels: {}, direct: {} } }); return; }
+  if (req.method === 'GET' && url.pathname === '/api/chat/unread-counts') { const user = requireAuth(req, res); if (user) { const channels = { channel_general: 0, channel_sales: 4, channel_announcements: 0, channel_followups: 2, channel_bookings: 0, channel_management: user.role === 'sales_agent' ? 0 : 1 }; const direct = {}; const total = Object.values(channels).reduce((sum, value) => sum + value, 0); json(res, 200, { data: { total, channels, direct } }); } return; }
 
   if (req.method === 'GET' && url.pathname === '/api/reports/summary') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const rows = reportRowsFor(user); const totals = rows.reduce((acc, row) => { Object.keys(acc).forEach(key => { acc[key] += Number(row[key]) || 0; }); return acc; }, { assignedLeads: 0, contactedLeads: 0, followUpsDue: 0, followUpsCompleted: 0, overdueFollowUps: 0, closedDeals: 0, lostLeads: 0 }); const totalLeads = totals.assignedLeads; json(res, 200, { scope: user.role === 'super_admin' ? 'company' : 'team', data: { totalAgents: rows.length, activeAgents: rows.filter(row => row.status === 'active').length, inactiveAgents: rows.filter(row => row.status !== 'active').length, totalLeads, ...totals, conversionRate: totalLeads ? Number(((totals.closedDeals / totalLeads) * 100).toFixed(1)) : 0 } }); } return;

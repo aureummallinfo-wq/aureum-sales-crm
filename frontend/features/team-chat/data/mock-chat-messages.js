@@ -1,0 +1,1 @@
+window.AureumMockChatMessages = Object.freeze({ channel_sales: [{ senderId: 'usr_003', body: 'Ahmed Khan requested the payment plan for the 1 Bed Apartment.' }, { senderId: 'usr_002', body: 'I will share the updated schedule before the 4 PM follow-up.' }] });
