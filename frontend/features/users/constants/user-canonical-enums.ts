@@ -1,0 +1,15 @@
+export const CANONICAL_USER_ROLES = ["super_admin", "sales_manager", "sales_agent"] as const;
+export type CanonicalUserRole = typeof CANONICAL_USER_ROLES[number];
+export const CANONICAL_USER_ROLE_LABELS = { super_admin: "Super Admin", sales_manager: "Sales Manager", sales_agent: "Sales Agent" } as const;
+export const CANONICAL_USER_STATUSES = ["Active", "Inactive", "Pending", "Suspended"] as const;
+export type CanonicalUserStatus = typeof CANONICAL_USER_STATUSES[number];
+export const CANONICAL_INVITE_STATUSES = ["Not Sent", "Pending", "Sent", "Accepted", "Expired", "Failed"] as const;
+export type CanonicalInviteStatus = typeof CANONICAL_INVITE_STATUSES[number];
+export const CANONICAL_USER_ACTIVITY_STATUSES = ["Online", "Offline", "Away"] as const;
+export type CanonicalUserActivityStatus = typeof CANONICAL_USER_ACTIVITY_STATUSES[number];
+export const CANONICAL_LEAD_STATUSES = ["New", "Contacted", "Qualified", "Hot", "Warm", "Cold", "Follow-up", "No Response", "Visit Scheduled", "Visit Completed", "Meeting Scheduled", "Negotiation", "Booking", "Closed Won", "Closed Lost", "Not Interested", "Invalid"] as const;
+export const CANONICAL_CUSTOMER_STATUSES = ["Active", "Hot", "Warm", "Cold", "Follow-up", "Booking Interested", "Closed Won", "Closed Lost", "Not Interested"] as const;
+export const CANONICAL_FOLLOW_UP_STATUSES = ["Pending", "Completed", "Overdue", "Missed", "Rescheduled", "Cancelled"] as const;
+export const CANONICAL_LEAD_SOURCES = ["Website", "WhatsApp", "Facebook", "Sales Partner", "Walk-in", "Referral", "Manual Entry"] as const;
+export const MANAGEABLE_USER_ROLES = ["sales_manager", "sales_agent"] as const;
+export type ManageableUserRole = typeof MANAGEABLE_USER_ROLES[number];

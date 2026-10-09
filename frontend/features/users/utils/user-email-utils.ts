@@ -1,0 +1,1 @@
+export function buildAccessEmailPreview(user: { fullName: string; email: string }, temporaryPassword: string): string { return `Your Aureum Sales CRM access for ${user.fullName} (${user.email}) is ready. Temporary password: ${temporaryPassword}`; }

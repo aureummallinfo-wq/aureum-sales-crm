@@ -11,8 +11,8 @@ const sessions = new Map();
 const loginAttempts = new Map();
 
 const rolePermissions = {
-  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'settings'],
-  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents'],
+  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
+  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
   sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat']
 };
 
@@ -62,8 +62,38 @@ const users = [
   { id: 'usr_003', full_name: 'Ali Raza', email: 'advisor@aureum.com', phone: '0300-0000003', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
   { id: 'usr_004', full_name: 'Hamza Khan', email: 'hamza@aureum.com', phone: '0300-0000004', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
   { id: 'usr_005', full_name: 'Sara Ahmed', email: 'sara@aureum.com', phone: '0300-0000005', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
-  { id: 'usr_006', full_name: 'Ayesha Noor', email: 'ayesha@aureum.com', phone: '0300-0000006', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'active' }
+  { id: 'usr_006', full_name: 'Ayesha Noor', email: 'ayesha@aureum.com', phone: '0300-0000006', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'active' },
+  { id: 'usr_007', full_name: 'Hassan Ahmed', email: 'hassan@aureum.com', phone: '0300-0000007', password_hash: passwordHash('Aureum123!'), role: 'sales_manager', team_id: 'team_b', status: 'active' },
+  { id: 'usr_008', full_name: 'Noor Fatima', email: 'noor@aureum.com', phone: '0300-0000008', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'pending', must_change_password: true, has_temporary_password: true, temporary_password_expires_at: '2026-10-11T08:00:00.000Z' }
 ];
+
+const CRM_TIMEZONE = 'Asia/Karachi';
+const USER_INVITE_STATUSES = ['Not Sent', 'Pending', 'Sent', 'Accepted', 'Expired', 'Failed'];
+const USER_ACTIVITY_STATUSES = ['Online', 'Offline', 'Away'];
+const USER_STATUS_LABELS = { active: 'Active', inactive: 'Inactive', pending: 'Pending', suspended: 'Suspended' };
+const USER_ROLE_LABELS = { super_admin: 'Super Admin', sales_manager: 'Sales Manager', sales_agent: 'Sales Agent' };
+const teams = [
+  { id: 'team_a', name: 'Sales Team A', description: 'Primary Lahore sales desk', manager_id: 'usr_002' },
+  { id: 'team_b', name: 'Sales Team B', description: 'Expansion and partner sales desk', manager_id: 'usr_007' }
+];
+const userInvites = new Map();
+const userAuditLogs = new Map();
+users.forEach((user, index) => {
+  const createdAt = user.created_at || '2026-10-01T08:00:00.000Z';
+  user.created_at = createdAt;
+  user.updated_at = user.updated_at || createdAt;
+  user.invite_status = user.id === 'usr_006' ? 'Expired' : user.id === 'usr_008' ? 'Pending' : index === 1 ? 'Sent' : 'Accepted';
+  user.activity_status = index < 3 ? 'Online' : index === 3 ? 'Away' : 'Offline';
+  user.must_change_password = Boolean(user.must_change_password);
+  user.has_temporary_password = Boolean(user.has_temporary_password);
+  user.temporary_password_expires_at = user.temporary_password_expires_at || undefined;
+  user.access_email_sent_at = user.access_email_sent_at || (user.invite_status === 'Sent' ? '2026-10-08T08:15:00.000Z' : undefined);
+  user.invite_accepted_at = user.invite_status === 'Accepted' ? '2026-10-02T09:00:00.000Z' : undefined;
+  user.last_login_at = user.last_login_at || (index < 5 ? '2026-10-09T07:30:00.000Z' : undefined);
+  user.last_activity_at = user.last_activity_at || user.last_login_at || user.updated_at;
+  user.created_by = user.created_by || 'usr_001';
+  user.created_by_name = user.created_by_name || 'Malik Raza';
+});
 
 let leads = [
   { id: 'lead_001', full_name: 'Ahmed Khan', initials: 'AK', phone: '0321-4829100', whatsapp_number: '0321-4829100', email: 'ahmed@example.com', city: 'Lahore', area: 'Bahria Town', interested_in: '1 Bed Apartment', property_type: 'Apartment', budget: 'PKR 25M', preferred_location: 'Sector C', purpose: 'Investment', buying_timeline: 'Within 30 days', financing_required: false, lead_source: 'Website', status: 'Hot', priority: 'High', tags: ['High Intent', 'Apartment Buyer'], assigned_agent_id: 'usr_003', assigned_agent: 'Ali Raza', assigned_team_id: 'team_a', created_by: 'usr_002', last_contacted_at: 'Today', next_follow_up_at: 'Today · 4:00 PM', created_at: '2026-10-08', updated_at: '2026-10-08' },
@@ -125,6 +155,18 @@ function publicUser(user) {
   const { password_hash, ...safe } = user;
   return safe;
 }
+
+function userTeamName(teamId) { return teams.find(team => team.id === teamId)?.name || ''; }
+function userScopedTo(actor, target) { return Boolean(actor && target && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && target.role === 'sales_agent' && target.team_id === actor.team_id))); }
+function userActivityStatus(user) { return user.activity_status || (user.status !== 'active' ? 'Offline' : 'Online'); }
+function userManagementView(actor, target) {
+  const safe = publicUser(target);
+  return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id), status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
+}
+function userManagementTeams(actor) { return teams.filter(team => actor.role === 'super_admin' || team.id === actor.team_id).map(team => ({ id: team.id, name: team.name, description: team.description, managerId: team.manager_id, managerName: users.find(user => user.id === team.manager_id)?.full_name || '', memberCount: users.filter(user => user.team_id === team.id).length })); }
+function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(4).toString('hex').toUpperCase()}!9`; }
+function temporaryPasswordExpiry() { return new Date(Date.now() + (72 * 60 * 60 * 1000)).toISOString(); }
+function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
 
 function canViewLead(user, lead) {
   if (!user) return false;
@@ -271,6 +313,12 @@ const permissionCatalog = [
 function addActivityLog(actorUserId, entityType, entityId, actionType, description, metadata = {}) {
   activityLogs.unshift({ id: crypto.randomUUID(), actor_user_id: actorUserId, entity_type: entityType, entity_id: entityId, action_type: actionType, description, metadata, created_at: new Date().toISOString() });
 }
+function addUserAudit(targetId, actorId, action, description) { const entry = { id: crypto.randomUUID(), user_id: targetId, action, description, actor_user_id: actorId, actor_name: users.find(user => user.id === actorId)?.full_name || 'Aureum workspace', created_at: new Date().toISOString() }; userAuditLogs.set(targetId, [entry, ...(userAuditLogs.get(targetId) || [])]); addActivityLog(actorId, 'user', targetId, action, description); return entry; }
+function userDetailPayload(actor, target) { return { user: userManagementView(actor, target), auditLogs: (userAuditLogs.get(target.id) || []).map(userAuditView).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }; }
+function normalizeUserStatus(value) { const raw = String(value || '').trim(); return ({ Active: 'active', Inactive: 'inactive', Pending: 'pending', Suspended: 'suspended', active: 'active', inactive: 'inactive', pending: 'pending', suspended: 'suspended' })[raw] || 'active'; }
+function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
+function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_admin' || (actor?.role === 'sales_manager' && (!teamId || teamId === actor.team_id))); }
+function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); userInvites.set(target.id, { userId: target.id, temporaryPassword, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at, temporaryPasswordPreview: temporaryPassword }; }
 function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences } }; }
 function settingSlug(name) { return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
@@ -414,11 +462,12 @@ async function handle(req, res) {
       const user = users.find(item => item.email.toLowerCase() === identifier || item.phone === identifier || (identifier === 'agent@aureum.com' && item.id === 'usr_003'));
       const supplied = passwordHash(String(body.password || ''));
       const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
-      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); json(res, 401, { error: 'Invalid email/phone or password' }); return; }
+      if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
+      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); json(res, 401, { error: user && user.status !== 'active' ? 'This account is not active.' : 'Invalid email/phone or password' }); return; }
       loginAttempts.delete(ip);
       const token = crypto.randomBytes(32).toString('hex');
       sessions.set(token, { userId: user.id, expiresAt: Date.now() + SESSION_TTL });
-      addActivityLog(user.id, 'user', user.id, 'User logged in', `${user.full_name} logged in to the workspace.`);
+      user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
       json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': `aureum_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}` });
     } catch (error) { json(res, 400, { error: error.message }); }
     return;
@@ -449,7 +498,62 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/account/me') {
+    const user = requireAuth(req, res);
+    if (user) json(res, 200, { user: userManagementView(user, user), timezone: CRM_TIMEZONE });
+    return;
+  }
+
+  if (req.method === 'PATCH' && url.pathname === '/api/account/me') {
+    const user = requireAuth(req, res);
+    if (user) { const body = await readBody(req); if (body.fullName !== undefined || body.full_name !== undefined) user.full_name = String(body.fullName || body.full_name).trim(); if (body.phone !== undefined) user.phone = String(body.phone || '').trim(); user.updated_at = new Date().toISOString(); user.last_activity_at = user.updated_at; addUserAudit(user.id, user.id, 'user_updated', 'Personal account profile updated.'); json(res, 200, { user: userManagementView(user, user) }); }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/account/change-password') {
+    const user = requireAuth(req, res);
+    if (user) { const body = await readBody(req); const current = String(body.currentPassword || body.current_password || ''); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (passwordHash(current) !== user.password_hash) { json(res, 400, { error: 'Current password is incorrect.' }); return; } if (next.length < 8 || !/[A-Z]/.test(next) || !/[a-z]/.test(next) || !/[0-9]/.test(next) || !/[^A-Za-z0-9]/.test(next)) { json(res, 400, { error: 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } if (next === current) { json(res, 400, { error: 'New password must be different from current password.' }); return; } user.password_hash = passwordHash(next); user.must_change_password = false; user.has_temporary_password = false; user.temporary_password_expires_at = undefined; user.invite_status = 'Accepted'; user.invite_accepted_at = new Date().toISOString(); user.status = 'active'; user.updated_at = new Date().toISOString(); addUserAudit(user.id, user.id, 'password_changed', 'Password changed successfully.'); json(res, 200, { success: true, message: 'Password changed successfully.', mustChangePassword: false, user: userManagementView(user, user) }); }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/account/force-change-password') {
+    const user = requireAuth(req, res);
+    if (user) { user.must_change_password = true; user.has_temporary_password = true; addUserAudit(user.id, user.id, 'password_reset', 'Password change was required for the current account.'); json(res, 200, { success: true, mustChangePassword: true }); }
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/users/teams') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    if (user) json(res, 200, { data: userManagementTeams(user), timezone: CRM_TIMEZONE });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/users') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    if (user) { const query = String(url.searchParams.get('search') || '').toLowerCase(); const role = url.searchParams.get('role') || ''; const status = url.searchParams.get('status') || ''; const inviteStatus = url.searchParams.get('inviteStatus') || ''; const activityStatus = url.searchParams.get('activityStatus') || ''; const teamId = url.searchParams.get('teamId') || ''; const scoped = users.filter(target => userScopedTo(user, target)); const filtered = scoped.filter(target => (!query || [target.full_name, target.email, target.phone].some(value => String(value || '').toLowerCase().includes(query))) && (!role || target.role === role) && (!status || USER_STATUS_LABELS[target.status] === status || target.status === status.toLowerCase()) && (!inviteStatus || target.invite_status === inviteStatus) && (!activityStatus || userActivityStatus(target) === activityStatus) && (!teamId || target.team_id === teamId)); json(res, 200, { data: filtered.map(target => userManagementView(user, target)), teams: userManagementTeams(user), meta: { total: filtered.length, page: 1, pageSize: filtered.length || 25, totalPages: 1 }, timezone: CRM_TIMEZONE }); }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/users') {
+    const actor = requireRole(req, res, ['super_admin', 'sales_manager']);
+    if (actor) { const body = await readBody(req); const role = String(body.role || 'sales_agent'); const teamId = body.teamId || body.team_id || (actor.role === 'sales_manager' ? actor.team_id : ''); if (!canCreateManagedUser(actor, role)) { json(res, 403, { error: 'You do not have permission to create this user.' }); return; } if (!canManageTeam(actor, teamId)) { json(res, 403, { error: 'Sales Managers can only assign users to their own team.' }); return; } const email = String(body.email || '').trim().toLowerCase(); if (!String(body.fullName || body.full_name || '').trim() || !email) { json(res, 400, { error: 'Full name and email are required.' }); return; } if (users.some(item => item.email === email)) { json(res, 409, { error: 'Email already exists.' }); return; } const now = new Date().toISOString(); const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: String(body.fullName || body.full_name).trim(), email, phone: String(body.phone || '').trim(), password_hash: passwordHash(String(body.temporaryPassword || body.password || generateTemporaryPassword())), role, team_id: teamId || null, status: normalizeUserStatus(body.status || 'Pending'), invite_status: 'Pending', activity_status: 'Offline', must_change_password: body.requirePasswordChangeOnFirstLogin !== false, has_temporary_password: true, temporary_password_expires_at: temporaryPasswordExpiry(), created_by: actor.id, created_by_name: actor.full_name, created_at: now, updated_at: now, last_activity_at: now }; users.push(created); addUserAudit(created.id, actor.id, 'user_created', `${created.full_name} was added to the workspace.`); let emailResult; if (body.sendAccessEmail !== false) emailResult = sendUserAccessEmail(actor, created); json(res, 201, { user: userManagementView(actor, created), email: emailResult || { success: false, status: 'draft', message: 'Access email not requested.' } }); }
+    return;
+  }
+
+  const managedUserMatch = url.pathname.match(/^\/api\/users\/([^/]+)(?:\/(status|send-access-email|resend-access-email|reset-password|audit-log))?$/);
+  if (managedUserMatch) {
+    const actor = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === managedUserMatch[1]); const action = managedUserMatch[2];
+    if (!target) { json(res, 404, { error: 'User not found.' }); return; }
+    if (!userScopedTo(actor, target)) { json(res, 403, { error: 'You do not have permission to manage this user.' }); return; }
+    if (req.method === 'GET' && action === 'audit-log') { json(res, 200, { data: (userAuditLogs.get(target.id) || []).map(userAuditView).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }); return; }
+    if (req.method === 'GET' && !action) { json(res, 200, userDetailPayload(actor, target)); return; }
+    if (req.method === 'POST' && ['send-access-email', 'resend-access-email', 'reset-password'].includes(action)) { json(res, 200, { user: userManagementView(actor, target), email: sendUserAccessEmail(actor, target, action === 'reset-password' ? 'password_reset' : 'access_email_sent') }); return; }
+    if (req.method === 'PATCH' && action === 'status') { const body = await readBody(req); const nextStatus = normalizeUserStatus(body.status); target.status = nextStatus; target.updated_at = new Date().toISOString(); addUserAudit(target.id, actor.id, 'status_changed', `${target.full_name} status changed to ${USER_STATUS_LABELS[nextStatus]}.`); json(res, 200, { user: userManagementView(actor, target) }); return; }
+    if (req.method === 'PATCH' && !action) { const body = await readBody(req); const previousRole = target.role; const previousTeam = target.team_id; const nextRole = body.role || target.role; const nextTeam = body.teamId || body.team_id || target.team_id; if (!canCreateManagedUser(actor, nextRole) || !canManageTeam(actor, nextTeam)) { json(res, 403, { error: 'You do not have permission to apply these user changes.' }); return; } ['fullName', 'full_name', 'phone'].forEach(field => { if (body[field] !== undefined) target[field === 'fullName' ? 'full_name' : field] = String(body[field] || '').trim(); }); target.role = nextRole; target.team_id = nextTeam || null; if (body.status !== undefined) target.status = normalizeUserStatus(body.status); target.updated_at = new Date().toISOString(); if (previousRole !== target.role) addUserAudit(target.id, actor.id, 'role_changed', `${target.full_name} role changed to ${USER_ROLE_LABELS[target.role]}.`); if (previousTeam !== target.team_id) addUserAudit(target.id, actor.id, 'team_changed', `${target.full_name} team assignment changed.`); addUserAudit(target.id, actor.id, 'user_updated', `${target.full_name} profile was updated.`); json(res, 200, { user: userManagementView(actor, target) }); return; }
+    json(res, 405, { error: 'Method not allowed.' }); return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/users/me') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) json(res, 200, { users: users.filter(item => user.role === 'super_admin' || item.team_id === user.team_id).map(publicUser) });
     return;

@@ -1,0 +1,1 @@
+export const mockUsers = [{ id: "usr_001", fullName: "Malik Raza", role: "super_admin", status: "Active" }, { id: "usr_002", fullName: "Sales Manager", role: "sales_manager", status: "Active" }, { id: "usr_003", fullName: "Ali Raza", role: "sales_agent", status: "Active" }] as const;

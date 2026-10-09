@@ -1,0 +1,1 @@
+export function getChatUsersFromCrmUsers<T>(users: T[]): T[] { return users; } export function getUserPresenceForChat<T extends { activityStatus?: string }>(user: T): string { return user.activityStatus || "Offline"; }

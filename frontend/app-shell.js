@@ -15,9 +15,12 @@ const routePermissions = {
   'team-chat': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   reports: ['SUPER_ADMIN', 'SALES_MANAGER'],
   agents: ['SUPER_ADMIN', 'SALES_MANAGER'],
+  users: ['SUPER_ADMIN', 'SALES_MANAGER'],
+  'my-account': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
+  'change-password': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   settings: ['SUPER_ADMIN']
 };
-const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', 'team-chat': '/team-chat', reports: '/reports', agents: '/agents', settings: '/settings' };
+const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', 'team-chat': '/team-chat', reports: '/reports', agents: '/users', 'my-account': '/my-account', 'change-password': '/change-password', settings: '/settings' };
 const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen, path]) => [path, screen]));
 
 async function apiFetch(path, options = {}) {
@@ -68,9 +71,9 @@ const state = {
 
 const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Agent' };
 const navByRole = {
-  SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Agents', 'agents'], ['settings', 'Settings', 'settings']],
-  SALES_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Agents', 'agents']],
-  SALES_AGENT: [['dashboard', 'Dashboard', 'dashboard'], ['my-leads', 'My Leads', 'leads'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat']]
+  SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users'], ['settings', 'Settings', 'settings']],
+  SALES_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users']],
+  SALES_AGENT: [['dashboard', 'Dashboard', 'dashboard'], ['my-leads', 'My Leads', 'leads'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['team-chat', 'Team Chat', 'chat'], ['my-account', 'My Account', 'users']]
 };
 
 function badge(status) {
@@ -117,7 +120,7 @@ function layout(content) {
   return `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">A</div><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav><div class="sidebar-footer"><div class="secure-note"><i class="secure-dot"></i><span>Secure workspace<br/>Live sync enabled</span></div></div></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input placeholder="Search CRM" aria-label="Search CRM" /></div><div class="live-pill"><i></i> Sales HQ online</div><button class="icon-btn" aria-label="Notifications">${icons.bell}</button><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${state.toast}</div>` : ''}</div>`;
 }
 
-function screenLabel(screen) { return ({dashboard: 'Dashboard', leads: 'All Leads', 'my-leads': 'My Leads', 'add-lead': 'Add New Lead', customers: 'Customers', 'follow-ups': 'Follow-ups', 'team-chat': 'Team Chat', reports: 'Reports', agents: 'Agents', settings: 'Settings', unauthorized: 'Access Denied'})[screen] || 'Dashboard'; }
+function screenLabel(screen) { return ({dashboard: 'Dashboard', leads: 'All Leads', 'my-leads': 'My Leads', 'add-lead': 'Add New Lead', customers: 'Customers', 'follow-ups': 'Follow-ups', 'team-chat': 'Team Chat', reports: 'Reports', agents: 'Users', users: 'Users', 'my-account': 'My Account', 'change-password': 'Change Password', settings: 'Settings', unauthorized: 'Access Denied'})[screen] || 'Dashboard'; }
 
 function pageHeader(eyebrow, title, subtitle, actions = '') { return `<div class="page-header"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p class="page-subtitle">${subtitle}</p></div><div class="header-actions">${actions}</div></div>`; }
 

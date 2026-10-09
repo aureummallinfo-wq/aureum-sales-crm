@@ -1,0 +1,2 @@
+import type { CrmUser, UserFilters } from "../types/user.types";
+export function filterUsers(users: CrmUser[], filters: UserFilters): CrmUser[] { const q = (filters.search || "").toLowerCase(); return users.filter(user => (!q || [user.fullName, user.email, user.phone].some(value => String(value || "").toLowerCase().includes(q))) && (!filters.role || filters.role === "All" || user.role === filters.role) && (!filters.status || filters.status === "All" || user.status === filters.status)); }

@@ -10,8 +10,8 @@ state.dashboardCustomStart = state.dashboardCustomStart || '';
 state.dashboardCustomEnd = state.dashboardCustomEnd || '';
 
 const dashboardRoleConfig = {
-  SUPER_ADMIN: { role: 'super_admin', scope: 'company', scopeLabel: 'Company-wide data', welcome: 'Welcome back, Super Admin', welcomeCopy: 'Track company-wide leads, follow-ups, agents, and sales performance.', quickActions: [['leads', 'View All Leads'], ['reports', 'View Reports'], ['agents', 'Manage Agents'], ['follow-ups', 'View Follow-ups']] },
-  SALES_MANAGER: { role: 'sales_manager', scope: 'team', scopeLabel: 'Team data', welcome: 'Welcome back, Sales Manager', welcomeCopy: 'Monitor team leads, follow-ups, agents, and sales progress.', quickActions: [['add-lead', 'Add New Lead'], ['leads', 'View All Leads'], ['follow-ups', 'View Follow-ups'], ['reports', 'View Reports'], ['agents', 'View Agents']] },
+  SUPER_ADMIN: { role: 'super_admin', scope: 'company', scopeLabel: 'Company-wide data', welcome: 'Welcome back, Super Admin', welcomeCopy: 'Track company-wide leads, follow-ups, users, and sales performance.', quickActions: [['leads', 'View All Leads'], ['reports', 'View Reports'], ['agents', 'Manage Users'], ['follow-ups', 'View Follow-ups']] },
+  SALES_MANAGER: { role: 'sales_manager', scope: 'team', scopeLabel: 'Team data', welcome: 'Welcome back, Sales Manager', welcomeCopy: 'Monitor team leads, follow-ups, users, and sales progress.', quickActions: [['add-lead', 'Add New Lead'], ['leads', 'View All Leads'], ['follow-ups', 'View Follow-ups'], ['reports', 'View Reports'], ['agents', 'View Users']] },
   SALES_AGENT: { role: 'sales_agent', scope: 'own', scopeLabel: 'My data only', welcome: 'Welcome back, Sales Agent', welcomeCopy: 'Manage your assigned leads, customers, and follow-ups for today.', quickActions: [['my-leads', 'View My Leads'], ['follow-ups', 'View Follow-ups'], ['customers', 'Open Customers'], ['team-chat', 'Team Chat']] }
 };
 

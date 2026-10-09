@@ -1,0 +1,1 @@
+import type { UserReportSummary } from "../types/user-integration.types"; export function getUsersForReports(): UserReportSummary[] { return []; } export function getUserWorkloadForReports(): UserReportSummary[] { return []; } export function getUserStatusSummaryForReports(): Record<string, number> { return {}; }

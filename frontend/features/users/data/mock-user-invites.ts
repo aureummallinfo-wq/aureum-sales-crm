@@ -1,0 +1,1 @@
+export const mockUserInvites = [{ userId: "usr_002", status: "Sent", expiresAt: "2026-10-12T08:00:00.000Z" }, { userId: "usr_008", status: "Pending", expiresAt: "2026-10-11T08:00:00.000Z" }] as const;

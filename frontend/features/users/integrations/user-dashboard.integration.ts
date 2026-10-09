@@ -1,0 +1,1 @@
+export function getUserSummaryForDashboard(users: Array<{ status: string }>): { total: number; active: number } { return { total: users.length, active: users.filter(user => user.status === "Active").length }; } export function getActiveUsersForDashboard<T extends { status: string }>(users: T[]): T[] { return users.filter(user => user.status === "Active"); }
