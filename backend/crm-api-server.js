@@ -9,6 +9,7 @@ const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
+const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173,https://aureum-sales-crm.vercel.app,https://aureum-sales-crm-web.vercel.app,https://aureum-sales-crm-frontend.vercel.app').split(',').map(value => value.trim()).filter(Boolean));
 const loginAttempts = new Map();
 const webhookRateLimits = new Map();
 const webhookConnections = [];
@@ -504,7 +505,7 @@ function reportResponseFor(user, searchParams = new URLSearchParams()) {
 function reportAgentDetailFor(user, agentId, searchParams) { const response = reportResponseFor(user, new URLSearchParams([...searchParams.entries(), ['agentId', agentId]])); const agent = response.agentReports.find(item => item.agentId === agentId); if (!agent) return null; const leadRows = leads.filter(item => item.assigned_agent_id === agentId && reportInRange(item.created_at || item.updated_at, reportDateBounds(Object.fromEntries(searchParams.entries())))).map(item => ({ leadId: item.id, leadName: item.full_name, phone: item.phone, interestedIn: item.interested_in, leadSource: item.lead_source, status: item.status, createdAt: item.created_at, lastContactedAt: item.last_contacted_at, nextFollowUpAt: item.next_follow_up_at })); const customerRows = customers.filter(item => item.assigned_agent_id === agentId).map(item => ({ customerId: item.id, customerName: item.full_name, phone: item.phone, interestedIn: item.interested_in, customerStatus: item.customer_status, budget: item.budget, lastActivityAt: item.updated_at, nextFollowUpAt: item.next_follow_up_at })); const followUpRows = followUps.filter(item => item.assigned_agent_id === agentId).map(item => ({ followUpId: item.id, customerName: item.customer_name, followUpType: item.follow_up_type, dueDate: item.due_date, dueTime: item.due_time, priority: item.priority, status: item.status, completedAt: item.completed_at })); const activity = (userActivities.get(agentId) || []).map(item => ({ id: item.id, agentId, activityType: 'status_changed', description: item.description, createdAt: item.created_at })); return { agent, overview: { assignedLeads: agent.assignedLeads, contactedLeads: agent.contactedLeads, hotLeads: agent.hotLeads, followUpsCompleted: agent.followUpsCompleted, overdueFollowUps: agent.overdueFollowUps, customersHandled: agent.totalCustomers, closedDeals: agent.closedDeals, lostLeads: agent.lostLeads, conversionRate: agent.conversionRate }, leads: leadRows, customers: customerRows, followUps: followUpRows, activity }; }
 
 function json(res, status, payload, headers = {}) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...headers });
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...corsHeaders(res.__aureumRequest), ...headers });
   res.end(JSON.stringify(payload));
 }
 
@@ -534,7 +535,12 @@ function parseCookies(req) {
 function sessionCookie(req, token, maxAge) {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const secure = req.socket.encrypted || forwardedProto === 'https';
-  return `aureum_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+  const requestOrigin = String(req.headers.origin || '');
+  const requestProtocol = forwardedProto || (req.socket.encrypted ? 'https' : 'http');
+  const requestHostOrigin = `${requestProtocol}://${req.headers.host || 'localhost'}`;
+  const crossOrigin = Boolean(requestOrigin && requestOrigin !== requestHostOrigin);
+  const sameSite = crossOrigin ? 'None' : 'Lax';
+  return `aureum_session=${encodeURIComponent(token)}; HttpOnly; SameSite=${sameSite}; Path=/; Max-Age=${maxAge}${secure || crossOrigin ? '; Secure' : ''}`;
 }
 
 function createSessionToken(userId) {
@@ -563,6 +569,16 @@ function currentUser(req) {
   const session = token ? sessionFromToken(token) : null;
   if (!session) return null;
   return users.find(user => user.id === session.userId) || null;
+}
+
+function isAllowedFrontendOrigin(origin) {
+  return !origin || ALLOWED_FRONTEND_ORIGINS.has(String(origin));
+}
+
+function corsHeaders(req) {
+  const origin = String(req?.headers?.origin || '');
+  if (!origin || !isAllowedFrontendOrigin(origin)) return {};
+  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' };
 }
 
 function requireAuth(req, res) {
@@ -598,12 +614,10 @@ function readBodyLimited(req, limit = 100_000) {
 }
 
 function staticFile(res, pathname) {
-  const relative = pathname === '/' ? path.join('frontend', 'index.html') : pathname.replace(/^\/+/, '');
+  const requestedPath = pathname.replace(/^\/+/, '');
+  const normalizedRequestPath = requestedPath.replace(/[\\/]+/g, path.sep);
+  const relative = pathname === '/' ? path.join('frontend', 'index.html') : (normalizedRequestPath.startsWith(`frontend${path.sep}`) ? normalizedRequestPath : path.join('frontend', normalizedRequestPath));
   const normalizedRelative = relative.replace(/[\\/]+/g, path.sep);
-  if (pathname !== '/' && !normalizedRelative.startsWith(`frontend${path.sep}`)) {
-    if (!path.extname(relative)) { const shell = path.join(ROOT, 'frontend', 'index.html'); res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }); fs.createReadStream(shell).pipe(res); return; }
-    res.writeHead(404); res.end('Not found'); return;
-  }
   const filePath = path.resolve(ROOT, normalizedRelative);
   const relativeToRoot = path.relative(ROOT, filePath);
   if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) { res.writeHead(403); res.end('Forbidden'); return; }
@@ -623,12 +637,17 @@ function staticFile(res, pathname) {
 
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  res.__aureumRequest = req;
+  if (req.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
+    if (!isAllowedFrontendOrigin(req.headers.origin)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+    res.writeHead(204, { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Aureum-Webhook-Secret', 'Access-Control-Max-Age': '600' });
+    res.end();
+    return;
+  }
   if (!url.pathname.startsWith('/api/')) { staticFile(res, url.pathname); return; }
   const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
   if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
-    const forwardedProto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
-    const expectedOrigin = `${forwardedProto}://${req.headers.host || 'localhost'}`;
-    if (req.headers.origin !== expectedOrigin) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+    if (!isAllowedFrontendOrigin(req.headers.origin)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
   }
 
   if (isPublicWebhook) {

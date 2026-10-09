@@ -1,4 +1,6 @@
 const app = document.querySelector('#app');
+const API_BASE_URL = String(window.__AUREUM_API_BASE_URL__ || '').replace(/\/+$/, '');
+function apiUrl(path) { if (/^https?:\/\//i.test(path)) return path; const normalized = path.startsWith('/') ? path : `/${path}`; return `${API_BASE_URL}${normalized}`; }
 
 const icons = {
   dashboard: window.AureumUI?.icon('home'), leads: window.AureumUI?.icon('chart'), customers: window.AureumUI?.icon('users'), followups: window.AureumUI?.icon('calendar'), chat: window.AureumUI?.icon('message'), reports: window.AureumUI?.icon('chart'), agents: window.AureumUI?.icon('users'), settings: window.AureumUI?.icon('settings'), search: window.AureumUI?.icon('search'), bell: window.AureumUI?.icon('bell'), plus: window.AureumUI?.icon('plus'), arrow: window.AureumUI?.icon('arrow'), close: window.AureumUI?.icon('close'), lock: '⌑', calendar: window.AureumUI?.icon('calendar'), filter: '≡', phone: window.AureumUI?.icon('phone'), whatsapp: '◉'
@@ -26,7 +28,7 @@ const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen
 screenForPath['/access-denied'] = 'unauthorized';
 
 async function apiFetch(path, options = {}) {
-  const response = await fetch(path, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  const response = await fetch(apiUrl(path), { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && state?.authUser && state.screen !== 'login') {
     state.authUser = null;
