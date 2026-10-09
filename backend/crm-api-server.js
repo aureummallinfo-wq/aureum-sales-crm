@@ -8,7 +8,7 @@ const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeT
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
-const sessions = new Map();
+const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
 const loginAttempts = new Map();
 const webhookRateLimits = new Map();
 const webhookConnections = [];
@@ -537,13 +537,31 @@ function sessionCookie(req, token, maxAge) {
   return `aureum_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 
+function createSessionToken(userId) {
+  const expiresAt = Date.now() + SESSION_TTL;
+  const payload = `${userId}.${expiresAt}.${crypto.randomBytes(16).toString('hex')}`;
+  const signature = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  return `${payload}.${signature}`;
+}
+
+function sessionFromToken(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 4) return null;
+  const [userId, expiresAtText, nonce, signature] = parts;
+  const payload = `${userId}.${expiresAtText}.${nonce}`;
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  const suppliedBuffer = Buffer.from(signature, 'hex');
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  if (suppliedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
+  const expiresAt = Number(expiresAtText);
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
+  return { userId, expiresAt };
+}
+
 function currentUser(req) {
   const token = parseCookies(req).aureum_session;
-  const session = token ? sessions.get(token) : null;
-  if (!session || session.expiresAt < Date.now()) {
-    if (token) sessions.delete(token);
-    return null;
-  }
+  const session = token ? sessionFromToken(token) : null;
+  if (!session) return null;
   return users.find(user => user.id === session.userId) || null;
 }
 
@@ -639,8 +657,7 @@ async function handle(req, res) {
       if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; addActivityLog(user.id, 'security', user.id, 'temporary_password_expired', 'A temporary password login attempt was rejected after expiry.'); json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
       if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: 'Invalid email/phone or password' }); return; }
       loginAttempts.delete(ip);
-      const token = crypto.randomBytes(32).toString('hex');
-      sessions.set(token, { userId: user.id, expiresAt: Date.now() + SESSION_TTL });
+      const token = createSessionToken(user.id);
       user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
       json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
     } catch (error) { json(res, 400, { error: error.message }); }
@@ -648,8 +665,6 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
-    const token = parseCookies(req).aureum_session;
-    if (token) sessions.delete(token);
     json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
     return;
   }
