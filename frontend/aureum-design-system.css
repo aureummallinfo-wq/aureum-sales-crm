@@ -489,6 +489,74 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .dashboard-followup-row > div:last-child { grid-column: 2; justify-self: start; }
 }
 
+/* Module 7 · Reports */
+.report-filter-bar { margin-bottom: 18px; padding: 18px; color: #e5e2e1; border: 1px solid rgba(201,162,77,.18); background: #151f2a; }
+.report-filter-heading, .report-filter-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.report-filter-heading h3, .report-table-card h3 { margin: 4px 0 0; color: #f7f3ea; font-family: "Playfair Display", serif; font-size: 20px; }
+.report-filter-heading .badge { flex: 0 0 auto; }
+.report-filter-grid { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); gap: 10px; margin-top: 17px; }
+.report-filter-grid label { display: grid; gap: 6px; color: #a9a7a5; font-size: 10px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+.report-filter-grid select, .report-filter-grid input { width: 100%; min-height: 36px; padding: 0 10px; color: #f7f3ea; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; outline: 0; background: #101820; font: inherit; font-size: 11px; text-transform: none; }
+.report-filter-grid select:focus, .report-filter-grid input:focus { border-color: rgba(201,162,77,.8); box-shadow: 0 0 0 3px rgba(201,162,77,.12); }
+.report-filter-footer { margin-top: 14px; color: #85898d; font-size: 10px; }
+.report-filter-footer .btn { flex: 0 0 auto; }
+.report-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+.report-metric-card { min-width: 0; padding: 15px; border: 1px solid rgba(201,162,77,.16); border-radius: 10px; background: #151f2a; }
+.report-metric-card .report-metric-label { color: #a9a7a5; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.report-metric-card strong { display: block; margin-top: 9px; color: #f7f3ea; font-family: "Playfair Display", serif; font-size: 26px; line-height: 1; }
+.report-metric-card small { display: block; margin-top: 8px; color: #85898d; font-size: 10px; }
+.report-metric-card.success strong { color: #76b98f; }
+.report-metric-card.warning strong { color: #ebc168; }
+.report-metric-card.danger strong { color: #db8580; }
+.report-metric-card.gold strong { color: #e3c878; }
+.report-table-card { overflow: hidden; margin-bottom: 18px; padding: 0; }
+.report-table-card .table-head { padding: 18px 18px 13px; }
+.report-table-card .table-head p { margin: 7px 0 0; color: #85898d; font-size: 10px; }
+.report-table-card .table-wrap { margin: 0; border-top: 1px solid rgba(201,162,77,.14); border-radius: 0; }
+.report-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.report-section { min-width: 0; padding: 18px; border: 1px solid rgba(201,162,77,.16); border-radius: 10px; background: #151f2a; }
+.report-section h3 { margin: 0; color: #f7f3ea; font-family: "Playfair Display", serif; font-size: 18px; }
+.report-section > p { margin: 6px 0 15px; color: #85898d; font-size: 10px; }
+.report-mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.report-mini-grid .report-metric-card { padding: 12px; background: #101820; }
+.report-mini-grid .report-metric-card strong { font-size: 21px; }
+.report-bars { display: grid; gap: 10px; margin-top: 16px; }
+.report-bar-row { display: grid; grid-template-columns: minmax(85px, 1fr) minmax(90px, 2fr) 40px; align-items: center; gap: 9px; color: #c5c6cb; font-size: 10px; }
+.report-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-bar-track { height: 7px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.09); }
+.report-bar-track span { display: block; height: 100%; min-width: 3px; border-radius: inherit; background: linear-gradient(90deg, #c9a24d, #e3c878); }
+.report-bar-value { color: #e3c878; text-align: right; }
+.report-loading-state { display: grid; place-items: center; min-height: 230px; padding: 22px; color: #a9a7a5; text-align: center; }
+.report-drawer { position: fixed; inset: 0 0 0 auto; z-index: 55; display: flex; flex-direction: column; width: min(760px, 100vw); overflow: auto; padding: 22px; color: #e5e2e1; border-left: 1px solid rgba(201,162,77,.25); background: #101820; box-shadow: -20px 0 60px rgba(0,0,0,.45); }
+.report-drawer > .drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.report-drawer h2 { margin: 4px 0 0; color: #f7f3ea; font-family: "Playfair Display", serif; font-size: 25px; }
+.report-drawer-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.report-drawer-metrics .report-metric-card { padding: 11px; }
+.report-drawer-metrics .report-metric-card strong { font-size: 19px; }
+.report-drawer-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 13px; border-bottom: 1px solid rgba(201,162,77,.18); }
+.report-drawer-tabs .btn { flex: 0 0 auto; }
+.report-detail-table { margin-top: 15px; }
+.report-detail-table table { min-width: 590px; }
+.report-drawer .table-wrap { overflow-x: auto; }
+
+@media (max-width: 1080px) {
+  .report-filter-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .report-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .report-filter-bar { padding: 14px; }
+  .report-filter-heading, .report-filter-footer { align-items: flex-start; flex-direction: column; }
+  .report-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-section-grid { grid-template-columns: 1fr; }
+  .report-drawer { padding: 16px; }
+  .report-drawer-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 440px) {
+  .report-filter-grid, .report-metric-grid, .report-mini-grid { grid-template-columns: 1fr; }
+  .report-metric-grid { gap: 8px; }
+  .report-bar-row { grid-template-columns: minmax(70px, .8fr) minmax(80px, 1.6fr) 32px; gap: 6px; }
+}
+
 /* Leads module: dense enough for pipeline work, calm enough for daily use. */
 .lead-summary-grid { margin-bottom: 18px; }
 .lead-summary-card { min-height: 128px; padding: 18px; }

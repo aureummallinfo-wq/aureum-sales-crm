@@ -1,0 +1,1 @@
+window.AureumReportChartColors = Object.freeze({ gold: '#c9a24d', softGold: '#e3c878', deepBrown: '#2a2118', softBeige: '#efe4d2', success: '#76b98f', warning: '#ebc168', error: '#ffb4ab', muted: '#8e9195' });

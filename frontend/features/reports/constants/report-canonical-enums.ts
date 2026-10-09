@@ -1,0 +1,13 @@
+export const CANONICAL_LEAD_STATUSES = ["New", "Contacted", "Qualified", "Hot", "Warm", "Cold", "Follow-up", "No Response", "Visit Scheduled", "Visit Completed", "Meeting Scheduled", "Negotiation", "Booking", "Closed Won", "Closed Lost", "Not Interested", "Invalid"] as const;
+export type CanonicalLeadStatus = typeof CANONICAL_LEAD_STATUSES[number];
+export const CANONICAL_CUSTOMER_STATUSES = ["Active", "Hot", "Warm", "Cold", "Follow-up", "Booking Interested", "Closed Won", "Closed Lost", "Not Interested"] as const;
+export type CanonicalCustomerStatus = typeof CANONICAL_CUSTOMER_STATUSES[number];
+export const CANONICAL_FOLLOW_UP_STATUSES = ["Pending", "Completed", "Overdue", "Missed", "Rescheduled", "Cancelled"] as const;
+export type CanonicalFollowUpStatus = typeof CANONICAL_FOLLOW_UP_STATUSES[number];
+export const CANONICAL_FOLLOW_UP_TYPES = ["Call", "WhatsApp", "Email", "Payment Plan Follow-up", "Booking Follow-up", "Site Visit Reminder", "General Follow-up"] as const;
+export const CANONICAL_LEAD_SOURCES = ["Website", "WhatsApp", "Facebook", "Sales Partner", "Walk-in", "Referral", "Manual Entry"] as const;
+export const CANONICAL_CONVERSION_STAGES = ["New", "Contacted", "Qualified", "Follow-up", "Negotiation", "Booking", "Closed Won"] as const;
+export const ACTIVE_CUSTOMER_STATUSES: CanonicalCustomerStatus[] = ["Active", "Hot", "Warm", "Follow-up", "Booking Interested"];
+export const CONTACTED_LEAD_STATUSES: CanonicalLeadStatus[] = ["Contacted", "Qualified", "Hot", "Warm", "Cold", "Follow-up", "Visit Scheduled", "Visit Completed", "Meeting Scheduled", "Negotiation", "Booking", "Closed Won", "Closed Lost", "Not Interested"];
+export const CLOSED_WON_LEAD_STATUS: CanonicalLeadStatus = "Closed Won";
+export const CLOSED_LOST_LEAD_STATUS: CanonicalLeadStatus = "Closed Lost";

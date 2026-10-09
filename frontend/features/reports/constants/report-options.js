@@ -1,0 +1,1 @@
+window.AureumReportOptions = Object.freeze({ dateRanges: [['today', 'Today'], ['yesterday', 'Yesterday'], ['this_week', 'This Week'], ['this_month', 'This Month'], ['last_month', 'Last Month'], ['custom', 'Custom Range']], reportTypes: ['Agent-wise Report', 'Lead Report', 'Customer Report', 'Follow-up Report', 'Conversion Report'] });

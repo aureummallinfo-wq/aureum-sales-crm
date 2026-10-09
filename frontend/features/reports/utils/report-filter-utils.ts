@@ -1,0 +1,1 @@
+export function buildReportQuery(params: Record<string, string | undefined>): string { return new URLSearchParams(Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1]))).toString(); }

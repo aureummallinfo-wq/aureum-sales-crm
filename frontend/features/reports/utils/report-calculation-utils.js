@@ -1,0 +1,1 @@
+window.AureumReportCalculationUtils = Object.freeze({ conversionRate: (closedWon, assigned) => assigned ? Number(((closedWon / assigned) * 100).toFixed(1)) : 0, sum: (rows, key) => rows.reduce((total, row) => total + (Number(row[key]) || 0), 0) });
