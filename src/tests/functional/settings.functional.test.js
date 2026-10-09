@@ -1,0 +1,1 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../helpers/security-fixtures'); test('settings functional flow is Super Admin only', () => assert.equal(canAccessRoute('sales_manager', 'settings'), false));

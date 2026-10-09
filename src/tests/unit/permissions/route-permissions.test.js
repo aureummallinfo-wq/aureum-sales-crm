@@ -1,0 +1,2 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../../helpers/security-fixtures');
+test('route permissions deny unknown routes and restricted roles', () => { assert.equal(canAccessRoute('sales_agent', 'reports'), false); assert.equal(canAccessRoute('sales_manager', 'settings'), false); assert.equal(canAccessRoute('super_admin', 'settings'), true); assert.equal(canAccessRoute('unknown', 'dashboard'), false); assert.equal(canAccessRoute('sales_agent', 'unknown'), false); });

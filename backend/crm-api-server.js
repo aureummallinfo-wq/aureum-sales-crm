@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
+const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeText } = require('./security-utils');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
@@ -165,13 +166,12 @@ function userManagementView(actor, target) {
 }
 function userManagementTeams(actor) { return teams.filter(team => actor.role === 'super_admin' || team.id === actor.team_id).map(team => ({ id: team.id, name: team.name, description: team.description, managerId: team.manager_id, managerName: users.find(user => user.id === team.manager_id)?.full_name || '', memberCount: users.filter(user => user.team_id === team.id).length })); }
 function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(4).toString('hex').toUpperCase()}!9`; }
-function temporaryPasswordExpiry() { return new Date(Date.now() + (72 * 60 * 60 * 1000)).toISOString(); }
+function temporaryPasswordExpiry() { return new Date(Date.now() + (Number(systemSettings.security?.temporary_password_expiry_hours) || 72) * 60 * 60 * 1000).toISOString(); }
+function passwordPolicySatisfied(password) { const policy = systemSettings.security || {}; const value = String(password || ''); return value.length >= Math.max(8, Number(policy.minimum_password_length) || 8) && (!policy.require_uppercase || /[A-Z]/.test(value)) && (!policy.require_lowercase || /[a-z]/.test(value)) && (!policy.require_number || /[0-9]/.test(value)) && (!policy.require_special_character || /[^A-Za-z0-9]/.test(value)); }
 function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
 
 function canViewLead(user, lead) {
-  if (!user) return false;
-  if (user.role === 'super_admin' || user.role === 'sales_manager') return true;
-  return lead.assigned_agent_id === user.id;
+  return canViewOwnedRecord(user, lead, 'assigned_agent_id', 'assigned_team_id');
 }
 
 function leadView(lead) {
@@ -325,7 +325,7 @@ function userDetailPayload(actor, target) { return { user: userManagementView(ac
 function normalizeUserStatus(value) { const raw = String(value || '').trim(); return ({ Active: 'active', Inactive: 'inactive', Pending: 'pending', Suspended: 'suspended', active: 'active', inactive: 'inactive', pending: 'pending', suspended: 'suspended' })[raw] || 'active'; }
 function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
 function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_admin' || (actor?.role === 'sales_manager' && (!teamId || teamId === actor.team_id))); }
-function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); userInvites.set(target.id, { userId: target.id, temporaryPassword, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at, temporaryPasswordPreview: temporaryPassword }; }
+function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at }; }
 function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences }, security: { ...systemSettings.security }, emailAccess: { ...systemSettings.email_access } }; }
 function settingSlug(name) { return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
@@ -335,7 +335,7 @@ function canViewChannel(user, channel) { return Boolean(user && (channel.visibil
 function chatUserView(user) { return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: user.status === 'active' }; }
 function chatMessageView(message) { const sender = users.find(user => user.id === message.sender_id); return { ...message, sender: sender ? chatUserView(sender) : { full_name: 'Unknown user', initials: '??' } }; }
 function directKey(first, second) { return [first, second].sort().join(':'); }
-function canMessageUser(user, target) { return Boolean(user && target && user.id !== target.id); }
+function canMessageUser(user, target) { return Boolean(user && target && user.id !== target.id && (user.role === 'super_admin' || target.team_id === user.team_id)); }
 function canCreateGroup(user) { return Boolean(user && ['super_admin', 'sales_manager'].includes(user.role)); }
 function canManageGroup(user, group) { return Boolean(user && group && (user.role === 'super_admin' || (user.role === 'sales_manager' && group.created_by === user.id))); }
 function canAccessGroup(user, group) { return Boolean(user && group && !group.is_archived && group.member_ids.includes(user.id)); }
@@ -393,7 +393,7 @@ function reportResponseFor(user, searchParams = new URLSearchParams()) {
 function reportAgentDetailFor(user, agentId, searchParams) { const response = reportResponseFor(user, new URLSearchParams([...searchParams.entries(), ['agentId', agentId]])); const agent = response.agentReports.find(item => item.agentId === agentId); if (!agent) return null; const leadRows = leads.filter(item => item.assigned_agent_id === agentId && reportInRange(item.created_at || item.updated_at, reportDateBounds(Object.fromEntries(searchParams.entries())))).map(item => ({ leadId: item.id, leadName: item.full_name, phone: item.phone, interestedIn: item.interested_in, leadSource: item.lead_source, status: item.status, createdAt: item.created_at, lastContactedAt: item.last_contacted_at, nextFollowUpAt: item.next_follow_up_at })); const customerRows = customers.filter(item => item.assigned_agent_id === agentId).map(item => ({ customerId: item.id, customerName: item.full_name, phone: item.phone, interestedIn: item.interested_in, customerStatus: item.customer_status, budget: item.budget, lastActivityAt: item.updated_at, nextFollowUpAt: item.next_follow_up_at })); const followUpRows = followUps.filter(item => item.assigned_agent_id === agentId).map(item => ({ followUpId: item.id, customerName: item.customer_name, followUpType: item.follow_up_type, dueDate: item.due_date, dueTime: item.due_time, priority: item.priority, status: item.status, completedAt: item.completed_at })); const activity = (userActivities.get(agentId) || []).map(item => ({ id: item.id, agentId, activityType: 'status_changed', description: item.description, createdAt: item.created_at })); return { agent, overview: { assignedLeads: agent.assignedLeads, contactedLeads: agent.contactedLeads, hotLeads: agent.hotLeads, followUpsCompleted: agent.followUpsCompleted, overdueFollowUps: agent.overdueFollowUps, customersHandled: agent.totalCustomers, closedDeals: agent.closedDeals, lostLeads: agent.lostLeads, conversionRate: agent.conversionRate }, leads: leadRows, customers: customerRows, followUps: followUpRows, activity }; }
 
 function json(res, status, payload, headers = {}) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', ...headers });
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...headers });
   res.end(JSON.stringify(payload));
 }
 
@@ -402,6 +402,12 @@ function parseCookies(req) {
     const index = pair.indexOf('=');
     return [pair.slice(0, index).trim(), decodeURIComponent(pair.slice(index + 1).trim())];
   }));
+}
+
+function sessionCookie(req, token, maxAge) {
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const secure = req.socket.encrypted || forwardedProto === 'https';
+  return `aureum_session=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
 }
 
 function currentUser(req) {
@@ -417,13 +423,15 @@ function currentUser(req) {
 function requireAuth(req, res) {
   const user = currentUser(req);
   if (!user) { json(res, 401, { error: 'Authentication required' }); return null; }
+  const passwordChangeExempt = req.url.startsWith('/api/auth/') || req.url.startsWith('/api/account/');
+  if (user.must_change_password && !passwordChangeExempt) { addActivityLog(user.id, 'security', req.url.split('?')[0], 'password_change_required', 'Workspace access was blocked until the account password is changed.'); json(res, 403, { error: 'Password change required before accessing the workspace.', code: 'PASSWORD_CHANGE_REQUIRED' }); return null; }
   return user;
 }
 
 function requireRole(req, res, allowedRoles) {
   const user = requireAuth(req, res);
   if (!user) return null;
-  if (!allowedRoles.includes(user.role)) { json(res, 403, { error: 'Access denied — insufficient permission' }); return null; }
+  if (!allowedRoles.includes(user.role)) { addActivityLog(user.id, 'security', req.url.split('?')[0], 'access_denied', 'A role-restricted API request was denied.'); json(res, 403, { error: 'Access denied — insufficient permission' }); return null; }
   return user;
 }
 
@@ -438,25 +446,36 @@ function readBody(req) {
 
 function staticFile(res, pathname) {
   const relative = pathname === '/' ? path.join('frontend', 'index.html') : pathname.replace(/^\/+/, '');
-  const filePath = path.resolve(ROOT, relative);
-  if (!filePath.startsWith(path.resolve(ROOT))) { res.writeHead(403); res.end('Forbidden'); return; }
+  const normalizedRelative = relative.replace(/[\\/]+/g, path.sep);
+  if (pathname !== '/' && !normalizedRelative.startsWith(`frontend${path.sep}`)) {
+    if (!path.extname(relative)) { const shell = path.join(ROOT, 'frontend', 'index.html'); res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" }); fs.createReadStream(shell).pipe(res); return; }
+    res.writeHead(404); res.end('Not found'); return;
+  }
+  const filePath = path.resolve(ROOT, normalizedRelative);
+  const relativeToRoot = path.relative(ROOT, filePath);
+  if (relativeToRoot.startsWith('..') || path.isAbsolute(relativeToRoot)) { res.writeHead(403); res.end('Forbidden'); return; }
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     if (!path.extname(filePath)) {
       const shell = path.join(ROOT, 'frontend', 'index.html');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
       fs.createReadStream(shell).pipe(res);
       return;
     }
     res.writeHead(404); res.end('Not found'); return;
   }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.md': 'text/markdown; charset=utf-8' };
-  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin' });
+  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
   fs.createReadStream(filePath).pipe(res);
 }
 
 async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   if (!url.pathname.startsWith('/api/')) { staticFile(res, url.pathname); return; }
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+    const expectedOrigin = `${forwardedProto}://${req.headers.host || 'localhost'}`;
+    if (req.headers.origin !== expectedOrigin) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+  }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/login') {
     try {
@@ -469,13 +488,13 @@ async function handle(req, res) {
       const user = users.find(item => item.email.toLowerCase() === identifier || item.phone === identifier || (identifier === 'agent@aureum.com' && item.id === 'usr_003'));
       const supplied = passwordHash(String(body.password || ''));
       const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
-      if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
-      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); json(res, 401, { error: user && user.status !== 'active' ? 'This account is not active.' : 'Invalid email/phone or password' }); return; }
+      if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; addActivityLog(user.id, 'security', user.id, 'temporary_password_expired', 'A temporary password login attempt was rejected after expiry.'); json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
+      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: user && user.status !== 'active' ? 'This account is not active.' : 'Invalid email/phone or password' }); return; }
       loginAttempts.delete(ip);
       const token = crypto.randomBytes(32).toString('hex');
       sessions.set(token, { userId: user.id, expiresAt: Date.now() + SESSION_TTL });
       user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
-      json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': `aureum_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL / 1000}` });
+      json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
     } catch (error) { json(res, 400, { error: error.message }); }
     return;
   }
@@ -483,7 +502,7 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
     const token = parseCookies(req).aureum_session;
     if (token) sessions.delete(token);
-    json(res, 200, { ok: true }, { 'Set-Cookie': 'aureum_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
+    json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
     return;
   }
 
@@ -520,6 +539,7 @@ async function handle(req, res) {
         if (body.phone !== undefined) user.phone = String(body.phone || '').trim();
         if (body.avatarUrl !== undefined || body.avatar_url !== undefined) user.avatar_url = String((body.avatarUrl ?? body.avatar_url) || '').trim();
         if (!user.full_name) { json(res, 422, { error: 'Full name is required.' }); return; }
+        if (!validatePhone(user.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
         user.updated_at = new Date().toISOString(); user.last_activity_at = user.updated_at;
         addUserAudit(user.id, user.id, 'user_updated', 'Personal profile details updated.');
       }
@@ -571,7 +591,7 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/api/account/change-password') {
     const user = requireAuth(req, res);
-    if (user) { const body = await readBody(req); const current = String(body.currentPassword || body.current_password || ''); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (passwordHash(current) !== user.password_hash) { json(res, 400, { error: 'Current password is incorrect.' }); return; } if (next.length < 8 || !/[A-Z]/.test(next) || !/[a-z]/.test(next) || !/[0-9]/.test(next) || !/[^A-Za-z0-9]/.test(next)) { json(res, 400, { error: 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } if (next === current) { json(res, 400, { error: 'New password must be different from current password.' }); return; } user.password_hash = passwordHash(next); user.must_change_password = false; user.has_temporary_password = false; user.temporary_password_expires_at = undefined; user.invite_status = 'Accepted'; user.invite_accepted_at = new Date().toISOString(); user.status = 'active'; user.updated_at = new Date().toISOString(); addUserAudit(user.id, user.id, 'password_changed', 'Password changed successfully.'); json(res, 200, { success: true, message: 'Password changed successfully.', mustChangePassword: false, user: userManagementView(user, user) }); }
+    if (user) { const body = await readBody(req); const current = String(body.currentPassword || body.current_password || ''); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (passwordHash(current) !== user.password_hash) { json(res, 400, { error: 'Current password is incorrect.' }); return; } if (!passwordPolicySatisfied(next)) { json(res, 400, { error: 'Password does not meet the configured password policy.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } if (next === current) { json(res, 400, { error: 'New password must be different from current password.' }); return; } user.password_hash = passwordHash(next); user.must_change_password = false; user.has_temporary_password = false; user.temporary_password_expires_at = undefined; user.invite_status = 'Accepted'; user.invite_accepted_at = new Date().toISOString(); user.status = 'active'; user.updated_at = new Date().toISOString(); addUserAudit(user.id, user.id, 'password_changed', 'Password changed successfully.'); json(res, 200, { success: true, message: 'Password changed successfully.', mustChangePassword: false, user: userManagementView(user, user) }); }
     return;
   }
 
@@ -595,7 +615,7 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/api/users') {
     const actor = requireRole(req, res, ['super_admin', 'sales_manager']);
-    if (actor) { const body = await readBody(req); const role = String(body.role || 'sales_agent'); const teamId = body.teamId || body.team_id || (actor.role === 'sales_manager' ? actor.team_id : ''); if (!canCreateManagedUser(actor, role)) { json(res, 403, { error: 'You do not have permission to create this user.' }); return; } if (!canManageTeam(actor, teamId)) { json(res, 403, { error: 'Sales Managers can only assign users to their own team.' }); return; } const email = String(body.email || '').trim().toLowerCase(); if (!String(body.fullName || body.full_name || '').trim() || !email) { json(res, 400, { error: 'Full name and email are required.' }); return; } if (users.some(item => item.email === email)) { json(res, 409, { error: 'Email already exists.' }); return; } const now = new Date().toISOString(); const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: String(body.fullName || body.full_name).trim(), email, phone: String(body.phone || '').trim(), password_hash: passwordHash(String(body.temporaryPassword || body.password || generateTemporaryPassword())), role, team_id: teamId || null, status: normalizeUserStatus(body.status || 'Pending'), invite_status: 'Pending', activity_status: 'Offline', must_change_password: body.requirePasswordChangeOnFirstLogin !== false, has_temporary_password: true, temporary_password_expires_at: temporaryPasswordExpiry(), created_by: actor.id, created_by_name: actor.full_name, created_at: now, updated_at: now, last_activity_at: now }; users.push(created); addUserAudit(created.id, actor.id, 'user_created', `${created.full_name} was added to the workspace.`); let emailResult; if (body.sendAccessEmail !== false) emailResult = sendUserAccessEmail(actor, created); json(res, 201, { user: userManagementView(actor, created), email: emailResult || { success: false, status: 'draft', message: 'Access email not requested.' } }); }
+    if (actor) { const body = await readBody(req); const role = String(body.role || 'sales_agent'); const teamId = body.teamId || body.team_id || (actor.role === 'sales_manager' ? actor.team_id : ''); const fullName = safeText(body.fullName || body.full_name, 120); const email = safeText(body.email, 160).toLowerCase(); const phone = safeText(body.phone, 32); const suppliedPassword = String(body.temporaryPassword || body.password || ''); if (!canCreateManagedUser(actor, role)) { json(res, 403, { error: 'You do not have permission to create this user.' }); return; } if (!canManageTeam(actor, teamId)) { json(res, 403, { error: 'Sales Managers can only assign users to their own team.' }); return; } if (!fullName || !validateEmail(email)) { json(res, 400, { error: 'A valid full name and email are required.' }); return; } if (!validatePhone(phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; } if (suppliedPassword && !passwordPolicySatisfied(suppliedPassword)) { json(res, 422, { error: 'Temporary password does not meet the password policy.' }); return; } if (users.some(item => item.email === email)) { json(res, 409, { error: 'Email already exists.' }); return; } const now = new Date().toISOString(); const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: fullName, email, phone, password_hash: passwordHash(suppliedPassword || generateTemporaryPassword()), role, team_id: teamId || null, status: normalizeUserStatus(body.status || 'Pending'), invite_status: 'Pending', activity_status: 'Offline', must_change_password: body.requirePasswordChangeOnFirstLogin !== false, has_temporary_password: true, temporary_password_expires_at: temporaryPasswordExpiry(), created_by: actor.id, created_by_name: actor.full_name, created_at: now, updated_at: now, last_activity_at: now }; users.push(created); addUserAudit(created.id, actor.id, 'user_created', `${created.full_name} was added to the workspace.`); let emailResult; if (body.sendAccessEmail !== false) emailResult = sendUserAccessEmail(actor, created); json(res, 201, { user: userManagementView(actor, created), email: emailResult || { success: false, status: 'draft', message: 'Access email not requested.' } }); }
     return;
   }
 
@@ -640,7 +660,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/leads') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
-      let data = [...leads];
+      let data = leads.filter(lead => canViewLead(user, lead));
       const q = (url.searchParams.get('q') || '').toLowerCase();
       const status = url.searchParams.get('status');
       const source = url.searchParams.get('source');
@@ -676,9 +696,14 @@ async function handle(req, res) {
     if (!lead) { json(res, 404, { error: 'Lead not found' }); return; }
     if (!user || !canViewLead(user, lead)) { if (user) json(res, 403, { error: 'Access denied — lead is outside your ownership scope' }); return; }
     const body = await readBody(req);
-    const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'financing_required', 'lead_source', 'priority', 'next_follow_up_at'];
-    editable.forEach(field => { if (body[field] !== undefined) lead[field] = body[field]; });
-    if (body.tags) lead.tags = body.tags;
+    if (body.email !== undefined && body.email && !validateEmail(body.email)) { json(res, 422, { error: 'Enter a valid email address.' }); return; }
+    if (body.phone !== undefined && !validatePhone(body.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
+    if (body.lead_source !== undefined && !leadSources.some(item => item.name === body.lead_source && item.is_active !== false)) { json(res, 422, { error: 'Invalid lead source.' }); return; }
+    if (body.status !== undefined && !leadStatuses.some(item => item.name === body.status && item.is_active !== false)) { json(res, 422, { error: 'Invalid lead status.' }); return; }
+    const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'lead_source', 'priority', 'next_follow_up_at'];
+    editable.forEach(field => { if (body[field] !== undefined) lead[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
+    if (body.financing_required !== undefined) lead.financing_required = Boolean(body.financing_required);
+    if (body.tags) lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : lead.tags;
     lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, 'Lead updated', 'Lead details updated'); json(res, 200, { data: leadView(lead) }); return;
   }
 
@@ -687,9 +712,13 @@ async function handle(req, res) {
     if (user) {
       try {
         const body = await readBody(req);
-        if (!body.full_name || !body.phone || !body.interested_in) { json(res, 400, { error: 'Full name, phone, and interested in are required' }); return; }
-        const assigned = users.find(item => item.id === body.assigned_agent_id && item.status === 'active');
-        const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: body.full_name, initials: body.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone: body.phone, whatsapp_number: body.whatsapp_number || body.phone, email: body.email || '', city: body.city || '', area: body.area || '', interested_in: body.interested_in, property_type: body.property_type || '', budget: body.budget || '', preferred_location: body.preferred_location || '', purpose: body.purpose || '', buying_timeline: body.buying_timeline || '', financing_required: Boolean(body.financing_required), lead_source: body.lead_source || 'Manual Entry', status: body.status || 'New', priority: body.priority || 'Medium', tags: Array.isArray(body.tags) ? body.tags : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: body.next_follow_up_at || 'Not scheduled', created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
+        const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
+        if (!fullName || !phone || !safeText(body.interested_in, 160)) { json(res, 400, { error: 'Full name, phone, and interested in are required' }); return; }
+        if (!validatePhone(phone) || (email && !validateEmail(email))) { json(res, 422, { error: 'Enter a valid phone number and email address.' }); return; }
+        const assigned = users.find(item => item.id === body.assigned_agent_id && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id));
+        const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
+        if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
+        const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
         leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); json(res, 201, { data: leadView(lead) });
       } catch (error) { json(res, 400, { error: error.message }); }
     }
@@ -706,15 +735,15 @@ async function handle(req, res) {
     if (req.method === 'GET' && action === 'activity') { json(res, 200, { data: leadActivities.get(lead.id) || [] }); return; }
     if (req.method === 'PATCH' && action === 'assign') {
       if (!['super_admin', 'sales_manager'].includes(user.role)) { json(res, 403, { error: 'Only managers can assign leads' }); return; }
-      const body = await readBody(req); const assigned = users.find(item => item.id === body.assigned_agent_id && ['sales_agent', 'sales_manager'].includes(item.role) && item.status === 'active');
-      if (!assigned) { json(res, 400, { error: 'A valid active advisor is required' }); return; }
+      const body = await readBody(req); const assigned = users.find(item => item.id === body.assigned_agent_id && ['sales_agent', 'sales_manager'].includes(item.role) && item.status === 'active' && (user.role === 'super_admin' || item.team_id === user.team_id));
+      if (!assigned) { json(res, 400, { error: 'A valid active advisor from your permitted scope is required' }); return; }
       lead.assigned_agent_id = assigned.id; lead.assigned_agent = assigned.full_name; lead.assigned_team_id = assigned.team_id; lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, 'Lead assigned', `Lead assigned to ${assigned.full_name}`); json(res, 200, { data: leadView(lead) }); return;
     }
     if (req.method === 'PATCH' && action === 'status') {
-      const body = await readBody(req); const oldStatus = lead.status; lead.status = body.status || lead.status; lead.priority = body.priority || lead.priority; lead.updated_at = new Date().toISOString().slice(0, 10); if (oldStatus !== lead.status) addLeadActivity(lead.id, user.id, 'Status changed', `${oldStatus} → ${lead.status}`); json(res, 200, { data: leadView(lead) }); return;
+      const body = await readBody(req); const nextStatus = body.status || lead.status; if (!leadStatuses.some(item => item.name === nextStatus && item.is_active !== false)) { json(res, 422, { error: 'Invalid lead status.' }); return; } const oldStatus = lead.status; lead.status = nextStatus; lead.priority = ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : lead.priority; lead.updated_at = new Date().toISOString().slice(0, 10); if (oldStatus !== lead.status) addLeadActivity(lead.id, user.id, 'Status changed', `${oldStatus} → ${lead.status}`); json(res, 200, { data: leadView(lead) }); return;
     }
     if (req.method === 'POST' && action === 'notes') {
-      const body = await readBody(req); if (!body.note) { json(res, 400, { error: 'Note is required' }); return; } addLeadActivity(lead.id, user.id, 'Note added', body.note); json(res, 201, { data: leadActivities.get(lead.id)[0] }); return;
+      const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) { json(res, 400, { error: 'Note is required' }); return; } addLeadActivity(lead.id, user.id, 'Note added', note); json(res, 201, { data: leadActivities.get(lead.id)[0] }); return;
     }
     if (req.method === 'POST' && action === 'tags') {
       const body = await readBody(req); if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); json(res, 201, { data: leadView(lead) }); return;
@@ -766,7 +795,7 @@ async function handle(req, res) {
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
     if (action === 'timeline' && req.method === 'GET') { json(res, 200, { data: customerActivities.get(customer.id) || [] }); return; }
     if (action === 'notes' && req.method === 'GET') { json(res, 200, { data: customerNotes.get(customer.id) || [] }); return; }
-    if (action === 'notes' && req.method === 'POST') { const body = await readBody(req); if (!body.note) { json(res, 400, { error: 'Note is required' }); return; } const note = { id: crypto.randomUUID(), note: body.note, user_id: user.id, created_at: new Date().toISOString() }; customerNotes.set(customer.id, [note, ...(customerNotes.get(customer.id) || [])]); addCustomerActivity(customer.id, user.id, 'Note added', body.note); json(res, 201, { data: note }); return; }
+    if (action === 'notes' && req.method === 'POST') { const body = await readBody(req); const noteText = safeText(body.note, 2000); if (!noteText) { json(res, 400, { error: 'Note is required' }); return; } const note = { id: crypto.randomUUID(), note: noteText, user_id: user.id, created_at: new Date().toISOString() }; customerNotes.set(customer.id, [note, ...(customerNotes.get(customer.id) || [])]); addCustomerActivity(customer.id, user.id, 'Note added', noteText); json(res, 201, { data: note }); return; }
     if (action === 'follow-ups' && req.method === 'GET') { json(res, 200, { data: customerFollowUps.get(customer.id) || [] }); return; }
     if (action === 'follow-ups' && req.method === 'POST') { const body = await readBody(req); const rawDue = String(body.due_date || ''); const dateMatch = rawDue.match(/\d{4}-\d{2}-\d{2}/); const timeMatch = rawDue.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i); let dueDate = dateMatch?.[0] || new Date().toISOString().slice(0, 10); if (!dateMatch && /tomorrow/i.test(rawDue)) { const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); dueDate = tomorrow.toISOString().slice(0, 10); } const dueTime = timeMatch ? `${String((Number(timeMatch[1]) + (timeMatch[3]?.toUpperCase() === 'PM' && Number(timeMatch[1]) < 12 ? 12 : 0)).toString().padStart(2, '0'))}:${timeMatch[2]}` : '10:00'; const followUp = { id: crypto.randomUUID(), type: body.type || 'Phone call', due_date: body.due_date || 'Not scheduled', agent: customer.assigned_agent, status: 'Pending', note: body.note || '' }; customerFollowUps.set(customer.id, [followUp, ...(customerFollowUps.get(customer.id) || [])]); customer.next_follow_up_at = followUp.due_date; const primary = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: customer.lead_id, created_by: user.id, follow_up_type: body.type || 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: body.priority || 'Medium', status: 'Pending', notes: body.note || '', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; followUps.unshift(primary); followUpActivities.set(primary.id, []); addFollowUpActivity(primary, user.id, 'Follow-up scheduled', `${primary.follow_up_type} · ${primary.due_date} at ${primary.due_time}`); addCustomerActivity(customer.id, user.id, 'Follow-up scheduled', `${followUp.type} · ${followUp.due_date}`); json(res, 201, { data: followUp, followUp: followUpView(primary) }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
@@ -776,13 +805,16 @@ async function handle(req, res) {
     const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerMatch[1]);
     if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
-    const body = await readBody(req); const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'preferred_contact_method', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'financing_required', 'tags'];
-    editable.forEach(field => { if (body[field] !== undefined) customer[field] = body[field]; });
+    const body = await readBody(req); if (body.email !== undefined && body.email && !validateEmail(body.email)) { json(res, 422, { error: 'Enter a valid email address.' }); return; } if (body.phone !== undefined && !validatePhone(body.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
+    const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'preferred_contact_method', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline'];
+    editable.forEach(field => { if (body[field] !== undefined) customer[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
+    if (body.financing_required !== undefined) customer.financing_required = Boolean(body.financing_required);
+    if (Array.isArray(body.tags)) customer.tags = body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10);
     addCustomerActivity(customer.id, user.id, 'Customer updated', 'Customer profile details updated'); json(res, 200, { data: customerView(customer) }); return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/chat/users') {
-    const user = requireAuth(req, res); if (user) { const visible = user.role === 'sales_manager' ? users.filter(target => target.team_id === user.team_id || target.id === user.id) : users; json(res, 200, { data: visible.filter(target => target.id !== user.id).map(target => ({ ...chatUserView(target), team_id: target.team_id, team_name: target.team_id === 'team_a' ? 'Sales Team A' : target.team_id === 'team_b' ? 'Sales Team B' : 'Leadership' })) }); } return;
+    const user = requireAuth(req, res); if (user) { const visible = user.role === 'super_admin' ? users : users.filter(target => target.team_id === user.team_id || target.id === user.id); json(res, 200, { data: visible.filter(target => target.id !== user.id).map(target => ({ ...chatUserView(target), team_id: target.team_id, team_name: target.team_id === 'team_a' ? 'Sales Team A' : target.team_id === 'team_b' ? 'Sales Team B' : 'Leadership' })) }); } return;
   }
   if (req.method === 'GET' && url.pathname === '/api/chat/groups') {
     const user = requireAuth(req, res); if (user) json(res, 200, { data: groupChats.filter(group => canAccessGroup(user, group)).map(group => groupView(user, group)) }); return;
@@ -790,12 +822,12 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/chat/groups') {
     const actor = requireAuth(req, res); if (!actor) return;
     if (!canCreateGroup(actor)) { json(res, 403, { error: 'Sales Agents cannot create group chats' }); return; }
-    const body = await readBody(req); const groupName = String(body.groupName || '').trim(); const requestedMembers = Array.isArray(body.memberIds) ? body.memberIds : [];
+    const body = await readBody(req); const groupName = safeText(body.groupName, 100); const requestedMembers = Array.isArray(body.memberIds) ? body.memberIds.map(id => safeText(id, 80)) : [];
     if (!groupName) { json(res, 400, { error: 'Group name is required' }); return; }
     const uniqueMembers = [...new Set([actor.id, ...requestedMembers])]; const selectedUsers = uniqueMembers.map(id => users.find(item => item.id === id));
     if (selectedUsers.some(item => !item)) { json(res, 400, { error: 'One or more selected users are invalid' }); return; }
     if (actor.role === 'sales_manager' && selectedUsers.some(item => !canAddGroupMember(actor, item))) { json(res, 403, { error: 'Managers can only add users from their own team' }); return; }
-    const group = { id: `group_${crypto.randomUUID().slice(0, 8)}`, group_name: groupName, description: String(body.description || '').trim(), created_by: actor.id, member_ids: uniqueMembers, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    const group = { id: `group_${crypto.randomUUID().slice(0, 8)}`, group_name: groupName, description: safeText(body.description, 500), created_by: actor.id, member_ids: uniqueMembers, is_archived: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
     groupChats.push(group); groupMessages.set(group.id, [{ id: crypto.randomUUID(), group_id: group.id, sender_id: actor.id, message_type: 'system', message_text: `Group created by ${actor.full_name}.`, created_at: new Date().toISOString() }]);
     addActivityLog(actor.id, 'team_chat_group', group.id, 'Group created', `${group.group_name} created by ${actor.full_name}.`); json(res, 201, { data: groupView(actor, group), event: 'group_created' }); return;
   }
@@ -805,7 +837,7 @@ async function handle(req, res) {
     if (!user) return;
     if (!group) { json(res, 404, { error: 'Group chat not found' }); return; }
     if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
-    if (req.method === 'PATCH') { if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to manage this group' }); return; } const body = await readBody(req); if (body.groupName !== undefined && !String(body.groupName).trim()) { json(res, 400, { error: 'Group name cannot be empty' }); return; } if (body.groupName !== undefined) group.group_name = String(body.groupName).trim(); if (body.description !== undefined) group.description = String(body.description).trim(); group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_updated' }); return; }
+    if (req.method === 'PATCH') { if (!canManageGroup(user, group)) { json(res, 403, { error: 'You do not have permission to manage this group' }); return; } const body = await readBody(req); if (body.groupName !== undefined && !safeText(body.groupName, 100)) { json(res, 400, { error: 'Group name cannot be empty' }); return; } if (body.groupName !== undefined) group.group_name = safeText(body.groupName, 100); if (body.description !== undefined) group.description = safeText(body.description, 500); group.updated_at = new Date().toISOString(); json(res, 200, { data: groupView(user, group), event: 'group_updated' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
   const groupMembersMatch = url.pathname.match(/^\/api\/chat\/groups\/([^/]+)\/members(?:\/([^/]+))?$/);
@@ -827,7 +859,7 @@ async function handle(req, res) {
   if (groupMessagesMatch) {
     const user = requireAuth(req, res); if (!user) return; const group = groupChats.find(item => item.id === groupMessagesMatch[1]); if (!group) { json(res, 404, { error: 'Group chat not found' }); return; } if (!canAccessGroup(user, group)) { json(res, 403, { error: 'You do not have access to this group' }); return; }
     if (req.method === 'GET') { json(res, 200, { data: (groupMessages.get(group.id) || []).map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); if (!body.message_text && !body.attachment_name) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), group_id: group.id, sender_id: user.id, message_type: body.attachment_name ? 'attachment' : 'text', message_text: body.message_text || '', attachment_name: body.attachment_name || '', attachment_url: body.attachment_url || '', created_at: new Date().toISOString() }; groupMessages.set(group.id, [...(groupMessages.get(group.id) || []), message]); group.updated_at = message.created_at; if (message.attachment_name) { const files = chatAttachments.get(group.id) || []; files.push({ id: crypto.randomUUID(), chat_id: group.id, message_id: message.id, file_name: message.attachment_name, file_type: 'other', file_size: body.attachment_size || 'Pending upload', uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(group.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), group_id: group.id, sender_id: user.id, message_type: attachmentName ? 'attachment' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString() }; groupMessages.set(group.id, [...(groupMessages.get(group.id) || []), message]); group.updated_at = message.created_at; if (message.attachment_name) { const files = chatAttachments.get(group.id) || []; files.push({ id: crypto.randomUUID(), chat_id: group.id, message_id: message.id, file_name: message.attachment_name, file_type: 'other', file_size: 'Pending upload', uploaded_by: user.id, uploaded_at: message.created_at }); chatAttachments.set(group.id, files); } json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
   const chatAssetsMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(attachments|links)$/);
@@ -844,7 +876,7 @@ async function handle(req, res) {
     if (!channel) { json(res, 404, { error: 'Channel not found' }); return; }
     if (!canViewChannel(user, channel)) { json(res, 403, { error: 'Access denied — private channel' }); return; }
     if (req.method === 'GET') { json(res, 200, { data: (chatMessages.get(channel.id) || []).map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); if (!body.message_text && !body.attachment_name) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), channel_id: channel.id, sender_id: user.id, message_type: body.attachment_name ? 'file' : 'text', message_text: body.message_text || '', attachment_name: body.attachment_name || '', attachment_url: body.attachment_url || '', created_at: new Date().toISOString() }; chatMessages.set(channel.id, [...(chatMessages.get(channel.id) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), channel_id: channel.id, sender_id: user.id, message_type: attachmentName ? 'file' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString() }; chatMessages.set(channel.id, [...(chatMessages.get(channel.id) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
   if (req.method === 'GET' && url.pathname === '/api/chat/direct') {
@@ -858,10 +890,10 @@ async function handle(req, res) {
     if (!canMessageUser(user, target)) { json(res, 403, { error: 'Access denied — direct message scope' }); return; }
     const key = directKey(user.id, target.id);
     if (req.method === 'GET') { const messages = directMessages.get(key) || []; messages.filter(item => item.receiver_id === user.id).forEach(item => { item.read_at = item.read_at || new Date().toISOString(); }); json(res, 200, { data: messages.map(chatMessageView) }); return; }
-    if (req.method === 'POST') { const body = await readBody(req); if (!body.message_text && !body.attachment_name) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), sender_id: user.id, receiver_id: target.id, message_type: body.attachment_name ? 'file' : 'text', message_text: body.message_text || '', attachment_name: body.attachment_name || '', attachment_url: body.attachment_url || '', created_at: new Date().toISOString(), read_at: null }; directMessages.set(key, [...(directMessages.get(key) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
+    if (req.method === 'POST') { const body = await readBody(req); const messageText = safeText(body.message_text, 4000); const attachmentName = safeText(body.attachment_name, 180); if (!messageText && !attachmentName) { json(res, 400, { error: 'Message text or attachment is required' }); return; } const message = { id: crypto.randomUUID(), sender_id: user.id, receiver_id: target.id, message_type: attachmentName ? 'file' : 'text', message_text: messageText, attachment_name: attachmentName, attachment_url: '', created_at: new Date().toISOString(), read_at: null }; directMessages.set(key, [...(directMessages.get(key) || []), message]); json(res, 201, { data: chatMessageView(message), event: 'message:new' }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
-  if (req.method === 'POST' && url.pathname === '/api/chat/attachments') { const user = requireAuth(req, res); if (user) { const body = await readBody(req); if (!body.attachment_name) { json(res, 400, { error: 'Attachment name is required' }); return; } json(res, 201, { data: { id: crypto.randomUUID(), attachment_name: body.attachment_name, attachment_url: body.attachment_url || '', uploaded_by: user.id, created_at: new Date().toISOString() } }); } return; }
+  if (req.method === 'POST' && url.pathname === '/api/chat/attachments') { const user = requireAuth(req, res); if (user) { const body = await readBody(req); const attachmentName = safeText(body.attachment_name, 180); const allowed = /\.(pdf|png|jpe?g|docx?|xlsx?|csv|txt)$/i.test(attachmentName); if (!attachmentName || !allowed) { json(res, 400, { error: 'Attachment name is required and must use an allowed file type.' }); return; } json(res, 201, { data: { id: crypto.randomUUID(), attachment_name: attachmentName, attachment_url: '', uploaded_by: user.id, created_at: new Date().toISOString() } }); } return; }
   if (req.method === 'PATCH' && url.pathname.match(/^\/api\/chat\/messages\/([^/]+)\/read$/)) { const user = requireAuth(req, res); if (user) json(res, 200, { ok: true, read_at: new Date().toISOString() }); return; }
   if (req.method === 'GET' && url.pathname === '/api/chat/unread-counts') { const user = requireAuth(req, res); if (user) { const channels = { channel_general: 0, channel_sales: 4, channel_announcements: 0, channel_followups: 2, channel_bookings: 0, channel_management: user.role === 'sales_agent' ? 0 : 1 }; const direct = {}; const total = Object.values(channels).reduce((sum, value) => sum + value, 0); json(res, 200, { data: { total, channels, direct } }); } return; }
 
@@ -1018,8 +1050,8 @@ async function handle(req, res) {
     if (user.role === 'sales_agent') assigned = users.find(item => item.id === user.id);
     if (!assigned) assigned = users.find(item => item.id === customer.assigned_agent_id);
     if (!assigned || (user.role === 'sales_manager' && assigned.team_id !== user.team_id)) { json(res, 400, { error: 'Choose an active advisor from your permitted team' }); return; }
-    if (!body.due_date || !body.due_time) { json(res, 400, { error: 'Due date and time are required' }); return; }
-    const item = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: body.lead_id || customer.lead_id || null, created_by: user.id, follow_up_type: body.follow_up_type || body.type || 'General Follow-up', due_date: body.due_date, due_time: body.due_time, priority: body.priority || 'Medium', status: 'Pending', notes: body.notes || body.note || '', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: assigned.id, assigned_agent: assigned.full_name, assigned_team_id: assigned.team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 400, { error: 'A valid due date and time are required' }); return; }
+    const item = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: body.lead_id || customer.lead_id || null, created_by: user.id, follow_up_type: safeText(body.follow_up_type || body.type || 'General Follow-up', 80), due_date: body.due_date, due_time: body.due_time, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', status: 'Pending', notes: safeText(body.notes || body.note, 2000), customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: assigned.id, assigned_agent: assigned.full_name, assigned_team_id: assigned.team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
     followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled for ${item.due_date} at ${item.due_time}`); customer.next_follow_up_at = `${item.due_date} · ${item.due_time}`;
     json(res, 201, { data: followUpView(item) }); return;
   }
@@ -1036,7 +1068,7 @@ async function handle(req, res) {
     const user = requireAuth(req, res); const item = findFollowUp(followUpMatch[1]);
     if (!item) { json(res, 404, { error: 'Follow-up not found' }); return; }
     if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
-    const body = await readBody(req); ['follow_up_type', 'due_date', 'due_time', 'priority', 'notes'].forEach(field => { if (body[field] !== undefined) item[field] = body[field]; });
+    const body = await readBody(req); if (body.due_date !== undefined && !validateIsoDate(body.due_date)) { json(res, 422, { error: 'Due date must use YYYY-MM-DD.' }); return; } if (body.due_time !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 422, { error: 'Due time must use HH:MM.' }); return; } ['follow_up_type', 'due_date', 'due_time', 'priority', 'notes'].forEach(field => { if (body[field] !== undefined) item[field] = typeof body[field] === 'string' ? safeText(body[field], field === 'notes' ? 2000 : 120) : body[field]; });
     item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up updated', 'Follow-up details updated'); json(res, 200, { data: followUpView(item) }); return;
   }
   if (followUpActionMatch) {
@@ -1045,11 +1077,11 @@ async function handle(req, res) {
     if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     if (action === 'activity' && req.method === 'GET') { json(res, 200, { data: followUpActivities.get(item.id) || [] }); return; }
     const body = await readBody(req);
-    if (action === 'reschedule' && req.method === 'PATCH') { if (!body.due_date || !body.due_time) { json(res, 400, { error: 'New date and time are required' }); return; } const previous = { fromDate: item.due_date, fromTime: item.due_time, toDate: body.due_date, toTime: body.due_time, reason: body.reason || '' }; item.rescheduled_from_date = item.due_date; item.rescheduled_from_time = item.due_time; item.reschedule_reason = body.reason || ''; item.reschedule_history = [...(item.reschedule_history || []), previous]; item.due_date = body.due_date; item.due_time = body.due_time; item.status = 'Rescheduled'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up rescheduled', body.reason || `Moved to ${item.due_date} at ${item.due_time}`); json(res, 200, { data: followUpView(item) }); return; }
-    if (action === 'complete' && req.method === 'PATCH') { item.status = 'Completed'; item.completed_at = new Date().toISOString(); item.completed_by = user.id; item.completion_note = body.completion_note || body.note || ''; item.customer_response = body.customer_response || ''; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up completed', item.completion_note || 'Follow-up marked as completed'); if (body.next_due_date && body.next_due_time) { item.next_follow_up = { due_date: body.next_due_date, due_time: body.next_due_time }; } json(res, 200, { data: followUpView(item) }); return; }
+    if (action === 'reschedule' && req.method === 'PATCH') { if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 400, { error: 'A valid new date and time are required' }); return; } const previous = { fromDate: item.due_date, fromTime: item.due_time, toDate: body.due_date, toTime: body.due_time, reason: safeText(body.reason, 500) }; item.rescheduled_from_date = item.due_date; item.rescheduled_from_time = item.due_time; item.reschedule_reason = previous.reason; item.reschedule_history = [...(item.reschedule_history || []), previous]; item.due_date = body.due_date; item.due_time = body.due_time; item.status = 'Rescheduled'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up rescheduled', previous.reason || `Moved to ${item.due_date} at ${item.due_time}`); json(res, 200, { data: followUpView(item) }); return; }
+    if (action === 'complete' && req.method === 'PATCH') { item.status = 'Completed'; item.completed_at = new Date().toISOString(); item.completed_by = user.id; item.completion_note = safeText(body.completion_note || body.note, 2000); item.customer_response = safeText(body.customer_response, 1000); item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up completed', item.completion_note || 'Follow-up marked as completed'); if (body.next_due_date && body.next_due_time && validateIsoDate(body.next_due_date) && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.next_due_time))) { item.next_follow_up = { due_date: body.next_due_date, due_time: body.next_due_time }; } json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'missed' && req.method === 'PATCH') { item.status = 'Missed'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up missed', body.reason || 'Follow-up marked as missed'); json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'cancel' && req.method === 'PATCH') { item.status = 'Cancelled'; item.cancelled_at = new Date().toISOString(); item.cancelled_by = user.id; item.cancel_reason = body.reason || ''; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up cancelled', body.reason || 'Follow-up cancelled'); json(res, 200, { data: followUpView(item) }); return; }
-    if (action === 'notes' && req.method === 'POST') { if (!body.note) { json(res, 400, { error: 'Note is required' }); return; } addFollowUpActivity(item, user.id, 'Note added', body.note); item.notes = body.note; item.last_activity = body.note; item.updated_at = new Date().toISOString(); json(res, 201, { data: followUpView(item) }); return; }
+    if (action === 'notes' && req.method === 'POST') { const noteText = safeText(body.note, 2000); if (!noteText) { json(res, 400, { error: 'Note is required' }); return; } addFollowUpActivity(item, user.id, 'Note added', noteText); item.notes = noteText; item.last_activity = noteText; item.updated_at = new Date().toISOString(); json(res, 201, { data: followUpView(item) }); return; }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
 

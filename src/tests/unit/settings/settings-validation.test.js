@@ -1,0 +1,2 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { safeText, validateEmail } = require('../../helpers/security-fixtures');
+test('settings validation accepts valid email and strips control characters', () => { assert.equal(validateEmail('admin@aureum.com'), true); assert.equal(validateEmail('not-an-email'), false); assert.equal(safeText('Aureum\u0000 CRM'), 'Aureum CRM'); });

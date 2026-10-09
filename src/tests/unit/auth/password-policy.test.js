@@ -1,0 +1,2 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { validatePasswordPolicy } = require('../../helpers/security-fixtures');
+test('password policy rejects weak passwords and accepts a compliant password', () => { assert.equal(validatePasswordPolicy('Aureum123!'), true); for (const value of ['', 'password', 'Password1', 'Password!', 'password1!']) assert.equal(validatePasswordPolicy(value), false); });

@@ -1,0 +1,2 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../helpers/security-fixtures');
+test('functional route matrix covers critical role boundaries', () => { const restricted = [['sales_agent', 'all-leads'], ['sales_agent', 'add-lead'], ['sales_agent', 'reports'], ['sales_agent', 'users'], ['sales_agent', 'settings'], ['sales_manager', 'settings']]; restricted.forEach(([role, route]) => assert.equal(canAccessRoute(role, route), false, `${role} must not access ${route}`)); });

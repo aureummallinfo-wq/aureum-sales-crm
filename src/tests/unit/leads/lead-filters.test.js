@@ -1,0 +1,2 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { safeText, validateEmail, validatePhone } = require('../../helpers/security-fixtures');
+test('lead filters and input values are normalized safely', () => { assert.equal(safeText('<script>alert(1)</script>', 12), '<script>aler'); assert.equal(validateEmail('lead@example.com'), true); assert.equal(validatePhone('0300-1234567'), true); });

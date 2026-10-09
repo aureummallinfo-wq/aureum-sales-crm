@@ -1,0 +1,1 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../helpers/security-fixtures'); test('users functional flow denies sales agents', () => assert.equal(canAccessRoute('sales_agent', 'users'), false));

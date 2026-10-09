@@ -1,0 +1,1 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../helpers/security-fixtures'); test('all roles can reach My Account', () => ['super_admin', 'sales_manager', 'sales_agent'].forEach(role => assert.equal(canAccessRoute(role, 'my-account'), true)));

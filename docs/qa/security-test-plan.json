@@ -1,0 +1,1 @@
+{"title":"Security test plan","references":["OWASP Top 10","OWASP ASVS","NIST SSDF"],"controls":["authentication","authorization","IDOR","XSS","CSRF origin validation","safe errors","secure headers","rate limiting","secret handling"],"severity":["Critical","High","Medium","Low"]}

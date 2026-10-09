@@ -1,0 +1,1 @@
+{"title":"Aureum CRM final QA test plan","framework":"Node test runner with Playwright migration path","scope":["authentication","role access","data scoping","module workflows","responsive UI","accessibility"],"status":"ready-for-execution"}

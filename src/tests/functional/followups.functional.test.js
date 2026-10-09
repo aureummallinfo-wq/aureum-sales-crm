@@ -1,0 +1,1 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { validateIsoDate } = require('../helpers/security-fixtures'); test('follow-up functional flow validates due dates', () => assert.equal(validateIsoDate('2026-10-09'), true));

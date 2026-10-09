@@ -1,0 +1,1 @@
+const test = require('node:test'); const assert = require('node:assert/strict'); const { canAccessRoute } = require('../helpers/security-fixtures'); test('lead workflow denies agent all-leads access', () => assert.equal(canAccessRoute('sales_agent', 'all-leads'), false));
