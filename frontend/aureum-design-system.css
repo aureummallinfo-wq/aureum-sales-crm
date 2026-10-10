@@ -32,7 +32,9 @@ button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 
 .app-shell { min-height: 100vh; display: flex; background: var(--cream); }
-.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; width: 250px; padding: 28px 18px 20px; display: flex; flex-direction: column; background: var(--sidebar); color: #fff; }
+.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; width: 250px; padding: 28px 18px 20px; display: flex; flex-direction: column; overflow: hidden; background: var(--sidebar); color: #fff; }
+.sidebar::after { position: absolute; right: -24%; bottom: -2%; z-index: 0; width: 150%; height: 52%; opacity: .09; background: linear-gradient(180deg, rgba(21,21,20,1) 0%, rgba(21,21,20,.3) 30%, rgba(21,21,20,.08) 100%), url('/assets/aureum-mall-design.jpg') center bottom / cover no-repeat; pointer-events: none; content: ""; }
+.sidebar > * { position: relative; z-index: 1; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 12px 30px; }
 .brand-mark { display: grid; place-items: center; width: 38px; height: 38px; color: var(--gold-soft); border: 1px solid rgba(234, 216, 172, .55); border-radius: 50%; font-family: "Playfair Display", serif; font-size: 19px; }
 .brand-mark { color: transparent; border: 0; border-radius: 0; background: url('/assets/aureum-logo.png') center / contain no-repeat; }
