@@ -1336,3 +1336,23 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .app-shell .chat-workspace .chat-compose { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 5px; padding-inline: 7px; }
   .app-shell .chat-workspace .chat-compose .btn { padding-inline: 9px; }
 }
+
+/* Notification panel mobile readability: keep the header visible and give each alert room to wrap. */
+.app-shell .notification-panel { overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #465361 #151f2a; }
+.app-shell .notification-head { position: sticky; top: 0; z-index: 1; background: #151f2a; }
+.app-shell .notification-item { align-items: flex-start; min-height: 68px; }
+.app-shell .notification-item > span:last-child { display: grid; gap: 3px; min-width: 0; line-height: 1.35; }
+.app-shell .notification-item b, .app-shell .notification-item small, .app-shell .notification-item time { overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  .app-shell .notification-panel {
+    position: fixed;
+    top: calc(62px + env(safe-area-inset-top) + 8px);
+    right: 9px;
+    width: min(360px, calc(100vw - 18px));
+    max-height: calc(100dvh - 82px);
+    border-radius: 12px;
+  }
+  .app-shell .notification-head { padding: 13px 14px; }
+  .app-shell .notification-item { min-height: 72px; padding: 12px 13px; }
+  .app-shell .notification-item small { font-size: 10px; line-height: 1.4; }
+}
