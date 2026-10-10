@@ -105,15 +105,21 @@ function bindNotifications9() {
 function bindMobileSidebar9() {
   if (state.mobileSidebarEventsBound) return;
   state.mobileSidebarEventsBound = true;
-  document.addEventListener('click', event => {
-    const target = event.target instanceof Element ? event.target.closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]') : null;
-    if (!target) return;
-    event.preventDefault();
-    event.stopPropagation();
-    state.mobileSidebarOpen = target.matches('[data-mobile-sidebar-toggle]') ? !state.mobileSidebarOpen : false;
-    render();
-  });
+  document.addEventListener('click', handleMobileSidebarClick9, true);
 }
+
+function handleMobileSidebarClick9(event) {
+  const origin = event.target;
+  const target = origin && typeof origin.closest === 'function' ? origin.closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]') : null;
+  if (!target) return;
+  event.preventDefault();
+  event.stopPropagation();
+  state.mobileSidebarOpen = target.matches('[data-mobile-sidebar-toggle]') ? !state.mobileSidebarOpen : false;
+  render();
+}
+
+// Register before the first asynchronous boot/render so the close control works on every screen.
+bindMobileSidebar9();
 
 layout = layout9;
 renderSettings = renderSettings9;
