@@ -1181,7 +1181,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .app-shell .page:has(.chat-workspace) { padding: 0; }
   .app-shell .page:has(.chat-workspace) .chat-workspace { height: calc(100vh - 66px); min-height: calc(100vh - 66px); border-radius: 0; }
   .chat-workspace, .chat-workspace.chat-layout-panel-open { grid-template-columns: 1fr; height: calc(100vh - 210px); min-height: 430px; max-height: none; overflow: hidden; }
-  .chat-workspace .chat-sidebar { position: absolute; inset: 0; z-index: 42; display: none; width: 100%; max-width: none; min-height: 100%; padding: 15px 14px calc(14px + env(safe-area-inset-bottom)); box-shadow: none; background: #0b1116; }
+  .chat-workspace .chat-sidebar { position: absolute; inset: 0; z-index: 50; display: none; width: 100%; max-width: none; min-height: 100%; padding: 15px 14px calc(14px + env(safe-area-inset-bottom)); box-shadow: none; background: #0b1116; }
   .chat-workspace.chat-sidebar-mobile-open .chat-sidebar { display: flex; }
   .chat-mobile-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; color: #f7f3ea; }
   .chat-mobile-sidebar-head > div { display: grid; gap: 3px; }
