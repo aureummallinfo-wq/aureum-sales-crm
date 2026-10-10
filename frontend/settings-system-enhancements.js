@@ -103,8 +103,16 @@ function bindNotifications9() {
 }
 
 function bindMobileSidebar9() {
-  document.querySelectorAll('[data-mobile-sidebar-toggle]').forEach(button => button.addEventListener('click', () => { state.mobileSidebarOpen = !state.mobileSidebarOpen; render(); }));
-  document.querySelectorAll('[data-mobile-sidebar-close]').forEach(button => button.addEventListener('click', () => { state.mobileSidebarOpen = false; render(); }));
+  if (state.mobileSidebarEventsBound) return;
+  state.mobileSidebarEventsBound = true;
+  document.addEventListener('click', event => {
+    const target = event.target instanceof Element ? event.target.closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]') : null;
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.mobileSidebarOpen = target.matches('[data-mobile-sidebar-toggle]') ? !state.mobileSidebarOpen : false;
+    render();
+  });
 }
 
 layout = layout9;
