@@ -993,6 +993,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .card:hover { box-shadow: 0 12px 36px rgba(0, 0, 0, .4), 0 0 1px 1px rgba(201, 162, 77, .24); }
 .app-shell .filter-bar, .app-shell .lead-filter-bar, .app-shell .customer-filter-bar, .app-shell .followup-filter-bar, .app-shell .followup-custom-date-bar { background: rgba(16, 24, 32, .82); border-color: rgba(201, 162, 77, .18); }
 .app-shell .search-box, .app-shell .customer-search-field, .app-shell .select, .app-shell .filter-bar select, .app-shell .form-field input, .app-shell .form-field select, .app-shell .form-field textarea, .app-shell .form-grid input, .app-shell .form-grid select, .app-shell .form-grid textarea { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #151f2a; }
+.app-shell select { color-scheme: dark; }
+.app-shell select option { color: #f7f3ea; background: #151f2a; }
 .app-shell input::placeholder, .app-shell textarea::placeholder { color: rgba(229, 226, 225, .45); }
 .app-shell .search-box svg, .app-shell .top-search svg { color: #c9a24d; }
 .app-shell .tabs, .app-shell .followup-drawer-tabs { border-color: rgba(201, 162, 77, .2); }
