@@ -987,6 +987,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .nav-item { color: #a9a7a5; }
 .app-shell .nav-item.active { color: #f7f3ea; box-shadow: inset 3px 0 0 #c9a24d; }
 .app-shell .topbar { background: rgba(11, 11, 11, .92); border-color: rgba(201, 162, 77, .2); }
+.app-shell .top-search { color: #c9a24d; border-color: rgba(201, 162, 77, .28); background: #151f2a; }
+.app-shell .top-search input { color: #f7f3ea; }
+.app-shell .top-search input::placeholder { color: #a9a7a5; opacity: 1; }
 .app-shell .crumbs, .app-shell .page-header h1, .app-shell h2, .app-shell h3, .app-shell h4, .app-shell .kpi-value, .app-shell .detail-value, .app-shell .section-title h3 { color: #f7f3ea; }
 .app-shell .page-header h1 { font-size: clamp(27px, 2.5vw, 36px); }
 .app-shell .page-header .page-subtitle { font-size: 12px; }
@@ -998,6 +1001,21 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .dashboard-toolbar-meta, .app-shell .dashboard-date-filter label { color: #a9a7a5; }
 .app-shell .dashboard-scope-label { color: #e3c878; }
 .app-shell .dashboard-date-filter select, .app-shell .dashboard-date-filter input { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
+.app-shell .dashboard-stat-card { min-height: 96px; gap: 10px; padding: 12px; }
+.app-shell .dashboard-stat-icon { width: 30px; height: 30px; flex-basis: 30px; font-size: 12px; }
+.app-shell .dashboard-stat-value { margin-top: 5px; font-size: 24px; }
+.app-shell .kpi-card { padding: 15px; }
+.app-shell .kpi-value { margin: 7px 0 5px; font-size: 25px; }
+.app-shell .notification-panel { max-height: min(440px, calc(100vh - 92px)); overflow-y: auto; color: #e5e2e1; border-color: rgba(201, 162, 77, .28); background: #151f2a; box-shadow: 0 18px 42px rgba(0, 0, 0, .5); }
+.app-shell .notification-head { border-color: rgba(201, 162, 77, .2); }
+.app-shell .notification-head b { color: #f7f3ea; }
+.app-shell .notification-head small { color: #a9a7a5; }
+.app-shell .notification-item { padding: 11px 14px; border-color: rgba(201, 162, 77, .16); }
+.app-shell .notification-item > span:last-child { display: block; min-width: 0; flex: 1; line-height: 1.35; }
+.app-shell .notification-item b { display: block; color: #f7f3ea; line-height: 1.25; }
+.app-shell .notification-item small { color: #c5c6cb; font-size: 11px; line-height: 1.35; }
+.app-shell .notification-item time { color: #85898d; line-height: 1.25; }
+.app-shell .notification-item:hover, .app-shell .notification-item.unread { background: #202d3a; }
 .app-shell .search-box, .app-shell .customer-search-field, .app-shell .select, .app-shell .filter-bar select, .app-shell .form-field input, .app-shell .form-field select, .app-shell .form-field textarea, .app-shell .form-grid input, .app-shell .form-grid select, .app-shell .form-grid textarea { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #151f2a; }
 .app-shell select { color-scheme: dark; }
 .app-shell select option { color: #f7f3ea; background: #151f2a; }
