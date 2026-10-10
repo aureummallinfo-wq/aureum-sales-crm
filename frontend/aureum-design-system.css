@@ -951,6 +951,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .sidebar .nav-list { padding-top: 48px; }
   .mobile-sidebar-backdrop { position: fixed; inset: 0; z-index: 30; display: block; background: rgba(24,22,19,.42); backdrop-filter: blur(2px); }
   .main, .main { width: 100%; margin-left: 0; }
+  .app-shell .sidebar { overflow-y: auto; }
 }
 
 /* Stitch visual language: midnight workspace, warm ivory typography, and champagne hierarchy. */
@@ -979,7 +980,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   font-family: "Inter", "DM Sans", sans-serif;
 }
 .app-shell .main, .app-shell .page { background: #0b0b0b; }
-.app-shell .sidebar { overflow-x: hidden; overflow-y: auto; background: #101820; border-right: 1px solid rgba(201, 162, 77, .16); }
+.app-shell .sidebar { overflow-x: hidden; overflow-y: hidden; background: #101820; border-right: 1px solid rgba(201, 162, 77, .16); }
 .app-shell .nav-list, .app-shell .nav-item { min-width: 0; }
 .app-shell .nav-item span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-shell .sidebar-soft, .app-shell .nav-item:hover, .app-shell .nav-item.active { background: #151f2a; }
