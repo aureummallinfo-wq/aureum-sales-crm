@@ -134,7 +134,7 @@
 
   layout = layoutModule9; renderSettings9 = renderSettingsModule9; renderSettings = renderSettingsModule9; renderMyAccount = renderMyAccountModule9; renderChangePassword = renderChangePasswordModule9; loadSettings9 = loadSettingsModule9; loadAccount = loadAccountModule9;
   navigate = function navigateModule9(screen) { state.mobileSidebarOpen = false; if (screen === 'settings' && !canAccess(screen)) { state.deniedPath = screen; state.screen = 'unauthorized'; state.drawer = null; render(); return; } aureumGoals68Navigate(screen); if (screen === 'settings') loadSettingsModule9(); if (screen === 'my-account') loadAccountModule9(); };
-  bind = function bindModule9() { bindModule9Events(); if (typeof bindNotifications9 === 'function') bindNotifications9(); };
+  bind = function bindModule9() { bindModule9Events(); if (typeof bindNotifications9 === 'function') bindNotifications9(); if (typeof bindMobileSidebar9 === 'function') bindMobileSidebar9(); };
   render = function renderModule9() { aureumGoals68Render(); };
   if (state.authUser && state.ready) { render(); if (state.screen === 'settings') loadSettingsModule9(); if (state.screen === 'my-account') loadAccountModule9(); }
 })();
