@@ -988,10 +988,16 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .nav-item.active { color: #f7f3ea; box-shadow: inset 3px 0 0 #c9a24d; }
 .app-shell .topbar { background: rgba(11, 11, 11, .92); border-color: rgba(201, 162, 77, .2); }
 .app-shell .crumbs, .app-shell .page-header h1, .app-shell h2, .app-shell h3, .app-shell h4, .app-shell .kpi-value, .app-shell .detail-value, .app-shell .section-title h3 { color: #f7f3ea; }
+.app-shell .page-header h1 { font-size: clamp(27px, 2.5vw, 36px); }
+.app-shell .page-header .page-subtitle { font-size: 12px; }
 .app-shell .page-subtitle, .app-shell .person-meta, .app-shell .kpi-label, .app-shell .detail-label, .app-shell .timeline-copy, .app-shell .timeline-time, .app-shell .section-title p, .app-shell .table-head p { color: #a9a7a5; }
 .app-shell .card, .app-shell .table-card, .app-shell .chart-card, .app-shell .kpi-card, .app-shell .dashboard-welcome, .app-shell .dashboard-card, .app-shell .followup-performance-card, .app-shell .followup-calendar-card { border-color: rgba(201, 162, 77, .22); background: #101820; box-shadow: 0 8px 32px -4px rgba(0, 0, 0, .55), 0 0 1px 1px rgba(201, 162, 77, .1); }
 .app-shell .card:hover { box-shadow: 0 12px 36px rgba(0, 0, 0, .4), 0 0 1px 1px rgba(201, 162, 77, .24); }
 .app-shell .filter-bar, .app-shell .lead-filter-bar, .app-shell .customer-filter-bar, .app-shell .followup-filter-bar, .app-shell .followup-custom-date-bar { background: rgba(16, 24, 32, .82); border-color: rgba(201, 162, 77, .18); }
+.app-shell .dashboard-toolbar { color: #e5e2e1; border-color: rgba(201, 162, 77, .2); background: #151f2a; }
+.app-shell .dashboard-toolbar-meta, .app-shell .dashboard-date-filter label { color: #a9a7a5; }
+.app-shell .dashboard-scope-label { color: #e3c878; }
+.app-shell .dashboard-date-filter select, .app-shell .dashboard-date-filter input { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
 .app-shell .search-box, .app-shell .customer-search-field, .app-shell .select, .app-shell .filter-bar select, .app-shell .form-field input, .app-shell .form-field select, .app-shell .form-field textarea, .app-shell .form-grid input, .app-shell .form-grid select, .app-shell .form-grid textarea { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #151f2a; }
 .app-shell select { color-scheme: dark; }
 .app-shell select option { color: #f7f3ea; background: #151f2a; }
