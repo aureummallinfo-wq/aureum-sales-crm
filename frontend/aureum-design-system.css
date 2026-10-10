@@ -1034,6 +1034,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .tab.active, .app-shell .followup-drawer-tabs button.active { color: #f7f3ea; border-bottom-color: #c9a24d; }
 .app-shell table th { color: #c5c6cb; background: #151f2a; border-color: rgba(201, 162, 77, .2); }
 .app-shell table td { color: #e5e2e1; border-color: rgba(201, 162, 77, .14); }
+.app-shell .table-wrap table th:first-child, .app-shell .table-wrap table td:first-child { background: #101820; box-shadow: 5px 0 8px rgba(0, 0, 0, .28); }
+.app-shell .table-wrap table thead th:first-child { background: #151f2a; }
 .app-shell table tbody tr:hover { background: rgba(201, 162, 77, .06); }
 .app-shell .lead-data-table tbody tr[data-lead-module-row]:hover, .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover { background: #202d3a; }
 .app-shell .lead-data-table tbody tr[data-lead-module-row]:hover td, .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover td { color: #f7f3ea; }

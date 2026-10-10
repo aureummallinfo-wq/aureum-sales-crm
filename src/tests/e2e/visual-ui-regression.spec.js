@@ -18,6 +18,7 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   assert.match(css, /@media\s*\(max-width:\s*900px\)/);
   assert.match(css, /\.drawer/);
   assert.match(css, /\.table-wrap/);
+  assert.match(css, /\.app-shell \.table-wrap table th:first-child, \.app-shell \.table-wrap table td:first-child/);
   assert.match(css, /\.dashboard-chart-tooltip/);
   assert.match(css, /\.dashboard-line-hotspot/);
   assert.match(css, /\.chat-workspace \{[^}]*height:\s*clamp\(520px/);
