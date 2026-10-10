@@ -1211,6 +1211,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .chat-mobile-inbox-list .chat-list-avatar.group { color: #e9d39e; background: #3a3020; }
   .chat-mobile-inbox-list .chat-list-copy { flex: 1 1 auto; gap: 5px; text-align: left; }
   .chat-mobile-inbox-list .chat-list-title { font-size: 13px; }
+  .chat-mobile-inbox-list .chat-item-symbol { display: none; }
   .chat-mobile-inbox-list .chat-list-copy small { color: #929a9f; font-size: 10px; }
   .chat-mobile-inbox-list .chat-list-meta { align-self: stretch; flex: 0 0 auto; flex-direction: column; justify-content: space-between; gap: 4px; }
   .chat-mobile-inbox-list .chat-list-meta time { color: #858e94; font-size: 9px; }
