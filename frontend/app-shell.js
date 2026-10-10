@@ -136,7 +136,7 @@ function layout(content) {
 
 function screenLabel(screen) { return ({dashboard: 'Dashboard', leads: 'All Leads', 'my-leads': 'My Leads', 'add-lead': 'Add New Lead', customers: 'Customers', 'follow-ups': 'Follow-ups', 'team-chat': 'Team Chat', reports: 'Reports', agents: 'Users', users: 'Users', 'my-account': 'My Account', 'change-password': 'Change Password', 'access-denied': 'Access Denied', settings: 'Settings', unauthorized: 'Access Denied'})[screen] || 'Dashboard'; }
 
-function pageHeader(_eyebrow, title, subtitle, actions = '') { return `<div class="page-header"><div><h1>${title}</h1><p class="page-subtitle">${subtitle}</p></div><div class="header-actions">${actions}</div></div>`; }
+function pageHeader(_eyebrow, title, subtitle, actions = '') { return `<div class="page-header"><div><h1>${title}</h1>${subtitle ? `<p class="page-subtitle">${subtitle}</p>` : ''}</div><div class="header-actions">${actions}</div></div>`; }
 
 function kpi(label, value, foot, tone = 'up') { return `<div class="card kpi-card"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-foot"><span class="trend-${tone}">${foot}</span><span>vs last month</span></div></div>`; }
 
