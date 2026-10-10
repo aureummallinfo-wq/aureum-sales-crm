@@ -34,7 +34,7 @@
     return Array.isArray(state.leads?.items) ? state.leads.items.filter(lead => {
       const filters = state.leadFilters || {};
       const q = String(filters.q || '').trim().toLowerCase();
-      const haystack = [lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.interested_in, lead.assigned_agent].join(' ').toLowerCase();
+      const haystack = [lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.area, lead.interested_in, lead.property_type, lead.assigned_agent, lead.lead_source, lead.status].join(' ').toLowerCase();
       if (q && !haystack.includes(q)) return false;
       if (filters.status && lead.status !== filters.status) return false;
       if (filters.source && (lead.lead_source || lead.source) !== filters.source) return false;
@@ -156,7 +156,7 @@
       if (raw.initial_note && response.data?.id) await apiFetch(`/api/leads/${response.data.id}/notes`, { method: 'POST', body: JSON.stringify({ note: raw.initial_note }) });
       showToast('Lead saved to the Aureum registry');
       if (mode === 'another') { form.reset(); form.querySelector('[name="lead_source"]').value = 'Manual Entry'; form.querySelector('[name="priority"]').value = 'Medium'; }
-      else navigate('my-leads');
+      else navigate('leads');
     } catch (error) { showToast(error.message); }
   }
 

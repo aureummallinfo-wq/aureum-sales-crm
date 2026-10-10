@@ -26,6 +26,34 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
   assert.equal(createdLead.response.status, 201);
   assert.equal(createdLead.body.data.assigned_team_id, 'team_a');
 
+  const unassignedLead = await api.request('/api/leads', {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      full_name: 'Manager Unassigned QA Lead',
+      phone: '0300-5551235',
+      interested_in: 'Apartment',
+      lead_source: 'Manual Entry',
+      status: 'New'
+    })
+  });
+  assert.equal(unassignedLead.response.status, 201);
+  assert.equal(unassignedLead.body.data.assigned_agent_id, null);
+  assert.equal(unassignedLead.body.data.assigned_team_id, 'team_a');
+
+  const searchedLead = await api.request('/api/leads?q=unassigned%20qa', { headers: { cookie } });
+  assert.equal(searchedLead.response.status, 200);
+  assert.ok(searchedLead.body.data.some(lead => lead.id === unassignedLead.body.data.id));
+
+  const chatMessage = await api.request('/api/chat/channels/channel_general/messages', {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({ message_text: 'Manager chat persistence QA' })
+  });
+  assert.equal(chatMessage.response.status, 201);
+  const chatHistory = await api.request('/api/chat/channels/channel_general/messages', { headers: { cookie } });
+  assert.ok(chatHistory.body.data.some(message => message.id === chatMessage.body.data.id));
+
   const users = await api.request('/api/users', { headers: { cookie } });
   assert.equal(users.response.status, 200);
   assert.ok(users.body.data.every(user => user.role === 'sales_agent' && user.teamId === 'team_a'));

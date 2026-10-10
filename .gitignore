@@ -18,6 +18,7 @@ coverage/
 dist/
 build/
 node_modules/
+/backend/.data/
 
 # Local-only junction retained by the original workspace
 DOC/
