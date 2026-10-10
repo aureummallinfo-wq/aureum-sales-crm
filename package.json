@@ -11,7 +11,7 @@
     "start": "node backend/crm-api-server.js",
     "dev": "node backend/crm-api-server.js",
     "check": "node --check backend/crm-api-server.js && node --check backend/security-utils.js && node --check api/index.js && node --check frontend/app-shell.js && node --check frontend/app-runtime.js && node --check frontend/team-chat-reports-agents.js && node --check frontend/settings-system-enhancements.js && node --check frontend/module9-settings-account-runtime.js && node --check frontend/module11-webhooks-runtime.js && node --check frontend/ui-foundation.js",
-    "test": "node --test \"src/tests/**/*.test.js\"",
+    "test": "node --test \"src/tests/**/*.test.js\" \"src/tests/**/*.spec.js\"",
     "qa": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-smoke-test.ps1 && node scripts/final-security-audit.js"
   }
 }

@@ -18,7 +18,7 @@ const failedWebhookLeads = [];
 const rolePermissions = {
   super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
   sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
-  sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat']
+  sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'my-account', 'change-password']
 };
 
 const dashboardByRole = {
@@ -571,7 +571,7 @@ async function handle(req, res) {
       const supplied = passwordHash(String(body.password || ''));
       const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
       if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; addActivityLog(user.id, 'security', user.id, 'temporary_password_expired', 'A temporary password login attempt was rejected after expiry.'); json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
-      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: user && user.status !== 'active' ? 'This account is not active.' : 'Invalid email/phone or password' }); return; }
+      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: 'Invalid email/phone or password' }); return; }
       loginAttempts.delete(ip);
       const token = crypto.randomBytes(32).toString('hex');
       sessions.set(token, { userId: user.id, expiresAt: Date.now() + SESSION_TTL });

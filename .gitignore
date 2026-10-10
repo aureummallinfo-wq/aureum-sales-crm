@@ -24,3 +24,4 @@ DOC/
 
 # Product documentation is kept locally and intentionally excluded from GitHub
 *.md
+!docs/qa/*.md
