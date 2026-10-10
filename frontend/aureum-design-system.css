@@ -1001,6 +1001,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell table th { color: #c5c6cb; background: #151f2a; border-color: rgba(201, 162, 77, .2); }
 .app-shell table td { color: #e5e2e1; border-color: rgba(201, 162, 77, .14); }
 .app-shell table tbody tr:hover { background: rgba(201, 162, 77, .06); }
+.app-shell .lead-data-table tbody tr[data-lead-module-row]:hover, .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover { background: #202d3a; }
+.app-shell .lead-data-table tbody tr[data-lead-module-row]:hover td, .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover td { color: #f7f3ea; }
 .app-shell .lead-summary-card, .app-shell .customer-summary-card, .app-shell .followup-summary-card, .app-shell .followup-metric, .app-shell .mini-stat, .app-shell .customer-note, .app-shell .customer-followup-preview, .app-shell .followup-history-row, .app-shell .followup-detail-note { border-color: rgba(201, 162, 77, .2); background: #151f2a; }
 .app-shell .lead-summary-detail, .app-shell .customer-summary-detail, .app-shell .followup-summary-detail { color: #a9a7a5; }
 .app-shell .badge-neutral { color: #c5c6cb; background: #2a2a2a; }
