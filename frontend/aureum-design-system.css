@@ -1007,6 +1007,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .lead-summary-detail, .app-shell .customer-summary-detail, .app-shell .followup-summary-detail { color: #a9a7a5; }
 .app-shell .badge-neutral { color: #c5c6cb; background: #2a2a2a; }
 .app-shell .badge-hot, .app-shell .badge-overdue, .app-shell .badge-lost { color: #ffb4ab; background: rgba(147, 0, 10, .3); }
+.app-shell .dashboard-followup-row.is-overdue { background: #2a2025; }
+.app-shell .dashboard-followup-row.is-overdue .dashboard-followup-main strong { color: #f7f3ea; }
+.app-shell .dashboard-followup-row.is-overdue .dashboard-followup-main span { color: #c9c1bd; }
 .app-shell .badge-warm, .app-shell .badge-follow { color: #f6cb72; background: rgba(115, 85, 0, .32); }
 .app-shell .badge-completed, .app-shell .badge-closed { color: #a8d7b8; background: rgba(47, 107, 79, .3); }
 .app-shell .btn-secondary, .app-shell .table-action { color: #e3c878; border-color: rgba(201, 162, 77, .35); }
