@@ -1224,3 +1224,115 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 @media (max-width: 900px) { .account-settings-layout { grid-template-columns: 1fr; } .account-settings-sidebar { position: static; display: flex; overflow-x: auto; padding: 8px; } .account-settings-sidebar-title { display: none; } .account-settings-tab { flex: 0 0 145px; border-left: 0; border-bottom: 3px solid transparent; } .account-settings-tab:hover, .account-settings-tab:focus-visible { border-bottom-color: var(--gold); } .account-module-grid { grid-template-columns: 1fr; } .account-module-grid > :first-child, .account-activity-card { grid-column: auto; } }
 @media (max-width: 760px) { .settings-sidebar { display: flex; gap: 5px; overflow-x: auto; padding: 8px; } .settings-sidebar-title { display: none; } .settings-tab { min-width: 150px; border-left: 0; border-bottom: 3px solid transparent; } .settings-tab:hover, .settings-tab.active { border-bottom-color: var(--gold); } .settings-channel-table { min-width: 610px; } .settings-content { overflow: hidden; } .settings-save-bar { align-items: flex-start; flex-direction: column; gap: 10px; } .settings-save-actions { width: 100%; justify-content: flex-end; } }
 @media (max-width: 480px) { .account-readonly-grid { grid-template-columns: 1fr; } .settings-tab { min-width: 132px; } }
+
+/* Final mobile pass: one predictable slide-out navigation and contained workspaces. */
+@media (max-width: 620px) {
+  html, body { width: 100%; min-width: 320px; max-width: 100%; overflow-x: hidden; }
+  body { min-height: 100dvh; }
+  .app-shell { display: block; width: 100%; min-height: 100dvh; overflow-x: hidden; }
+  .app-shell .sidebar {
+    inset: 0 auto 0 0;
+    width: min(292px, 88vw);
+    height: 100dvh;
+    min-height: 100dvh;
+    padding: 20px 16px calc(18px + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+    overflow-x: hidden;
+    overflow-y: auto;
+    transform: translateX(-105%);
+    box-shadow: 14px 0 42px rgba(0,0,0,.55);
+  }
+  .app-shell .sidebar.mobile-sidebar-open { transform: translateX(0); }
+  .app-shell .sidebar .brand { display: flex; justify-content: flex-start; padding: 0 10px 25px; }
+  .app-shell .sidebar .brand-copy,
+  .app-shell .sidebar .sidebar-label,
+  .app-shell .sidebar .sidebar-footer { display: block; }
+  .app-shell .sidebar .sidebar-label { padding-inline: 13px; }
+  .app-shell .sidebar .nav-list {
+    display: grid;
+    align-content: start;
+    width: 100%;
+    padding-top: 0;
+    overflow: visible;
+  }
+  .app-shell .sidebar .nav-item {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: 46px;
+    padding: 10px 13px;
+    gap: 12px;
+  }
+  .app-shell .sidebar .nav-item span:last-child { display: inline; }
+  .app-shell .sidebar .nav-item::after { display: none; }
+  .app-shell .sidebar .sidebar-footer { margin-top: auto; }
+  .app-shell .sidebar .sidebar-signout-footer { display: block; }
+  .app-shell .sidebar .sidebar-signout { justify-content: flex-start; }
+  .app-shell .mobile-sidebar-close { display: inline-flex; }
+  .app-shell .main { width: 100%; min-width: 0; margin-left: 0; }
+  .app-shell .topbar { width: 100%; min-height: 62px; padding: 0 10px; gap: 7px; }
+  .app-shell .topbar-actions { min-width: 0; flex: 1 1 auto; gap: 6px; }
+  .app-shell .top-search { width: auto; min-width: 0; flex: 1 1 auto; max-width: none; padding: 7px 9px; }
+  .app-shell .top-search input { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+  .app-shell .top-search svg { flex: 0 0 auto; width: 14px; }
+  .app-shell .notification-button, .app-shell .avatar { flex: 0 0 34px; width: 34px; height: 34px; }
+  .app-shell .page { width: 100%; min-width: 0; padding: 20px 11px calc(28px + env(safe-area-inset-bottom)); overflow-x: hidden; }
+  .app-shell .page-header { width: 100%; align-items: flex-start; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+  .app-shell .page-header > div:first-child { min-width: 0; }
+  .app-shell .page-header h1 { font-size: clamp(26px, 8vw, 32px); line-height: 1.08; overflow-wrap: anywhere; }
+  .app-shell .page-header .header-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 7px; }
+  .app-shell .page-header .header-actions .btn { width: 100%; min-width: 0; min-height: 40px; padding: 8px; white-space: normal; }
+  .app-shell .grid-4, .app-shell .grid-3, .app-shell .grid-2, .app-shell .two-col, .app-shell .metric-strip,
+  .app-shell .dashboard-chart-grid, .app-shell .dashboard-content-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .card, .app-shell .table-card, .app-shell .chart-card { min-width: 0; max-width: 100%; }
+  .app-shell .section-title, .app-shell .table-head, .app-shell .lead-registry-head, .app-shell .customer-registry-head { min-width: 0; }
+  .app-shell .section-title > *, .app-shell .table-head > *, .app-shell .lead-registry-head > *, .app-shell .customer-registry-head > * { min-width: 0; }
+  .app-shell .section-title h3, .app-shell .table-head h3 { overflow-wrap: anywhere; }
+  .app-shell .table-wrap { width: 100%; max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; -webkit-overflow-scrolling: touch; }
+  .app-shell .filter-bar, .app-shell .lead-filter-bar, .app-shell .customer-filter-bar, .app-shell .followup-filter-bar { width: 100%; }
+  .app-shell .filter-bar > *, .app-shell .lead-filter-bar > *, .app-shell .customer-filter-bar > *, .app-shell .followup-filter-bar > * { min-width: 0; }
+  .app-shell .dashboard-welcome { align-items: flex-start; flex-direction: column; gap: 16px; padding: 18px; }
+  .app-shell .dashboard-welcome-side, .app-shell .dashboard-welcome-actions { width: 100%; align-items: flex-start; justify-content: flex-start; flex-wrap: wrap; }
+  .app-shell .dashboard-welcome-side .dashboard-date-filter { width: 100%; justify-content: flex-start; }
+  .app-shell .dashboard-date-filter { width: 100%; justify-content: flex-start; }
+  .app-shell .dashboard-date-filter label, .app-shell .dashboard-date-filter select, .app-shell .dashboard-date-filter input { min-width: 0; }
+  .app-shell .dashboard-date-filter select, .app-shell .dashboard-date-filter input { flex: 1 1 130px; }
+  .app-shell .dashboard-welcome-mark { display: none; }
+  .app-shell .dashboard-stat-card { min-height: 96px; }
+  .app-shell .report-filter-grid, .app-shell .report-metric-grid, .app-shell .report-section-grid, .app-shell .report-mini-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .report-filter-heading, .app-shell .report-filter-footer { align-items: flex-start; flex-direction: column; }
+  .app-shell .report-filter-grid { gap: 8px; }
+  .app-shell .report-table-head-actions { width: 100%; justify-content: flex-start; }
+  .app-shell .report-table-head-actions .btn { flex: 1 1 120px; }
+  .app-shell .drawer, .app-shell .report-drawer, .app-shell .user-drawer, .app-shell .lead-detail-drawer, .app-shell .customer-detail-drawer, .app-shell .followup-detail-drawer { width: 100%; max-width: 100%; padding: 18px 15px calc(28px + env(safe-area-inset-bottom)); }
+  .app-shell .drawer-header h2, .app-shell .report-drawer h2 { font-size: 24px; overflow-wrap: anywhere; }
+  .app-shell .chat-workspace, .app-shell .chat-workspace.chat-layout-panel-open { grid-template-columns: minmax(0, 1fr); width: 100%; height: calc(100dvh - 62px); min-height: 430px; max-height: none; border-radius: 0; overflow: hidden; }
+  .app-shell .page:has(.chat-workspace) { width: 100%; padding: 0; }
+  .app-shell .page:has(.chat-workspace) .chat-workspace { height: calc(100dvh - 62px); min-height: 430px; }
+  .app-shell .chat-workspace .chat-main { width: 100%; min-width: 0; min-height: 0; }
+  .app-shell .chat-workspace .chat-header { min-height: 66px; padding: 12px 13px; }
+  .app-shell .chat-workspace .chat-channel-title { font-size: 18px; }
+  .app-shell .chat-workspace .chat-channel-copy { max-width: min(66vw, 240px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-shell .chat-workspace .messages { min-height: 0; padding: 16px 11px; }
+  .app-shell .chat-workspace .message-body { max-width: 86%; min-width: 0; }
+  .app-shell .chat-workspace .message-bubble { overflow-wrap: anywhere; }
+  .app-shell .chat-workspace .chat-compose { grid-template-columns: 36px minmax(0, 1fr) auto; width: 100%; min-height: 64px; gap: 7px; padding: 8px 9px calc(8px + env(safe-area-inset-bottom)); }
+  .app-shell .chat-workspace .chat-compose textarea { grid-column: 2; width: 100%; min-width: 0; min-height: 42px; }
+  .app-shell .chat-workspace .chat-compose .btn { grid-column: 3; min-height: 42px; padding-inline: 11px; }
+  .app-shell .chat-workspace .chat-sidebar { width: min(310px, 86vw); }
+  .app-shell .chat-workspace .chat-details { position: absolute; inset: 0; z-index: 46; width: 100%; max-width: 100%; }
+  .app-shell .chat-modal { width: 100%; max-width: 100%; min-height: 100%; max-height: 100%; border: 0; border-radius: 0; }
+}
+
+@media (max-width: 390px) {
+  .app-shell .topbar { padding-inline: 8px; }
+  .app-shell .top-search { padding-inline: 7px; }
+  .app-shell .top-search input { font-size: 9px; }
+  .app-shell .page { padding-inline: 9px; }
+  .app-shell .page-header .header-actions { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .dashboard-welcome { padding: 15px; }
+  .app-shell .chat-workspace .chat-compose { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 5px; padding-inline: 7px; }
+  .app-shell .chat-workspace .chat-compose .btn { padding-inline: 9px; }
+}
