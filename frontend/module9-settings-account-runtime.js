@@ -69,7 +69,23 @@
   }
 
   const renderMyAccountBaseModule9 = renderMyAccountModule9;
-  renderMyAccountModule9 = function renderMyAccountWithoutSettingsNav() { return renderMyAccountBaseModule9(); };
+  renderMyAccountModule9 = function renderMyAccountWithSettingsNav() {
+    const base = renderMyAccountBaseModule9();
+    const opening = '<section class="account-module-grid">';
+    const start = base.indexOf(opening);
+    const end = base.lastIndexOf('</section>');
+    if (start < 0 || end < start) return base;
+    const accountSections = [
+      ['account-profile-form', 'Profile', 'Identity and contact'],
+      ['account-notifications-form', 'Notifications', 'Personal alerts'],
+      ['account-appearance-form', 'Appearance', 'Theme and density'],
+      ['account-display-form', 'Display', 'Language and time'],
+      ['account-activity-card', 'Security history', 'Recent sign-ins']
+    ];
+    const filters = accountSections.map(([target, label, description], index) => `<button type="button" class="account-settings-tab ${index === 0 ? 'active' : ''}" data-account-scroll="${target}"><span>${label}</span><small>${description}</small></button>`).join('');
+    const body = base.slice(start + opening.length, end).replace('class="card card-pad account-activity-card"', 'id="account-activity-card" class="card card-pad account-activity-card"');
+    return `${base.slice(0, start)}<section class="account-settings-layout"><aside class="card account-settings-sidebar"><div class="account-settings-sidebar-title">Personal settings</div>${filters}</aside><div class="account-module-grid">${body}</div></section>`;
+  };
 
   function renderChangePasswordModule9() { return pageHeader('Personal security', 'Change Password', 'Use a strong password to protect your Aureum CRM account.', '') + `<section class="card account-password-card"><div class="eyebrow">Required security step</div><h2>Set a new password</h2><p class="page-subtitle">Minimum 8 characters with uppercase, lowercase, number, and special character.</p><form id="change-password-form"><div class="form-field"><label>Current password</label><input name="currentPassword" type="password" required autocomplete="current-password" /></div><div class="form-field"><label>New password</label><input name="newPassword" type="password" required autocomplete="new-password" /></div><div class="form-field"><label>Confirm new password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div><div class="password-policy">Your new password must be at least 8 characters with uppercase, lowercase, number, and special character.</div><div class="drawer-actions"><button class="btn btn-secondary" type="button" data-screen="my-account">Cancel</button><button class="btn btn-gold" type="submit">Update password</button></div></form></section>`; }
 
@@ -113,6 +129,7 @@
     const accountNotifications = document.querySelector('#account-notifications-form'); if (accountNotifications) accountNotifications.addEventListener('submit', event => { event.preventDefault(); saveAccountPreference(accountNotifications, '/api/account/preferences/notifications', 'Notification preferences saved'); });
     const appearance = document.querySelector('#account-appearance-form'); if (appearance) appearance.addEventListener('submit', event => { event.preventDefault(); saveAccountPreference(appearance, '/api/account/preferences/appearance', 'Appearance preferences saved'); });
     const display = document.querySelector('#account-display-form'); if (display) display.addEventListener('submit', event => { event.preventDefault(); saveAccountPreference(display, '/api/account/preferences/display', 'Display preferences saved'); });
+    document.querySelectorAll('[data-account-scroll]').forEach(button => button.addEventListener('click', () => { const target = document.getElementById(button.dataset.accountScroll); if (!target) return; document.querySelectorAll('[data-account-scroll]').forEach(item => item.classList.remove('active')); button.classList.add('active'); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }));
   }
 
   layout = layoutModule9; renderSettings9 = renderSettingsModule9; renderSettings = renderSettingsModule9; renderMyAccount = renderMyAccountModule9; renderChangePassword = renderChangePasswordModule9; loadSettings9 = loadSettingsModule9; loadAccount = loadAccountModule9;
