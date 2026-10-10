@@ -23,6 +23,32 @@ Scope: Final SQA, smoke testing, functional testing, unit testing, browser QA, s
 - `npm test`: Passed, 57 automated tests.
 - `npm run qa`: Passed.
 
+## Official Final QA Test Count
+
+Unit Test Cases:
+UT-001 through UT-020 = 20 tests
+
+Functional Test Cases:
+FT-001 through FT-030 = 30 tests
+
+Browser Smoke / Visual QA Test Cases:
+BS-001 through BS-020 = 20 tests
+
+Total:
+20 + 30 + 20 = 70 tests
+
+Status:
+Reconciled and verified.
+
+## Test Case Sources
+
+- Unit test cases: `docs/qa/unit-test-cases.md`
+- Functional test cases: `docs/qa/functional-test-cases.md`
+- Browser smoke / visual QA test cases: `docs/qa/browser-qa-checklist.md`
+- Security QA checklist: `docs/qa/security-test-cases.md`
+- Defect register: `docs/qa/defect-register.md`
+- Execution evidence: `docs/qa/test-execution-report.md`
+
 ## Exit Criteria
 
 - No known Critical or High authorization defects.

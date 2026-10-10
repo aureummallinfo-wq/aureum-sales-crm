@@ -10,6 +10,7 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   const shell = fs.readFileSync(path.join(ROOT, 'frontend/app-shell.js'), 'utf8');
   const html = fs.readFileSync(path.join(ROOT, 'frontend/index.html'), 'utf8');
   const settingsRuntime = fs.readFileSync(path.join(ROOT, 'frontend/settings-system-enhancements.js'), 'utf8');
+  const dashboardRuntime = fs.readFileSync(path.join(ROOT, 'frontend/features/dashboard/dashboard-module.js'), 'utf8');
 
   assert.match(css, /--gold:/);
   assert.match(css, /--ink:/);
@@ -17,8 +18,12 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   assert.match(css, /@media\s*\(max-width:\s*900px\)/);
   assert.match(css, /\.drawer/);
   assert.match(css, /\.table-wrap/);
+  assert.match(css, /\.dashboard-chart-tooltip/);
+  assert.match(css, /\.dashboard-line-hotspot/);
   assert.match(foundation, /:focus-visible/);
   assert.match(shell, /renderAccessDenied/);
   assert.match(html, /skip-link/);
   assert.match(settingsRuntime, /data-mobile-sidebar-toggle|mobileSidebar/i);
+  assert.match(dashboardRuntime, /dashboardTooltip/);
+  assert.match(dashboardRuntime, /dashboard-tooltip-anchor/);
 });
