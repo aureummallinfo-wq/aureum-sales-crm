@@ -11,6 +11,7 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   const html = fs.readFileSync(path.join(ROOT, 'frontend/index.html'), 'utf8');
   const settingsRuntime = fs.readFileSync(path.join(ROOT, 'frontend/settings-system-enhancements.js'), 'utf8');
   const dashboardRuntime = fs.readFileSync(path.join(ROOT, 'frontend/features/dashboard/dashboard-module.js'), 'utf8');
+  const chatRuntime = fs.readFileSync(path.join(ROOT, 'frontend/team-chat-reports-agents.js'), 'utf8');
 
   assert.match(css, /--gold:/);
   assert.match(css, /--ink:/);
@@ -24,6 +25,10 @@ test('visual UI regression guard preserves responsive Aureum layout foundations'
   assert.match(css, /\.chat-workspace \{[^}]*height:\s*clamp\(520px/);
   assert.match(css, /\.chat-workspace \.messages \{[^}]*overflow-y:\s*auto/);
   assert.match(css, /\.chat-workspace \.chat-compose \{[^}]*flex:\s*0 0 auto/);
+  assert.match(css, /\.chat-mobile-inbox-list/);
+  assert.match(chatRuntime, /chat-mobile-inbox/);
+  assert.match(chatRuntime, /data-chat-mobile-filter/);
+  assert.match(chatRuntime, /chatMobileFilter/);
   assert.match(foundation, /:focus-visible/);
   assert.match(shell, /renderAccessDenied/);
   assert.match(html, /skip-link/);
