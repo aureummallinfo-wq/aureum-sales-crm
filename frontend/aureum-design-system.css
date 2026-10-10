@@ -1068,6 +1068,10 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .followup-calendar-day:hover, .app-shell .followup-calendar-day.selected { border-color: #c9a24d; background: #201f1f; }
 .app-shell .followup-calendar-week, .app-shell .followup-calendar-legend { color: #a9a7a5; }
 .app-shell .mobile-sidebar-backdrop { background: rgba(0, 0, 0, .68); }
+.app-shell .sidebar-signout-footer { display: block; margin-top: auto; padding: 12px 0 0; border-top-color: rgba(201, 162, 77, .18); }
+.app-shell .sidebar-signout { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 13px; color: #a9a7a5; border: 0; border-radius: 11px; background: transparent; font-size: 13px; font-weight: 600; text-align: left; }
+.app-shell .sidebar-signout:hover { color: #f7f3ea; background: #151f2a; }
+.app-shell .sidebar-signout span:first-child { width: 18px; color: #c9a24d; font-size: 17px; text-align: center; }
 
 /* Module 6 chat workspace: focused Slack-like hierarchy without exposing the CRM details panel by default. */
 .chat-screen-toolbar { display: flex; align-items: center; justify-content: flex-end; min-height: 34px; margin: 0 0 12px; }
@@ -1161,7 +1165,15 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
   .chat-workspace.chat-layout-panel-open { grid-template-columns: 210px minmax(0, 1fr); }
   .chat-workspace.chat-layout-panel-open .chat-info-panel { position: absolute; inset: 0 0 0 auto; z-index: 5; width: min(340px, 78vw); box-shadow: -22px 0 50px rgba(0,0,0,.45); }
 }
+@media (max-width: 850px) and (min-width: 621px) {
+  .app-shell .sidebar-signout-footer { display: block; }
+  .app-shell .sidebar-signout { justify-content: center; padding-inline: 0; }
+  .app-shell .sidebar-signout span:last-child { display: none; }
+}
 @media (max-width: 620px) {
+  .app-shell .sidebar-signout-footer { display: block; }
+  .app-shell .sidebar:not(.mobile-sidebar-open) .sidebar-signout-footer { display: none; }
+  .app-shell .sidebar-signout { justify-content: flex-start; }
   .app-shell .page:has(.chat-workspace) { padding: 0; }
   .app-shell .page:has(.chat-workspace) .chat-workspace { height: calc(100vh - 66px); min-height: calc(100vh - 66px); border-radius: 0; }
   .chat-workspace, .chat-workspace.chat-layout-panel-open { grid-template-columns: 1fr; height: calc(100vh - 210px); min-height: 430px; max-height: none; overflow: hidden; }
