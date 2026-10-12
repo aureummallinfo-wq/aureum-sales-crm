@@ -15,13 +15,6 @@ const dashboardRoleConfig = {
   SALES_AGENT: { role: 'sales_agent', scope: 'own', scopeLabel: 'My data only', welcome: 'Welcome back, Sales Agent', welcomeCopy: 'Manage your assigned leads, customers, and follow-ups for today.', quickActions: [['my-leads', 'View My Leads'], ['follow-ups', 'View Follow-ups'], ['customers', 'Open Customers'], ['team-chat', 'Team Chat']] }
 };
 
-const dashboardMock = {
-  leadInflow: dashboardMonths.map((label, index) => ({ label, leads: [58, 72, 45, 66, 80, 55, 65, 75, 84, 100, 72, 88][index] })),
-  leadSources: [{ source: 'Website', count: 437, percentage: 35 }, { source: 'WhatsApp', count: 349, percentage: 28 }, { source: 'Facebook', count: 225, percentage: 18 }, { source: 'Sales Partner', count: 150, percentage: 12 }, { source: 'Walk-in', count: 87, percentage: 7 }],
-  followUpPerformance: [{ status: 'Completed', count: 184 }, { status: 'Pending', count: 56 }, { status: 'Overdue', count: 14 }, { status: 'Missed', count: 0 }, { status: 'Rescheduled', count: 28 }],
-  conversionOverview: [{ stage: 'New', count: 1248, percentage: 100 }, { stage: 'Contacted', count: 892, percentage: 71 }, { stage: 'Qualified', count: 540, percentage: 43 }, { stage: 'Follow-up', count: 320, percentage: 26 }, { stage: 'Negotiation', count: 146, percentage: 12 }, { stage: 'Booking', count: 96, percentage: 8 }, { stage: 'Closed Won', count: 48, percentage: 4 }]
-};
-
 function dashboardRole() { return dashboardRoleConfig[state.role] || dashboardRoleConfig.SALES_AGENT; }
 function dashboardChartColors() { return window.aureumDashboardChartColors || { gold: '#C6A15B', softGold: '#E2C67A', deepBrown: '#2A2118', softBeige: '#EFE4D2', success: '#2F6B4F', warning: '#C88A2D', error: '#B94A48', muted: '#7A7167' }; }
 function dashboardEscape(value) { return window.AureumUI?.escape ? AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char])); }
@@ -69,12 +62,12 @@ function dashboardFilteredRecords(data) { return data; }
 
 function normalizeDashboardData(raw = {}) {
   const summary = raw.summary || {};
-  const leadInflow = Array.isArray(raw.leadInflow) ? raw.leadInflow.map((point, index) => typeof point === 'number' ? { label: dashboardMonths[index] || `M${index + 1}`, leads: point } : { label: point.label || dashboardMonths[index], leads: dashboardNumber(point.leads), ...point }) : dashboardMock.leadInflow;
+  const leadInflow = (Array.isArray(raw.leadInflow) ? raw.leadInflow : []).map((point, index) => typeof point === 'number' ? { label: dashboardMonths[index] || `M${index + 1}`, leads: point } : { label: point.label || dashboardMonths[index], leads: dashboardNumber(point.leads), ...point });
   const sourceTotal = dashboardNumber(summary.totalLeads, 0);
-  const leadSources = (raw.leadSources || dashboardMock.leadSources).map(item => ({ source: item.source || item.name, count: dashboardNumber(item.count, sourceTotal ? Math.round(sourceTotal * dashboardNumber(item.percentage ?? item.value) / 100) : 0), percentage: dashboardNumber(item.percentage ?? item.value) }));
-  const followUpTotal = (raw.followUpPerformance || []).reduce((total, item) => total + dashboardNumber(item.count ?? item.value), 0);
-  const followUpPerformance = dashboardStatuses.map(status => { const item = (raw.followUpPerformance || []).find(entry => (entry.status || entry.name) === status); const count = dashboardNumber(item?.count ?? item?.value); return { status, count, percentage: dashboardPercent(count, followUpTotal) }; });
-  const conversionOverview = dashboardStages.map(stage => { const item = (raw.conversionOverview || []).find(entry => String(entry.stage || entry.name).toLowerCase().replace('new leads', 'new').replace('closed won', 'closed won') === stage.toLowerCase()); const count = dashboardNumber(item?.count ?? item?.value); return { stage, count, percentage: dashboardNumber(item?.percentage, dashboardPercent(count, dashboardNumber(summary.totalLeads))) }; });
+  const leadSources = (Array.isArray(raw.leadSources) ? raw.leadSources : []).map(item => ({ source: item.source || item.name, count: dashboardNumber(item.count, 0), percentage: dashboardNumber(item.percentage ?? (sourceTotal ? dashboardPercent(item.count, sourceTotal) : 0)) }));
+  const followUpTotal = (Array.isArray(raw.followUpPerformance) ? raw.followUpPerformance : []).reduce((total, item) => total + dashboardNumber(item.count ?? item.value), 0);
+  const followUpPerformance = dashboardStatuses.map(status => { const item = (Array.isArray(raw.followUpPerformance) ? raw.followUpPerformance : []).find(entry => (entry.status || entry.name) === status); const count = dashboardNumber(item?.count ?? item?.value); return { status, count, percentage: dashboardPercent(count, followUpTotal) }; });
+  const conversionOverview = dashboardStages.map(stage => { const item = (Array.isArray(raw.conversionOverview) ? raw.conversionOverview : []).find(entry => String(entry.stage || entry.name).toLowerCase().replace('new leads', 'new').replace('closed won', 'closed won') === stage.toLowerCase()); const count = dashboardNumber(item?.count ?? item?.value); return { stage, count, percentage: dashboardNumber(item?.percentage, dashboardPercent(count, dashboardNumber(summary.totalLeads))) }; });
   const agentPerformance = (raw.agentPerformance || []).filter(Boolean).map(item => ({ agentId: item.agentId || item.id || item.name, agentName: item.agentName || item.name, teamName: item.teamName || item.team, assignedLeads: dashboardNumber(item.assignedLeads ?? item.assigned), contactedLeads: dashboardNumber(item.contactedLeads ?? item.contacted), completedFollowUps: dashboardNumber(item.completedFollowUps ?? item.completed), overdueFollowUps: dashboardNumber(item.overdueFollowUps ?? item.overdue), closedDeals: dashboardNumber(item.closedDeals ?? item.closed), conversionRate: dashboardNumber(String(item.conversionRate ?? item.conversion).replace('%', '')) }));
   const recentLeads = (raw.recentLeads || []).map((item, index) => ({ id: item.id || `recent-lead-${index + 1}`, leadName: item.leadName || item.name, phone: item.phone, source: item.source || 'Manual Entry', interestedIn: item.interestedIn || item.interest, assignedAgent: item.assignedAgent || item.agent, status: item.status, createdAt: item.createdAt || item.created }));
   const todayFollowUps = (raw.todayFollowUps || []).map((item, index) => ({ id: item.id || `today-follow-up-${index + 1}`, customerId: item.customerId || item.customer_id, customerName: item.customerName || item.customer, phone: item.phone, followUpType: item.followUpType || item.type, assignedAgent: item.assignedAgent || item.agent, dueDate: item.dueDate || item.due_date, dueTime: item.dueTime || item.time, status: item.status, priority: item.priority || (item.status === 'Overdue' ? 'High' : 'Medium') }));
@@ -192,4 +185,4 @@ function renderDashboard() {
 }
 
 bindDashboardModuleEvents();
-window.dashboardContracts = { dashboardRoleConfig, normalizeDashboardData, dashboardMock, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };
+window.dashboardContracts = { dashboardRoleConfig, normalizeDashboardData, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };
