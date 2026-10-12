@@ -111,6 +111,7 @@ function navigate(screen) {
   if (screen === 'dashboard') loadDashboard();
   if (screen === 'leads') loadLeads(false);
   if (screen === 'my-leads') loadLeads(true);
+  if (screen === 'add-lead') window.loadLeadAgents?.();
   if (screen === 'customers') loadCustomers();
   if (screen === 'follow-ups') loadFollowups();
 }
@@ -166,6 +167,7 @@ async function boot() {
   if (state.authUser && state.screen === 'dashboard') loadDashboard();
   if (state.authUser && state.screen === 'leads') loadLeads(false);
   if (state.authUser && state.screen === 'my-leads') loadLeads(true);
+  if (state.authUser && state.screen === 'add-lead') window.loadLeadAgents?.();
   if (state.authUser && state.screen === 'customers') loadCustomers();
   if (state.authUser && state.screen === 'follow-ups') loadFollowups();
 }

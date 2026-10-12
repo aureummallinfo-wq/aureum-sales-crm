@@ -9,7 +9,11 @@
   const timelines = constants.timelines || ['Within 30 days', '1–3 months', '3–6 months', 'Exploring', 'Not decided'];
   const priorities = constants.priorities || ['Low', 'Medium', 'High', 'VIP'];
 
-  state.leadModule = state.leadModule || { drawerTab: 'overview', notice: '', editing: false };
+  state.leadModule = state.leadModule || { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '' };
+  state.leadModule.agents = Array.isArray(state.leadModule.agents) ? state.leadModule.agents : [];
+  state.leadModule.agentsLoading = Boolean(state.leadModule.agentsLoading);
+  state.leadModule.agentsLoaded = Boolean(state.leadModule.agentsLoaded);
+  state.leadModule.agentsError = state.leadModule.agentsError || '';
   state.leadModule.editing = Boolean(state.leadModule.editing);
 
   const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -21,6 +25,34 @@
   const isManager = () => state.role === 'SALES_MANAGER';
   const statusBadge = status => typeof badge === 'function' ? badge(status) : `<span class="badge badge-neutral">${escape(status)}</span>`;
   const selectOptions = (items, selected = '', placeholder = '') => `${placeholder ? `<option value="">${escape(placeholder)}</option>` : ''}${items.map(item => `<option value="${escape(item)}" ${String(item) === String(selected) ? 'selected' : ''}>${escape(item)}</option>`).join('')}`;
+  const agentOptions = (selected = '', includeBlank = true) => {
+    const agents = state.leadModule.agents.filter(item => item.status === 'Active' || item.status === 'active' || !item.status);
+    const placeholder = state.leadModule.agentsLoading ? 'Loading active advisors…' : state.leadModule.agentsError ? 'Unable to load advisors' : 'Assign later';
+    return `${includeBlank ? `<option value="">${escape(placeholder)}</option>` : ''}${agents.map(agent => `<option value="${escape(agent.id)}" ${String(agent.id) === String(selected) ? 'selected' : ''}>${escape(agent.full_name || agent.fullName || agent.name)}${agent.role === 'sales_manager' ? ' · Manager' : ''}</option>`).join('')}`;
+  };
+  const populateLeadAgentSelect = () => {
+    const select = document.querySelector('#lead-create-form select[name="assigned_agent_id"]');
+    if (select) select.innerHTML = agentOptions();
+  };
+
+  async function loadLeadAgents(force = false) {
+    if (!isManager() || (state.leadModule.agentsLoaded && !force) || state.leadModule.agentsLoading) return;
+    state.leadModule.agentsLoading = true;
+    state.leadModule.agentsError = '';
+    render();
+    try {
+      const result = await apiFetch('/api/users?role=sales_agent&status=active');
+      state.leadModule.agents = Array.isArray(result.data) ? result.data : [];
+      state.leadModule.agentsLoaded = true;
+    } catch (error) {
+      state.leadModule.agents = [];
+      state.leadModule.agentsError = error.message || 'Unable to load active advisors.';
+    } finally {
+      state.leadModule.agentsLoading = false;
+      render();
+      populateLeadAgentSelect();
+    }
+  }
   const formatTags = lead => (Array.isArray(lead?.tags) ? lead.tags : lead?.tag ? [lead.tag] : []).map(tag => `<span class="lead-tag">${escape(tag)}</span>`).join('') || '<span class="person-meta">No tags</span>';
   const safeDate = value => value && value !== '—' ? escape(value) : '—';
 
@@ -123,7 +155,7 @@
     const notes = activity.filter(item => item.activity_type === 'Note added');
     const tab = state.leadModule.drawerTab || 'overview';
     const statusForm = `<form id="lead-module-status-form" class="drawer-inline-form"><label>Status</label><div class="drawer-form-row"><select name="status">${selectOptions(allStatuses, lead.status)}</select><select name="priority">${selectOptions(priorities, lead.priority || 'Medium')}</select><button class="btn btn-gold btn-sm" type="submit">Save</button></div></form>`;
-    const assignment = canManage() ? `<form id="lead-module-assign-form" class="drawer-inline-form"><label>Assigned agent</label><div class="drawer-form-row"><select name="assigned_agent_id"><option value="">Keep current assignment</option><option value="usr_002" ${lead.assigned_agent_id === 'usr_002' ? 'selected' : ''}>Sales Manager</option><option value="usr_003" ${lead.assigned_agent_id === 'usr_003' ? 'selected' : ''}>Ali Raza</option></select><button class="btn btn-secondary btn-sm" type="submit">Assign</button></div></form>` : '';
+    const assignment = canManage() ? `<form id="lead-module-assign-form" class="drawer-inline-form"><label>Assigned agent</label><div class="drawer-form-row"><select name="assigned_agent_id">${agentOptions(lead.assigned_agent_id, false)}${lead.assigned_agent_id ? '' : '<option value="" selected>Keep current assignment</option>'}</select><button class="btn btn-secondary btn-sm" type="submit">Assign</button></div></form>` : '';
     const overview = `<div class="drawer-section"><div class="detail-grid">${detailItem('Phone / WhatsApp', `${valueOf(lead, 'phone')} · ${valueOf(lead, 'whatsapp_number')}`)}${detailItem('Email', valueOf(lead, 'email'))}${detailItem('City / area', `${valueOf(lead, 'city')} · ${valueOf(lead, 'area')}`)}${detailItem('Interested in', valueOf(lead, 'interested_in'))}${detailItem('Budget', valueOf(lead, 'budget'))}${detailItem('Property type', valueOf(lead, 'property_type'))}${detailItem('Purpose', valueOf(lead, 'purpose'))}${detailItem('Buying timeline', valueOf(lead, 'buying_timeline'))}${detailItem('Next follow-up', valueOf(lead, 'next_follow_up_at'))}${detailItem('Last contacted', valueOf(lead, 'last_contacted_at'))}</div></div><div class="drawer-section"><div class="lead-drawer-tags">${formatTags(lead)}</div>${statusForm}${assignment}</div><div class="drawer-section"><div class="drawer-action-row"><button class="btn btn-gold btn-sm" data-leads-action="edit" data-lead-id="${escape(lead.id)}">Edit lead</button><button class="btn btn-secondary btn-sm" data-leads-action="call" data-lead-id="${escape(lead.id)}">Call</button><button class="btn btn-secondary btn-sm" data-leads-action="whatsapp" data-lead-id="${escape(lead.id)}">WhatsApp</button><button class="btn btn-secondary btn-sm" data-leads-action="customer" data-lead-id="${escape(lead.id)}">Customer profile</button><button class="btn btn-secondary btn-sm" data-leads-action="follow-up" data-lead-id="${escape(lead.id)}">Schedule follow-up</button></div></div>`;
     const notesView = `<div class="drawer-section"><form id="lead-module-note-form"><label for="lead-note-input">Add a note</label><textarea id="lead-note-input" name="note" rows="4" required placeholder="Write a useful next-conversation note…"></textarea><button class="btn btn-gold btn-sm" type="submit">Save note</button></form></div><div class="lead-notes-list">${notes.length ? notes.map(note => `<article class="lead-note"><strong>Note</strong><p>${escape(note.description || note.note)}</p><time>${escape(note.created_at)}</time></article>`).join('') : '<div class="empty-state">No notes yet. Add the first useful context for this relationship.</div>'}</div>`;
     const activityView = `<div class="lead-activity-timeline">${activity.length ? activity.map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${escape(item.activity_type || 'Activity')}</div><div class="timeline-copy">${escape(item.description || '')}</div><div class="timeline-time">${escape(item.created_at || '')}</div></div></div>`).join('') : '<div class="empty-state">No activity recorded yet.</div>'}</div>`;
@@ -161,6 +193,16 @@
   }
 
   document.addEventListener('click', event => {
+    const addLead = event.target.closest?.('[data-screen="add-lead"]');
+    if (addLead && state.screen !== 'add-lead') {
+      event.preventDefault();
+      state.drawer = null;
+      state.screen = 'add-lead';
+      window.history.pushState({}, '', routePaths['add-lead'] || '/add-lead');
+      render();
+      loadLeadAgents();
+      return;
+    }
     const row = event.target.closest('[data-lead-module-row]');
     if (row && !event.target.closest('button, a, input, select, textarea, summary, details')) { openLead(row.dataset.leadModuleRow); return; }
     const close = event.target.closest('[data-lead-module-close]');
@@ -204,4 +246,6 @@
   window.renderLeads = renderLeadsModule;
   window.renderAddLead = renderAddLeadModule;
   window.renderLeadDrawer = renderLeadDrawerModule;
+  window.loadLeadAgents = loadLeadAgents;
+  if (state.authUser && state.screen === 'add-lead') loadLeadAgents();
 })();

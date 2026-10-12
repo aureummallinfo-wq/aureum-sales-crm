@@ -23,6 +23,46 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
   function dateBounds(params = {}) { const today = localDate(); const range = params.dateRange || 'this_month'; let start = today; let end = today; const asDate = value => new Date(`${value}T00:00:00Z`); const iso = value => value.toISOString().slice(0, 10); if (range === 'yesterday') { const date = asDate(today); date.setUTCDate(date.getUTCDate() - 1); start = end = iso(date); } else if (range === 'this_week') { const date = asDate(today); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); start = iso(date); date.setUTCDate(date.getUTCDate() + 6); end = iso(date); } else if (range === 'last_month') { const first = asDate(`${today.slice(0, 7)}-01`); first.setUTCMonth(first.getUTCMonth() - 1); start = iso(first); const last = asDate(`${today.slice(0, 7)}-01`); last.setUTCDate(0); end = iso(last); } else if (range === 'custom') { start = /^\d{4}-\d{2}-\d{2}$/.test(params.startDate || '') ? params.startDate : today; end = /^\d{4}-\d{2}-\d{2}$/.test(params.endDate || '') ? params.endDate : start; if (end < start) [start, end] = [end, start]; } else if (range === 'today') { start = end = today; } else { start = `${today.slice(0, 7)}-01`; const next = asDate(start); next.setUTCMonth(next.getUTCMonth() + 1); next.setUTCDate(0); end = iso(next); } return { start, end, range }; }
   function recordDate(value) { if (!value) return ''; const text = String(value); if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10); return localDate(value); }
   function inDateRange(value, bounds) { const date = recordDate(value); return Boolean(date && date >= bounds.start && date <= bounds.end); }
+  function isoDate(value) { return value.toISOString().slice(0, 10); }
+  function addIsoDays(value, amount) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + amount); return isoDate(date); }
+  function dateSpanDays(start, end) { return Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1; }
+  function hasTimeComponent(value) { return /(?:T|\s)\d{2}:\d{2}/.test(String(value || '')); }
+  function localHourBucket(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: crmTimezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+    const map = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${map.year}-${map.month}-${map.day}T${map.hour}:00`;
+  }
+  function isoWeekStart(value) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return isoDate(date); }
+  function leadInflowGranularity(bounds, leads) {
+    if (bounds.range === 'today' && leads.some(item => hasTimeComponent(item.created_at || item.updated_at))) return 'hour';
+    const span = dateSpanDays(bounds.start, bounds.end);
+    if (span <= 31) return 'day';
+    if (span <= 366) return 'week';
+    return 'month';
+  }
+  function leadInflowKey(value, granularity) {
+    const date = recordDate(value);
+    if (!date) return '';
+    if (granularity === 'hour' && hasTimeComponent(value)) return localHourBucket(value) || date;
+    if (granularity === 'week') return isoWeekStart(date);
+    if (granularity === 'month') return date.slice(0, 7);
+    return date;
+  }
+  function leadInflowBuckets(bounds, granularity) {
+    if (granularity === 'hour') return Array.from({ length: 24 }, (_, hour) => `${bounds.start}T${String(hour).padStart(2, '0')}:00`);
+    if (granularity === 'day') return Array.from({ length: dateSpanDays(bounds.start, bounds.end) }, (_, index) => addIsoDays(bounds.start, index));
+    const buckets = new Set();
+    for (let index = 0; index < dateSpanDays(bounds.start, bounds.end); index += 1) buckets.add(leadInflowKey(addIsoDays(bounds.start, index), granularity));
+    return [...buckets];
+  }
+  function leadInflowData(leads, bounds) {
+    const granularity = leadInflowGranularity(bounds, leads);
+    const counts = new Map();
+    for (const lead of leads) { const value = lead.created_at || lead.updated_at; const key = leadInflowKey(value, granularity); if (key) counts.set(key, (counts.get(key) || 0) + 1); }
+    return leadInflowBuckets(bounds, granularity).map(label => ({ label, leads: counts.get(label) || 0 }));
+  }
   function reportRows(users, leads, customers, followUps) { return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role)).map(agent => { const assignedLeads = leads.filter(item => item.assigned_agent_id === agent.id); const assignedCustomers = customers.filter(item => item.assigned_agent_id === agent.id); const assignedFollowUps = followUps.filter(item => item.assigned_agent_id === agent.id); const closedDeals = assignedLeads.filter(item => item.status === 'Closed Won').length; const overdue = assignedFollowUps.filter(item => item.status === 'Overdue').length; const conversion = assignedLeads.length ? Number((closedDeals / assignedLeads.length * 100).toFixed(1)) : 0; return { agentId: agent.id, agentName: agent.full_name, agentRole: agent.role === 'sales_manager' ? 'Sales Manager' : 'Sales Agent', teamId: agent.team_id, teamName: agent.team_name || agent.team_id || 'Unassigned', status: agent.status === 'active' ? 'Active' : 'Inactive', assignedLeads: assignedLeads.length, contactedLeads: assignedLeads.filter(item => item.status !== 'New').length, hotLeads: assignedLeads.filter(item => ['Hot', 'Booking'].includes(item.status)).length, followUpsAssigned: assignedFollowUps.length, followUpsCompleted: assignedFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: overdue, closedDeals, lostLeads: assignedLeads.filter(item => ['Closed Lost', 'Lost'].includes(item.status)).length, totalCustomers: assignedCustomers.length, conversionRate: conversion, lastActivityAt: agent.last_activity_at || agent.updated_at }; }); }
 
   async function reportData(user, params = {}) {
@@ -33,7 +73,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     const closedWon = leads.filter(item => item.status === 'Closed Won').length; const completed = followUps.filter(item => item.status === 'Completed').length; const conversionRate = leads.length ? Number((closedWon / leads.length * 100).toFixed(1)) : 0;
     const agentReports = reportRows(scopedUsers, leads, customers, followUps);
     const leadSourcePerformance = [...new Set(leads.map(item => item.lead_source).filter(Boolean))].map(label => ({ label, value: leads.filter(item => item.lead_source === label).length }));
-    const leadInflow = [...new Set(leads.map(item => recordDate(item.created_at || item.updated_at).slice(0, 7)).filter(Boolean))].sort().map(month => ({ label: month, leads: leads.filter(item => recordDate(item.created_at || item.updated_at).slice(0, 7) === month).length }));
+    const leadInflow = leadInflowData(leads, bounds);
     const newLeads = leads.filter(item => item.status === 'New').length;
     const followUpsDue = followUps.filter(item => ['Pending', 'Rescheduled'].includes(item.status)).length;
     const overdueFollowUps = followUps.filter(item => item.status === 'Overdue').length;
@@ -97,7 +137,11 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       const body = await readBody(req); const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
       if (!fullName || !phone || !safeText(body.interested_in, 160)) return json(res, 400, { error: 'Full name, phone, and interested in are required' });
       if (!validatePhone(phone) || (email && !validateEmail(email))) return json(res, 422, { error: 'Enter a valid phone number and email address.' });
-      const lead = await repository.createLead({ workspaceId, actor: user, lead: { ...body, full_name: fullName, phone, email, whatsapp_number: safeText(body.whatsapp_number || phone, 32), interested_in: safeText(body.interested_in, 160), lead_source: safeText(body.lead_source || 'Manual Entry', 80), status: safeText(body.status || 'New', 80), priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium' } });
+      const assignedAgentId = safeText(body.assigned_agent_id, 120);
+      const assignedAgent = assignedAgentId ? await repository.findUser(workspaceId, assignedAgentId) : null;
+      if (assignedAgentId && (!assignedAgent || assignedAgent.status !== 'active' || !['sales_agent', 'sales_manager'].includes(assignedAgent.role) || (user.role === 'sales_manager' && assignedAgent.team_id !== user.team_id))) return json(res, 422, { error: 'Choose an active advisor from your permitted team.' });
+      const tags = Array.isArray(body.tags) ? [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 10) : [];
+      const lead = await repository.createLead({ workspaceId, actor: user, lead: { ...body, full_name: fullName, phone, email, whatsapp_number: safeText(body.whatsapp_number || phone, 32), interested_in: safeText(body.interested_in, 160), lead_source: safeText(body.lead_source || 'Manual Entry', 80), status: safeText(body.status || 'New', 80), priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', assigned_agent_id: assignedAgent?.id || null, assigned_team_id: assignedAgent?.team_id || (user.role === 'sales_manager' ? user.team_id : null), tags } });
       return json(res, 201, { data: leadView(lead) });
     }
 

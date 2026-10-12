@@ -96,3 +96,27 @@ test('dashboard cache stores only aggregate data, expires quickly, and invalidat
   invalidateDashboardCache();
   assert.equal(dashboardReadCache(), null);
 });
+
+test('dashboard chart scales small datasets and formats date labels', () => {
+  const { dashboardChartMax, dashboardChartLabel, dashboardLineChart } = loadDashboardContracts();
+
+  assert.equal(dashboardChartMax([0]), 1);
+  assert.equal(dashboardChartMax([1]), 2);
+  assert.equal(dashboardChartMax([2, 4]), 5);
+  assert.equal(dashboardChartMax([6]), 10);
+  assert.equal(dashboardChartMax([11]), 25);
+  assert.equal(dashboardChartMax([26]), 50);
+  assert.equal(dashboardChartMax([61]), 70);
+  assert.equal(dashboardChartLabel('2026-10-07'), 'Oct 7');
+  assert.equal(dashboardChartLabel('2026-10'), 'Oct 2026');
+
+  const chart = dashboardLineChart([
+    { label: '2026-10-07', leads: 2 },
+    { label: '2026-10-08', leads: 2 }
+  ], 4);
+  assert.match(chart, /Oct 7/);
+  assert.match(chart, /Oct 8/);
+  assert.match(chart, /class="chart-line"/);
+  assert.doesNotMatch(chart, /No leads were created/);
+  assert.match(dashboardLineChart([{ label: '2026-10-07', leads: 0 }], 0), /No leads were created in this date range/);
+});

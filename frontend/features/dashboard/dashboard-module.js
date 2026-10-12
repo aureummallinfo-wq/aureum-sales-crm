@@ -157,38 +157,57 @@ function useTodayFollowUps(params = {}) { return { ...useDashboardData(params), 
 
 function dashboardCard(title, subtitle, content, className = '') { return `<article class="card dashboard-chart-card ${className}"><div class="dashboard-card-heading"><div><h3>${title}</h3><p>${subtitle}</p></div></div>${content}</article>`; }
 
-function dashboardLineChart(points) {
+function dashboardChartMax(values) {
+  const numericValues = dashboardSafeArray(values).map(Number).filter(Number.isFinite).map(value => Math.max(0, value));
+  const rawMax = Math.max(...numericValues, 0);
+  if (rawMax <= 0) return 1;
+  if (rawMax <= 2) return 2;
+  if (rawMax <= 5) return 5;
+  if (rawMax <= 10) return 10;
+  if (rawMax <= 25) return 25;
+  if (rawMax <= 50) return 50;
+  if (rawMax <= 60) return 60;
+  return Math.ceil(rawMax / 10) * 10;
+}
+
+function dashboardChartLabel(value) {
+  const label = dashboardSafeString(value, '');
+  const dateMatch = label.match(/^(\d{4})-(\d{2})(?:-(\d{2})(?:T(\d{2}):\d{2})?)?$/);
+  if (!dateMatch) return label;
+  const [, year, month, day, hour] = dateMatch;
+  const monthLabel = dashboardMonths[Number(month) - 1] || month;
+  if (!day) return `${monthLabel} ${year}`;
+  return hour ? `${monthLabel} ${Number(day)} ${hour}:00` : `${monthLabel} ${Number(day)}`;
+}
+
+function dashboardLineChart(points, totalLeads = state.dashboard.data?.summary?.totalLeads ?? null) {
   points = dashboardSafeArray(points);
   const colors = dashboardChartColors();
-  const values = points.map(point => dashboardNumber(point.leads));
-  const rawMax = Math.max(...values, 1);
+  let values = points.map(point => dashboardNumber(point.leads));
+  const total = totalLeads === null || totalLeads === undefined ? values.reduce((sum, value) => sum + Math.max(0, value), 0) : Math.max(0, dashboardNumber(totalLeads));
+  if (!points.length && total > 0) { points = [{ label: 'Selected range', leads: total }]; values = [total]; }
+  if (!points.length || (!values.some(value => value > 0) && total <= 0)) return '<div class="dashboard-empty dashboard-line-empty" role="status">No leads were created in this date range.</div>';
+  const chartValues = points.map(point => dashboardNumber(point.leads));
   const width = 700;
   const height = 280;
   const plot = { left: 54, right: 18, top: 18, bottom: 48 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
-  // Keep the executive chart legible when a workspace has only a few records.
-  // Tooltips and accessible labels still expose the exact point value.
-  const minimumScale = 60;
-  const roughStep = Math.max(rawMax, minimumScale) / 6;
-  const magnitude = 10 ** Math.floor(Math.log10(roughStep || 1));
-  const normalizedStep = roughStep / magnitude;
-  const stepUnit = normalizedStep <= 1 ? 1 : normalizedStep <= 2 ? 2 : normalizedStep <= 5 ? 5 : 10;
-  const tickStep = Math.max(10, stepUnit * magnitude);
-  const chartMax = Math.max(minimumScale, Math.ceil(rawMax / tickStep) * tickStep);
+  const chartMax = dashboardChartMax(chartValues);
+  const tickStep = chartMax <= 10 ? 1 : chartMax <= 50 ? 5 : 10;
   const tickValues = Array.from({ length: Math.round(chartMax / tickStep) + 1 }, (_, index) => index * tickStep);
   const formatTick = value => Number.isInteger(value) ? dashboardFormatNumber(value) : value.toFixed(1);
-  const xFor = index => plot.left + index * (plotWidth / Math.max(values.length - 1, 1));
+  const xFor = index => plot.left + index * (plotWidth / Math.max(chartValues.length - 1, 1));
   const yFor = value => plot.top + plotHeight - ((value / chartMax) * plotHeight);
-  const coords = values.map((value, index) => ({ x: xFor(index), y: yFor(value) }));
+  const coords = chartValues.map((value, index) => ({ x: xFor(index), y: yFor(value) }));
   const line = coords.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
   const area = `${line} L ${coords.at(-1)?.x || plot.left + plotWidth} ${plot.top + plotHeight} L ${coords[0]?.x || plot.left} ${plot.top + plotHeight} Z`;
   const grid = tickValues.map(value => { const y = yFor(value).toFixed(1); return `<line class="chart-gridline" x1="${plot.left}" x2="${plot.left + plotWidth}" y1="${y}" y2="${y}"/><text class="chart-axis-number" x="${plot.left - 10}" y="${Number(y) + 3.5}" text-anchor="end">${dashboardEscape(formatTick(value))}</text>`; }).join('');
   const labelStep = Math.max(1, Math.ceil((points.length - 1) / 6));
   const labelIndexes = points.map((_, index) => index).filter(index => index === 0 || index === points.length - 1 || index % labelStep === 0);
-  const xLabels = labelIndexes.map(index => { const label = points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`; return `<text class="chart-axis-label" x="${xFor(index)}" y="${height - 23}" text-anchor="middle">${dashboardEscape(label)}</text>`; }).join('');
-  const pointCircles = coords.map((point, index) => { const label = points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`; const value = dashboardCountLabel(values[index], 'lead'); return `<circle cx="${point.x}" cy="${point.y}" r="4" style="stroke:${colors.gold}"><title>${dashboardEscape(dashboardTooltipText(label, [value]))}</title></circle>`; }).join('');
-  const hotspots = coords.map((point, index) => { const label = points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`; const value = dashboardCountLabel(values[index], 'lead'); const text = dashboardTooltipText(label, [value]); const edgeClass = index === 0 ? ' is-first' : index === coords.length - 1 ? ' is-last' : ''; return `<span class="dashboard-line-hotspot dashboard-tooltip-anchor${edgeClass}" style="left:${((point.x / width) * 100).toFixed(2)}%;top:${((point.y / height) * 100).toFixed(2)}%" tabindex="0" aria-label="${dashboardEscape(text)}">${dashboardTooltip(label, [value])}</span>`; }).join('');
+  const xLabels = labelIndexes.map(index => { const label = dashboardChartLabel(points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`); return `<text class="chart-axis-label" x="${xFor(index)}" y="${height - 23}" text-anchor="middle">${dashboardEscape(label)}</text>`; }).join('');
+  const pointCircles = coords.map((point, index) => { const label = dashboardChartLabel(points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`); const value = dashboardCountLabel(chartValues[index], 'lead'); return `<circle cx="${point.x}" cy="${point.y}" r="4" style="stroke:${colors.gold}"><title>${dashboardEscape(dashboardTooltipText(label, [value]))}</title></circle>`; }).join('');
+  const hotspots = coords.map((point, index) => { const label = dashboardChartLabel(points[index]?.label || dashboardMonths[index] || `Point ${index + 1}`); const value = dashboardCountLabel(chartValues[index], 'lead'); const text = dashboardTooltipText(label, [value]); const edgeClass = index === 0 ? ' is-first' : index === coords.length - 1 ? ' is-last' : ''; return `<span class="dashboard-line-hotspot dashboard-tooltip-anchor${edgeClass}" style="left:${((point.x / width) * 100).toFixed(2)}%;top:${((point.y / height) * 100).toFixed(2)}%" tabindex="0" aria-label="${dashboardEscape(text)}">${dashboardTooltip(label, [value])}</span>`; }).join('');
   return `<div class="dashboard-line-chart"><svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Lead inflow trend chart. Dates are shown horizontally and lead count is shown vertically."><defs><linearGradient id="lead-inflow-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="${colors.gold}" stop-opacity=".34"/><stop offset="100%" stop-color="${colors.gold}" stop-opacity=".02"/></linearGradient></defs>${grid}<line class="chart-axis" x1="${plot.left}" x2="${plot.left}" y1="${plot.top}" y2="${plot.top + plotHeight}"/><line class="chart-axis" x1="${plot.left}" x2="${plot.left + plotWidth}" y1="${plot.top + plotHeight}" y2="${plot.top + plotHeight}"/><path class="chart-area" d="${area}"/><path class="chart-line" d="${line}" style="stroke:${colors.gold}"/>${pointCircles}${xLabels}<text class="chart-axis-title chart-axis-title-y" x="14" y="${plot.top + plotHeight / 2}" text-anchor="middle" transform="rotate(-90 14 ${plot.top + plotHeight / 2})">Leads</text><text class="chart-axis-title" x="${plot.left + plotWidth / 2}" y="${height - 3}" text-anchor="middle">Date</text></svg><div class="dashboard-line-hotspots">${hotspots}</div></div>`;
 }
 
@@ -240,4 +259,4 @@ function renderDashboard() {
 
 bindDashboardModuleEvents();
 window.invalidateDashboardCache = invalidateDashboardCache;
-window.dashboardContracts = { dashboardRoleConfig, DASHBOARD_CACHE_TTL_MS, dashboardSafeString, dashboardSafeArray, dashboardLeadName, dashboardCustomerName, dashboardAgentName, dashboardInitials, dashboardCacheKey, dashboardReadCache, dashboardWriteCache, invalidateDashboardCache, normalizeDashboardData, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };
+window.dashboardContracts = { dashboardRoleConfig, DASHBOARD_CACHE_TTL_MS, dashboardSafeString, dashboardSafeArray, dashboardLeadName, dashboardCustomerName, dashboardAgentName, dashboardInitials, dashboardChartMax, dashboardChartLabel, dashboardLineChart, dashboardCacheKey, dashboardReadCache, dashboardWriteCache, invalidateDashboardCache, normalizeDashboardData, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };
