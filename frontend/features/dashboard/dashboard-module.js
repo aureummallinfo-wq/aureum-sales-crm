@@ -197,9 +197,13 @@ function dashboardLineChart(points, totalLeads = state.dashboard.data?.summary?.
   const plot = { left: 54, right: 18, top: 18, bottom: 48 };
   const plotWidth = width - plot.left - plot.right;
   const plotHeight = height - plot.top - plot.bottom;
-  const chartMax = dashboardChartMax(chartValues);
-  const tickStep = chartMax <= 10 ? 1 : chartMax <= 50 ? 5 : 10;
-  const tickValues = Array.from({ length: Math.round(chartMax / tickStep) + 1 }, (_, index) => index * tickStep);
+  // Keep a stable reference axis for small ranges so Today/This Week do not
+  // turn into a misleading 1–2 scale. The plotted point remains visible, and
+  // larger datasets still expand beyond the reference range when necessary.
+  const chartMax = Math.max(dashboardChartMax(chartValues), 60);
+  const tickValues = chartMax <= 60
+    ? [0, 5, 10, 20, 30, 40, 50, 60]
+    : Array.from({ length: Math.round(chartMax / 10) + 1 }, (_, index) => index * 10);
   const formatTick = value => Number.isInteger(value) ? dashboardFormatNumber(value) : value.toFixed(1);
   const xFor = index => plot.left + index * (plotWidth / Math.max(chartValues.length - 1, 1));
   const yFor = value => plot.top + plotHeight - ((value / chartMax) * plotHeight);
