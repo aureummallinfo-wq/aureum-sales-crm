@@ -33,9 +33,9 @@ const webhookLogs = [];
 const failedWebhookLeads = [];
 
 const rolePermissions = {
-  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
-  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
-  sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'my-account', 'change-password']
+  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
+  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
+  sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
 };
 
 const dashboardByRole = {

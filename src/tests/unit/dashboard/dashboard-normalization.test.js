@@ -109,6 +109,9 @@ test('dashboard chart scales small datasets and formats date labels', () => {
   assert.equal(dashboardChartMax([61]), 70);
   assert.equal(dashboardChartLabel('2026-10-07'), 'Oct 7');
   assert.equal(dashboardChartLabel('2026-10'), 'Oct 2026');
+  assert.equal(dashboardChartLabel('2026-10-12T00:00'), 'Oct 12 12:00 AM');
+  assert.equal(dashboardChartLabel('2026-10-12T16:00'), 'Oct 12 4:00 PM');
+  assert.equal(dashboardChartLabel('2026-10-12T23:00'), 'Oct 12 11:00 PM');
 
   const chart = dashboardLineChart([
     { label: '2026-10-07', leads: 2 },

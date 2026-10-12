@@ -181,7 +181,11 @@ function dashboardChartLabel(value) {
   const [, year, month, day, hour] = dateMatch;
   const monthLabel = dashboardMonths[Number(month) - 1] || month;
   if (!day) return `${monthLabel} ${year}`;
-  return hour ? `${monthLabel} ${Number(day)} ${hour}:00` : `${monthLabel} ${Number(day)}`;
+  if (!hour) return `${monthLabel} ${Number(day)}`;
+  const hourNumber = Number(hour);
+  const meridiem = hourNumber >= 12 ? 'PM' : 'AM';
+  const displayHour = hourNumber % 12 || 12;
+  return `${monthLabel} ${Number(day)} ${displayHour}:00 ${meridiem}`;
 }
 
 function dashboardLineChart(points, totalLeads = state.dashboard.data?.summary?.totalLeads ?? null) {

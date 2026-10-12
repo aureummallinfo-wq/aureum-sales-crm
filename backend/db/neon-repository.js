@@ -301,6 +301,34 @@ function createNeonRepository(sql) {
     return { ...metadata, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, customer_id: row.customer_id_legacy || metadata.customer_id || null, follow_up_type: row.follow_up_type, due_date: metadata.due_date || parts.date, due_time: metadata.due_time || parts.time, priority: row.priority, status: row.status, notes: row.notes, completed_at: row.completed_at, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at };
   }
 
+  function taskRecord(row) {
+    const metadata = valueObject(row.metadata);
+    return {
+      ...metadata,
+      id: row.legacy_id || row.id,
+      title: row.title,
+      description: row.description || '',
+      status: row.status,
+      priority: row.priority,
+      due_at: row.due_at,
+      completed_at: row.completed_at,
+      assigned_to: row.assigned_to_legacy || null,
+      assigned_agent_id: row.assigned_to_legacy || null,
+      assigned_agent: row.assigned_to_name || 'Unassigned',
+      assigned_agent_email: row.assigned_to_email || null,
+      assigned_team_id: row.assigned_team_legacy || null,
+      created_by: row.created_by_legacy || null,
+      created_by_name: row.created_by_name || null,
+      lead_id: row.lead_id_legacy || null,
+      lead_name: row.lead_name || null,
+      customer_id: row.customer_id_legacy || null,
+      customer_name: row.customer_name || null,
+      follow_up_id: row.follow_up_id_legacy || null,
+      created_at: row.created_at,
+      updated_at: row.updated_at
+    };
+  }
+
   const leadSelect = `SELECT l.*, ls.name AS status, src.name AS lead_source,
     au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent,
     t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy
@@ -372,6 +400,110 @@ function createNeonRepository(sql) {
   async function listFollowUpActivities(workspace, identifier) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return[];return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,a.created_at FROM crm.follow_up_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.follow_up_id=$1 ORDER BY a.created_at DESC`,[id]); }
   async function listCustomerFollowUps(workspace, identifier) { return listFollowUps({workspaceId:workspace,user:{role:'super_admin'},customerId:identifier}); }
 
+  const taskSelect = `SELECT t.*, au.legacy_id AS assigned_to_legacy, au.full_name AS assigned_to_name, au.email AS assigned_to_email,
+    at.legacy_id AS assigned_team_legacy, cu.legacy_id AS created_by_legacy, cu.full_name AS created_by_name,
+    l.legacy_id AS lead_id_legacy, l.full_name AS lead_name, c.legacy_id AS customer_id_legacy, c.full_name AS customer_name,
+    f.legacy_id AS follow_up_id_legacy
+    FROM crm.tasks t LEFT JOIN crm.users au ON au.id=t.assigned_to LEFT JOIN crm.teams at ON at.id=t.assigned_team_id
+    LEFT JOIN crm.users cu ON cu.id=t.created_by LEFT JOIN crm.leads l ON l.id=t.lead_id
+    LEFT JOIN crm.customers c ON c.id=t.customer_id LEFT JOIN crm.follow_ups f ON f.id=t.follow_up_id`;
+
+  async function taskScope(workspace, user) {
+    const conditions = ['t.workspace_id = $1', 't.deleted_at IS NULL'];
+    const params = [workspace];
+    if (user?.role === 'sales_manager') {
+      const teamId = await resolveTeamId(workspace, user.team_id);
+      params.push(teamId, await resolveUserId(workspace, user.id));
+      conditions.push(`(t.assigned_team_id = $${params.length - 1} OR t.created_by = $${params.length})`);
+    } else if (user?.role !== 'super_admin') {
+      params.push(await resolveUserId(workspace, user?.id));
+      conditions.push(`t.assigned_to = $${params.length}`);
+    }
+    return { conditions, params };
+  }
+
+  async function listTasks(workspace, user, filters = {}) {
+    const scoped = await taskScope(workspace, user);
+    const conditions = [...scoped.conditions];
+    const params = [...scoped.params];
+    if (filters.status && filters.status !== 'all') { params.push(filters.status); conditions.push(`t.status = $${params.length}`); }
+    if (filters.priority && filters.priority !== 'all') { params.push(filters.priority); conditions.push(`t.priority = $${params.length}`); }
+    if (filters.assignedTo && filters.assignedTo !== 'all') { params.push(await resolveUserId(workspace, filters.assignedTo)); conditions.push(`t.assigned_to = $${params.length}`); }
+    if (filters.search) { params.push(`%${String(filters.search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(t.title) LIKE ${p} OR lower(coalesce(t.description, '')) LIKE ${p} OR lower(coalesce(l.full_name, '')) LIKE ${p} OR lower(coalesce(c.full_name, '')) LIKE ${p})`); }
+    const rows = await sql.query(`${taskSelect} WHERE ${conditions.join(' AND ')} ORDER BY CASE WHEN t.status = 'Overdue' THEN 0 WHEN t.status = 'In Progress' THEN 1 WHEN t.status = 'Pending' THEN 2 ELSE 3 END, t.due_at NULLS LAST, t.created_at DESC`, params);
+    return rows.map(taskRecord);
+  }
+
+  async function getTask(workspace, user, identifier) {
+    const scoped = await taskScope(workspace, user);
+    const params = [...scoped.params, String(identifier)];
+    const rows = await sql.query(`${taskSelect} WHERE ${scoped.conditions.join(' AND ')} AND (t.id::text = $${params.length} OR t.legacy_id = $${params.length}) LIMIT 1`, params);
+    return rows[0] ? taskRecord(rows[0]) : null;
+  }
+
+  async function taskAssignment(workspace, actor, identifier) {
+    const target = await findUser(workspace, identifier);
+    if (!target || target.status !== 'active' || !['sales_agent', 'sales_manager'].includes(target.role)) return null;
+    if (actor.role === 'sales_manager' && target.team_id !== actor.team_id) return null;
+    return { userId: await resolveUserId(workspace, target.id), teamId: await resolveTeamId(workspace, target.team_id), user: target };
+  }
+
+  async function createTask(workspace, actor, input) {
+    const title = String(input.title || '').trim().slice(0, 160);
+    if (!title) return null;
+    const assignment = await taskAssignment(workspace, actor, input.assigned_to || input.assigned_agent_id || actor.id);
+    if (!assignment) return null;
+    const leadId = await resolveLeadId(workspace, input.lead_id);
+    const customerId = await resolveCustomerId(workspace, input.customer_id);
+    const followUpId = await resolveFollowUpId(workspace, input.follow_up_id);
+    if (input.lead_id && !(await listLeads({ workspaceId: workspace, user: actor })).some(item => item.id === input.lead_id)) return null;
+    if (input.customer_id && !(await listCustomers({ workspaceId: workspace, user: actor })).some(item => item.id === input.customer_id)) return null;
+    if (input.follow_up_id && !(await listFollowUps({ workspaceId: workspace, user: actor })).some(item => item.id === input.follow_up_id)) return null;
+    const actorId = await resolveUserId(workspace, actor.id);
+    const legacyId = input.id || `task_${crypto.randomUUID()}`;
+    const dueAt = input.due_at ? timestampValue(input.due_at) : null;
+    const rows = await sql.query(`INSERT INTO crm.tasks (workspace_id, legacy_id, title, description, status, priority, assigned_to, assigned_team_id, created_by, lead_id, customer_id, follow_up_id, due_at, metadata)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb) RETURNING id`, [workspace, legacyId, title, String(input.description || '').trim().slice(0, 5000) || null, ['Pending', 'In Progress', 'Completed', 'Overdue', 'Cancelled'].includes(input.status) ? input.status : 'Pending', ['Low', 'Medium', 'High', 'Urgent'].includes(input.priority) ? input.priority : 'Medium', assignment.userId, assignment.teamId, actorId, leadId, customerId, followUpId, dueAt, JSON.stringify(input)]);
+    const taskId = rows[0]?.id;
+    await insertAudit(workspace, actor, 'task_created', 'task', taskId, { legacy_id: legacyId, title, assigned_to: assignment.user.id });
+    await enqueueOutbox(workspace, 'task_created', 'task', taskId, { legacy_id: legacyId, assigned_to: assignment.user.id }, `task_created:${legacyId}`);
+    if (assignment.userId && assignment.userId !== actorId) await sql.query(`INSERT INTO crm.notifications (user_id, title, message, related_entity_type, related_entity_id, dedupe_key) VALUES ($1,$2,$3,'task',$4,$5) ON CONFLICT (user_id, dedupe_key) DO NOTHING`, [assignment.userId, 'New task assigned', `${actor.full_name || 'A manager'} assigned you: ${title}`, taskId, `task_assigned:${legacyId}`]);
+    return getTask(workspace, actor, legacyId) || getTask(workspace, { ...actor, role: 'super_admin' }, legacyId);
+  }
+
+  async function updateTask(workspace, actor, identifier, patch) {
+    const current = await getTask(workspace, actor, identifier);
+    if (!current) return null;
+    const fields = [];
+    const params = [];
+    const assign = (column, value) => { params.push(value); fields.push(`${column} = $${params.length}`); };
+    if (patch.title !== undefined) assign('title', String(patch.title).trim().slice(0, 160));
+    if (patch.description !== undefined) assign('description', String(patch.description).trim().slice(0, 5000) || null);
+    if (patch.status !== undefined && ['Pending', 'In Progress', 'Completed', 'Overdue', 'Cancelled'].includes(patch.status)) { assign('status', patch.status); assign('completed_at', patch.status === 'Completed' ? new Date().toISOString() : null); }
+    if (patch.priority !== undefined && ['Low', 'Medium', 'High', 'Urgent'].includes(patch.priority)) assign('priority', patch.priority);
+    if (patch.due_at !== undefined) assign('due_at', patch.due_at ? timestampValue(patch.due_at) : null);
+    if (patch.lead_id !== undefined) assign('lead_id', patch.lead_id ? await resolveLeadId(workspace, patch.lead_id) : null);
+    if (patch.customer_id !== undefined) assign('customer_id', patch.customer_id ? await resolveCustomerId(workspace, patch.customer_id) : null);
+    if (patch.follow_up_id !== undefined) assign('follow_up_id', patch.follow_up_id ? await resolveFollowUpId(workspace, patch.follow_up_id) : null);
+    if (['super_admin', 'sales_manager'].includes(actor.role) && (patch.assigned_to !== undefined || patch.assigned_agent_id !== undefined)) {
+      const assignment = await taskAssignment(workspace, actor, patch.assigned_to || patch.assigned_agent_id);
+      if (!assignment) return null;
+      assign('assigned_to', assignment.userId); assign('assigned_team_id', assignment.teamId);
+    }
+    if (fields.length) { params.push(await resolveTaskDbId(workspace, identifier)); await sql.query(`UPDATE crm.tasks SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
+    await insertAudit(workspace, actor, 'task_updated', 'task', await resolveTaskDbId(workspace, identifier), patch);
+    await enqueueOutbox(workspace, 'task_updated', 'task', await resolveTaskDbId(workspace, identifier), patch);
+    return getTask(workspace, actor, identifier);
+  }
+
+  async function resolveTaskDbId(workspace, identifier) { const rows = await sql.query('SELECT id FROM crm.tasks WHERE workspace_id = $1 AND (id::text = $2 OR legacy_id = $2) AND deleted_at IS NULL LIMIT 1', [workspace, String(identifier)]); return rows[0]?.id || null; }
+
+  async function deleteTask(workspace, actor, identifier) {
+    const current = await getTask(workspace, actor, identifier); if (!current) return null;
+    const id = await resolveTaskDbId(workspace, identifier); await sql.query('UPDATE crm.tasks SET deleted_at = now(), updated_at = now() WHERE id = $1', [id]);
+    await insertAudit(workspace, actor, 'task_deleted', 'task', id, { id: current.id }); await enqueueOutbox(workspace, 'task_deleted', 'task', id, { legacy_id: current.id }); return true;
+  }
+
   async function listNotifications(workspace, userIdentifier) { const userId=await resolveUserId(workspace,userIdentifier);if(!userId)return[];return sql.query(`SELECT n.id,n.event_key AS event_type,n.title,n.message,n.related_entity_type,n.related_entity_id,n.is_read,n.read_at,n.created_at FROM crm.notifications n WHERE n.user_id=$1 ORDER BY n.created_at DESC`,[userId]); }
   async function markNotificationRead(workspace,userIdentifier,identifier) { const userId=await resolveUserId(workspace,userIdentifier);await sql.query('UPDATE crm.notifications SET is_read=true,read_at=now() WHERE user_id=$1 AND (id::text=$2 OR dedupe_key=$2)',[userId,String(identifier)]);return true; }
   async function markAllNotificationsRead(workspace,userIdentifier) { const userId=await resolveUserId(workspace,userIdentifier);await sql.query('UPDATE crm.notifications SET is_read=true,read_at=now() WHERE user_id=$1 AND is_read=false',[userId]);return true; }
@@ -410,7 +542,7 @@ function createNeonRepository(sql) {
   async function markMessageRead(workspace,user,identifier) { const userId=await resolveUserId(workspace,user.id);await sql.query('INSERT INTO crm.chat_read_receipts (message_id,user_id,read_at) SELECT id,$2,now() FROM crm.chat_messages WHERE workspace_id=$1 AND legacy_id=$3 ON CONFLICT (message_id,user_id) DO UPDATE SET read_at=now()',[workspace,userId,String(identifier)]);return true; }
   async function reportRows(workspace,user) { const agents=await listUsers(workspace,user);const leads=await listLeads({workspaceId:workspace,user});const customers=await listCustomers({workspaceId:workspace,user});const followUps=await listFollowUps({workspaceId:workspace,user});return agents.filter(item=>['sales_agent','sales_manager'].includes(item.role)).map(agent=>{const ls=leads.filter(item=>item.assigned_agent_id===agent.id);const cs=customers.filter(item=>item.assigned_agent_id===agent.id);const fs=followUps.filter(item=>item.assigned_agent_id===agent.id);const closed=ls.filter(item=>item.status==='Closed Won').length;const overdue=fs.filter(item=>item.status==='Overdue').length;const completed=fs.filter(item=>item.status==='Completed').length;const conversion=ls.length?Number((closed/ls.length*100).toFixed(1)):0;const performance=conversion>=20&&overdue<=1?'Excellent':conversion>=12&&overdue<=2?'Good':conversion>0?'Average':'Needs Attention';return {id:agent.id,agentId:agent.id,name:agent.full_name,agentName:agent.full_name,initials:String(agent.full_name||'?').split(/\s+/).map(part=>part[0]).slice(0,2).join('').toUpperCase(),email:agent.email,phone:agent.phone,role:agent.role,agentRole:agent.role==='sales_manager'?'Sales Manager':'Sales Agent',team:agent.team_id||'Unassigned',teamId:agent.team_id,assignedLeads:ls.length,activeLeads:ls.filter(item=>!['Closed Won','Closed Lost','Not Interested'].includes(item.status)).length,contactedLeads:ls.filter(item=>item.status!=='New').length,hotLeads:ls.filter(item=>['Hot','Booking'].includes(item.status)).length,followUpsAssigned:fs.length,followUpsDue:fs.filter(item=>['Pending','Rescheduled'].includes(item.status)).length,followUpsCompleted:completed,overdueFollowUps:overdue,customersHandled:cs.length,closedDeals:closed,lostLeads:ls.filter(item=>['Closed Lost','Lost'].includes(item.status)).length,conversionRate:conversion,conversionRateLabel:`${conversion}%`,performance,status:agent.status,lastActivity:agent.last_login_at||agent.last_activity_at||agent.updated_at,lastActivityAt:agent.last_activity_at||agent.updated_at};}); }
 
-  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, updateLastLogin, listUsers, listTeams, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, getLead, listLeadActivities, createLead, updateLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, transitionFollowUp, listFollowUpActivities, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, updateLastLogin, listUsers, listTeams, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, getLead, listLeadActivities, createLead, updateLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, transitionFollowUp, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
 }
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.invite_status === 'sent'), temporary_password_expires_at: row.temporary_password_expires_at || null, access_email_sent_at: row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }

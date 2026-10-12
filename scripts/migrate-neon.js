@@ -11,7 +11,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '001_aureum_crm_schema.sql'),
   path.join(root, 'db', 'migrations', '002_production_crm_schema.sql'),
   path.join(root, 'db', 'migrations', '003_workspace_settings.sql'),
-  path.join(root, 'db', 'migrations', '004_crm_integration_metadata.sql')
+  path.join(root, 'db', 'migrations', '004_crm_integration_metadata.sql'),
+  path.join(root, 'db', 'migrations', '005_tasks.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -21,7 +22,7 @@ const tables = [
   'chat_channels', 'chat_messages', 'chat_read_receipts', 'chat_groups', 'chat_group_members',
   'direct_messages', 'chat_attachments', 'chat_links', 'user_activities', 'system_settings',
   'account_preferences', 'lead_statuses', 'lead_tags', 'lead_sources', 'notification_settings',
-  'notifications', 'activity_logs', 'webhook_connections', 'webhook_logs', 'failed_webhook_leads'
+  'notifications', 'activity_logs', 'webhook_connections', 'webhook_logs', 'failed_webhook_leads', 'tasks'
 ];
 
 function json(value) { return JSON.stringify(value ?? {}); }
@@ -161,7 +162,7 @@ async function importProductionState() {
 
   const roles = [['super_admin', 'Super Admin'], ['sales_manager', 'Sales Manager'], ['sales_agent', 'Sales Agent']];
   for (const [key, name] of roles) await upsertGenerated('crm.roles', ['workspace_id', 'key', 'name'], [workspaceId, key, name], ['workspace_id', 'key']);
-  const permissionKeys = ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'];
+  const permissionKeys = ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'];
   for (const key of permissionKeys) await upsert('crm.permissions', ['key', 'name'], [key, key.replace(/-/g, ' ')], ['key']);
   const roleRows = await sql`SELECT id, key FROM crm.roles WHERE workspace_id = ${workspaceId}`;
   const permissionRows = await sql`SELECT id, key FROM crm.permissions`;
@@ -170,7 +171,7 @@ async function importProductionState() {
   const permissionsByRole = {
     super_admin: permissionKeys,
     sales_manager: permissionKeys.filter(key => key !== 'settings'),
-    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'team-chat', 'my-account', 'change-password']
+    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
   };
   for (const [role, keys] of Object.entries(permissionsByRole)) for (const key of keys) await sql.query('INSERT INTO crm.role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [roleMap.get(role), permissionMap.get(key)]);
 

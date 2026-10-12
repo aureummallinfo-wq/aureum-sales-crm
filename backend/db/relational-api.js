@@ -17,6 +17,33 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     return { id: item.legacy_id || item.id, connectionName: item.connection_name, sourceType: item.source_type || item.source_platform, sourcePlatform: item.source_platform, webhookUrl: `/api/webhooks/leads/${item.legacy_id || item.id}`, secretTokenMasked: '••••••••', status: status === 'active' ? 'Active' : 'Inactive', defaultLeadSource: item.default_lead_source || (item.source_platform === 'meta' ? 'Meta Lead Ads' : 'Webhook'), defaultLeadStatus: item.default_lead_status || 'New', defaultTags: item.default_tags || ['Imported Lead', 'Webhook Lead'], defaultAssignedTeam: item.default_assigned_team_id || null, defaultAssignedAgent: item.default_assigned_agent_id || null, autoAssignLead: Boolean(item.auto_assign_lead), duplicateCheckRule: item.duplicate_check_rule || 'externalLeadId', fieldMappings: item.field_mappings || {}, createdBy: item.created_by, createdAt: item.created_at, updatedAt: item.updated_at, lastReceivedAt: item.last_received_at || null, failedAttempts: item.failed_attempts || 0, unauthorizedAttempts: item.unauthorized_attempts || 0, healthStatus: status === 'active' ? (item.last_received_at ? 'Healthy' : 'No Recent Data') : 'Disabled' };
   }
 
+  function taskView(item) {
+    if (!item) return null;
+    return {
+      id: item.id,
+      title: item.title,
+      description: item.description || '',
+      status: item.status,
+      priority: item.priority,
+      dueAt: item.due_at || null,
+      completedAt: item.completed_at || null,
+      assignedTo: item.assigned_to || null,
+      assignedAgentId: item.assigned_agent_id || null,
+      assignedAgent: item.assigned_agent || 'Unassigned',
+      assignedAgentEmail: item.assigned_agent_email || null,
+      assignedTeamId: item.assigned_team_id || null,
+      createdBy: item.created_by || null,
+      createdByName: item.created_by_name || null,
+      leadId: item.lead_id || null,
+      leadName: item.lead_name || null,
+      customerId: item.customer_id || null,
+      customerName: item.customer_name || null,
+      followUpId: item.follow_up_id || null,
+      createdAt: item.created_at,
+      updatedAt: item.updated_at
+    };
+  }
+
   function searchView(result) { return { leads: result.leads.map(leadView), customers: result.customers.map(customerView), followUps: result.followUps.map(followUpView) }; }
 
   function localDate(value = new Date()) { const parts = new Intl.DateTimeFormat('en-US', { timeZone: crmTimezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value)); const map = Object.fromEntries(parts.map(part => [part.type, part.value])); return `${map.year}-${map.month}-${map.day}`; }
@@ -155,6 +182,50 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (req.method === 'POST' && action === 'notes') { const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) return json(res, 400, { error: 'Note is required' }); const item = await repository.addLeadActivity(workspaceId, current.id, user, 'Note added', note); return json(res, 201, { data: item }); }
       if (req.method === 'POST' && action === 'tags') { const body = await readBody(req); const lead = await repository.updateLead(workspaceId, current.id, user, { tags: body.tag ? [...new Set([...(current.tags || []), safeText(body.tag, 40)])] : current.tags }); return json(res, 201, { data: leadView(lead) }); }
       return json(res, 405, { error: 'Method not allowed' });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/tasks') {
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
+      const data = await repository.listTasks(workspaceId, user, { status: url.searchParams.get('status') || '', priority: url.searchParams.get('priority') || '', assignedTo: url.searchParams.get('assignedTo') || '', search: url.searchParams.get('q') || '' });
+      return json(res, 200, { scope: user.role === 'super_admin' ? 'company' : user.role === 'sales_manager' ? 'team' : 'assigned', data: data.map(taskView), meta: { total: data.length } });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/tasks') {
+      if (!role(user, ['super_admin', 'sales_manager'], res)) return true;
+      const body = await readBody(req);
+      const title = safeText(body.title, 160);
+      if (!title) return json(res, 422, { error: 'Task title is required.' });
+      if (body.due_at && Number.isNaN(new Date(body.due_at).getTime())) return json(res, 422, { error: 'Enter a valid due date and time.' });
+      const task = await repository.createTask(workspaceId, user, { ...body, title, description: safeText(body.description, 5000), assigned_to: safeText(body.assigned_to || body.assigned_agent_id, 120) || user.id });
+      return task ? json(res, 201, { data: taskView(task) }) : json(res, 422, { error: 'Choose an active advisor from your permitted scope.' });
+    }
+
+    const taskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+    if (taskMatch && req.method === 'GET') {
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
+      const task = await repository.getTask(workspaceId, user, taskMatch[1]);
+      return task ? json(res, 200, { data: taskView(task) }) : json(res, 404, { error: 'Task not found' });
+    }
+    if (taskMatch && req.method === 'PATCH') {
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
+      const current = await repository.getTask(workspaceId, user, taskMatch[1]);
+      if (!current) return json(res, 404, { error: 'Task not found' });
+      const body = await readBody(req);
+      const allowed = ['title', 'description', 'status', 'priority', 'due_at', 'assigned_to', 'assigned_agent_id', 'lead_id', 'customer_id', 'follow_up_id'];
+      const patch = Object.fromEntries(allowed.filter(field => body[field] !== undefined).map(field => [field, field === 'title' ? safeText(body[field], 160) : field === 'description' ? safeText(body[field], 5000) : body[field]]));
+      if (user.role === 'sales_agent') {
+        const agentPatch = Object.fromEntries(Object.entries(patch).filter(([field]) => ['status', 'description'].includes(field)));
+        Object.keys(patch).forEach(field => { if (!['status', 'description'].includes(field)) delete patch[field]; });
+        if (!Object.keys(agentPatch).length) return json(res, 422, { error: 'Agents can update task status or add task context.' });
+      }
+      if (patch.due_at && Number.isNaN(new Date(patch.due_at).getTime())) return json(res, 422, { error: 'Enter a valid due date and time.' });
+      const task = await repository.updateTask(workspaceId, user, taskMatch[1], patch);
+      return task ? json(res, 200, { data: taskView(task) }) : json(res, 422, { error: 'Task update is outside your permitted scope.' });
+    }
+    if (taskMatch && req.method === 'DELETE') {
+      if (!role(user, ['super_admin', 'sales_manager'], res)) return true;
+      const removed = await repository.deleteTask(workspaceId, user, taskMatch[1]);
+      return removed ? json(res, 200, { deleted: true }) : json(res, 404, { error: 'Task not found' });
     }
 
     if (req.method === 'GET' && (pathname === '/api/customers' || pathname === '/api/customers/my')) {
