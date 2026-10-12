@@ -40,6 +40,10 @@ async function apiFetch(path, options = {}) {
     if (typeof render === 'function') render();
   }
   if (!response.ok) throw new Error(body.error || 'Request failed');
+  const method = String(options.method || 'GET').toUpperCase();
+  const requestPath = String(path).split('?')[0];
+  const dashboardDataMutation = method !== 'GET' && method !== 'HEAD' && /^\/api\/(leads|customers|follow-ups|users|agents)(?:\/|$)/.test(requestPath);
+  if (dashboardDataMutation) window.invalidateDashboardCache?.();
   return body;
 }
 
@@ -258,7 +262,7 @@ function navigate(screen) {
 
 function bind() {
   baseBind();
-  document.querySelectorAll('[data-reload-dashboard]').forEach(el => el.addEventListener('click', loadDashboard));
+  document.querySelectorAll('[data-reload-dashboard]').forEach(el => el.addEventListener('click', () => loadDashboard({ force: true })));
   document.querySelectorAll('[data-reload-leads]').forEach(el => el.addEventListener('click', () => loadLeads(state.screen === 'my-leads')));
   document.querySelectorAll('[data-lead-status]').forEach(el => el.addEventListener('click', () => { state.leadFilters.status = el.dataset.leadStatus; render(); }));
   document.querySelectorAll('[data-clear-lead-filters]').forEach(el => el.addEventListener('click', () => { state.leadFilters = { q: '', status: '', source: '' }; render(); }));

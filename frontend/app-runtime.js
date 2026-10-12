@@ -117,7 +117,7 @@ function navigate(screen) {
 
 function bind() {
   baseBind();
-  document.querySelectorAll('[data-reload-dashboard]').forEach(el => el.addEventListener('click', loadDashboard));
+  document.querySelectorAll('[data-reload-dashboard]').forEach(el => el.addEventListener('click', () => loadDashboard({ force: true })));
   document.querySelectorAll('[data-reload-leads]').forEach(el => el.addEventListener('click', () => loadLeads(state.screen === 'my-leads')));
   document.querySelectorAll('[data-lead-status]').forEach(el => el.addEventListener('click', () => { state.leadFilters.status = el.dataset.leadStatus; render(); }));
   document.querySelectorAll('[data-clear-lead-filters]').forEach(el => el.addEventListener('click', () => { state.leadFilters = { q: '', status: '', source: '' }; render(); }));
