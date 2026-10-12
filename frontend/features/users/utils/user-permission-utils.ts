@@ -4,6 +4,7 @@ export function canManageTarget(actor: CrmUser, target: CrmUser): boolean { retu
 export const canCreateUser = (role: UserRole) => role === "super_admin" || role === "sales_manager";
 export const canEditUser = canManageTarget;
 export const canDeactivateUser = canManageTarget;
+export const canDeleteUser = (actor: CrmUser, target: CrmUser) => actor.role === "super_admin" && target.role !== "super_admin" && actor.id !== target.id;
 export const canResetUserPassword = canManageTarget;
 export const canSendAccessEmail = canManageTarget;
 export const canViewUserDetail = canManageTarget;

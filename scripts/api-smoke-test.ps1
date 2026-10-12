@@ -1,9 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $base = 'http://127.0.0.1:4173'
 
-function New-LoginSession([string]$identifier) {
+function New-LoginSession([string]$identifier, [string]$password) {
   $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-  Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $session -ContentType 'application/json' -Body (@{ identifier = $identifier; password = 'Aureum123!' } | ConvertTo-Json) | Out-Null
+  Invoke-RestMethod -Uri "$base/api/auth/login" -Method Post -WebSession $session -ContentType 'application/json' -Body (@{ identifier = $identifier; password = $password } | ConvertTo-Json) | Out-Null
   return $session
 }
 
@@ -11,9 +11,9 @@ function Get-StatusCode([scriptblock]$Action) {
   try { & $Action | Out-Null; return 200 } catch { return $_.Exception.Response.StatusCode.value__ }
 }
 
-$admin = New-LoginSession 'admin@aureum.com'
-$manager = New-LoginSession 'manager@aureum.com'
-$agent = New-LoginSession 'advisor@aureum.com'
+$admin = New-LoginSession 'waqas@aureum.com' 'Waqas@123'
+$manager = New-LoginSession 'dua@aureum.com' 'Rana@123'
+$agent = New-LoginSession 'adan@aureum.com' 'Rehman@123'
 
 $settings = (Invoke-RestMethod -Uri "$base/api/settings" -WebSession $admin).data
 $settingsStatus = (Invoke-RestMethod -Uri "$base/api/settings/lead-statuses" -WebSession $admin).data

@@ -7,14 +7,14 @@ const server = spawn(process.execPath, ['backend/crm-api-server.js'], { cwd: req
 
 async function waitForServer() { for (let attempt = 0; attempt < 40; attempt += 1) { try { await fetch(`${base}/`); return; } catch { await new Promise(resolve => setTimeout(resolve, 75)); } } throw new Error('Audit server did not start.'); }
 async function request(path, options = {}) { const response = await fetch(`${base}${path}`, options); const body = await response.json().catch(() => ({})); return { response, body }; }
-async function login(identifier, password = 'Aureum123!') { const result = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier, password }) }); assert.equal(result.response.status, 200); return result.response.headers.get('set-cookie'); }
+async function login(identifier, password) { const result = await request('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ identifier, password }) }); assert.equal(result.response.status, 200); return result.response.headers.get('set-cookie'); }
 async function run() {
   await waitForServer();
   const unauthenticated = await request('/api/settings'); assert.equal(unauthenticated.response.status, 401);
-  const adminCookie = await login('admin@aureum.com'); const adminSettings = await request('/api/settings', { headers: { cookie: adminCookie } }); assert.equal(adminSettings.response.status, 200); assert.ok(adminSettings.body.data.security);
-  const managerCookie = await login('manager@aureum.com'); const managerSettings = await request('/api/settings', { headers: { cookie: managerCookie } }); assert.equal(managerSettings.response.status, 403);
+  const adminCookie = await login('waqas@aureum.com', 'Waqas@123'); const adminSettings = await request('/api/settings', { headers: { cookie: adminCookie } }); assert.equal(adminSettings.response.status, 200); assert.ok(adminSettings.body.data.security);
+  const managerCookie = await login('dua@aureum.com', 'Rana@123'); const managerSettings = await request('/api/settings', { headers: { cookie: managerCookie } }); assert.equal(managerSettings.response.status, 403);
   const managerLeads = await request('/api/leads', { headers: { cookie: managerCookie } }); assert.equal(managerLeads.response.status, 200); assert.ok((managerLeads.body.data || []).every(lead => lead.assigned_team_id === 'team_a' || lead.assigned_team_id === null));
-  const agentCookie = await login('advisor@aureum.com');
+  const agentCookie = await login('adan@aureum.com', 'Rehman@123');
   for (const path of ['/api/leads', '/api/reports/summary', '/api/users', '/api/settings']) { const result = await request(path, { headers: { cookie: agentCookie } }); assert.equal(result.response.status, 403, `Sales Agent must be denied ${path}`); }
   const ownLead = await request('/api/leads/lead_003', { headers: { cookie: agentCookie } }); assert.equal(ownLead.response.status, 403);
   const webhookDenied = await request('/api/settings/webhooks', { headers: { cookie: managerCookie } }); assert.equal(webhookDenied.response.status, 403, 'Sales Managers must not manage webhook connections');

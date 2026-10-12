@@ -42,11 +42,17 @@ async function startApiServer(t) {
     return { response, body, text };
   }
 
-  async function login(identifier, password = 'Aureum123!') {
+  async function login(identifier, password) {
+    const defaultPasswords = {
+      'waqas@aureum.com': 'Waqas@123',
+      'dua@aureum.com': 'Rana@123',
+      'adan@aureum.com': 'Rehman@123'
+    };
+    const resolvedPassword = password || defaultPasswords[String(identifier).toLowerCase()] || 'Aureum123!';
     const result = await request('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ identifier, password })
+      body: JSON.stringify({ identifier, password: resolvedPassword })
     });
     if (result.response.status !== 200) throw new Error(`Login failed for ${identifier}: ${result.text}`);
     return result.response.headers.get('set-cookie');

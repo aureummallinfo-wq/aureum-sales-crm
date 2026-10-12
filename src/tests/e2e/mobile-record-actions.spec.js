@@ -12,7 +12,7 @@ async function jsonRequest(api, route, cookie, method, body) {
 
 test('all CRM roles can edit permitted records and add mobile notes', async t => {
   const api = await startApiServer(t);
-  const roles = ['admin@aureum.com', 'manager@aureum.com', 'advisor@aureum.com'];
+  const roles = ['waqas@aureum.com', 'dua@aureum.com', 'adan@aureum.com'];
 
   for (const identifier of roles) {
     const cookie = await api.login(identifier);

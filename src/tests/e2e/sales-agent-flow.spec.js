@@ -4,7 +4,7 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E Sales Agent flow stays scoped to own leads, customers, follow-ups, and permitted chat', async t => {
   const api = await startApiServer(t);
-  const cookie = await api.login('advisor@aureum.com');
+  const cookie = await api.login('adan@aureum.com');
 
   const myLeads = await api.request('/api/leads/my', { headers: { cookie } });
   assert.equal(myLeads.response.status, 200);

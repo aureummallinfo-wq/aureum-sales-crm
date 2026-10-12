@@ -4,7 +4,7 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E Super Admin flow covers settings, reports, users, and masked webhook secrets', async t => {
   const api = await startApiServer(t);
-  const cookie = await api.login('admin@aureum.com');
+  const cookie = await api.login('waqas@aureum.com');
 
   const settings = await api.request('/api/settings', { headers: { cookie } });
   assert.equal(settings.response.status, 200);

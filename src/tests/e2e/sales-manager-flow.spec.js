@@ -4,7 +4,7 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E Sales Manager flow can operate team pipeline but cannot cross into settings', async t => {
   const api = await startApiServer(t);
-  const cookie = await api.login('manager@aureum.com');
+  const cookie = await api.login('dua@aureum.com');
 
   const leads = await api.request('/api/leads', { headers: { cookie } });
   assert.equal(leads.response.status, 200);
@@ -67,7 +67,7 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
 
 test('E2E Sales Manager can manage an accessible group created by another leader', async t => {
   const api = await startApiServer(t);
-  const cookie = await api.login('manager@aureum.com');
+  const cookie = await api.login('dua@aureum.com');
 
   const rename = await api.request('/api/chat/groups/group_bookings', {
     method: 'PATCH',

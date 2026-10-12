@@ -79,14 +79,14 @@ function passwordHash(password, salt = 'aureum-local-demo') {
 }
 
 const users = [
-  { id: 'usr_001', full_name: 'Malik Raza', email: 'admin@aureum.com', phone: '0300-0000001', password_hash: passwordHash('Aureum123!'), role: 'super_admin', team_id: null, status: 'active' },
-  { id: 'usr_002', full_name: 'Sales Manager', email: 'manager@aureum.com', phone: '0300-0000002', password_hash: passwordHash('Aureum123!'), role: 'sales_manager', team_id: 'team_a', status: 'active' },
-  { id: 'usr_003', full_name: 'Ali Raza', email: 'advisor@aureum.com', phone: '0300-0000003', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
-  { id: 'usr_004', full_name: 'Hamza Khan', email: 'hamza@aureum.com', phone: '0300-0000004', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
-  { id: 'usr_005', full_name: 'Sara Ahmed', email: 'sara@aureum.com', phone: '0300-0000005', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
-  { id: 'usr_006', full_name: 'Ayesha Noor', email: 'ayesha@aureum.com', phone: '0300-0000006', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'active' },
-  { id: 'usr_007', full_name: 'Hassan Ahmed', email: 'hassan@aureum.com', phone: '0300-0000007', password_hash: passwordHash('Aureum123!'), role: 'sales_manager', team_id: 'team_b', status: 'active' },
-  { id: 'usr_008', full_name: 'Noor Fatima', email: 'noor@aureum.com', phone: '0300-0000008', password_hash: passwordHash('Aureum123!'), role: 'sales_agent', team_id: 'team_b', status: 'pending', must_change_password: true, has_temporary_password: true, temporary_password_expires_at: '2026-10-11T08:00:00.000Z' }
+  { id: 'usr_001', full_name: 'Waqas', email: 'waqas@aureum.com', phone: '0300-0000001', password_hash: passwordHash('Waqas@123'), role: 'super_admin', team_id: null, status: 'active' },
+  { id: 'usr_002', full_name: 'Dua Rana', email: 'dua@aureum.com', phone: '0300-0000002', password_hash: passwordHash('Rana@123'), role: 'sales_manager', team_id: 'team_a', status: 'active' },
+  { id: 'usr_003', full_name: 'Adan Abdul Rehman', email: 'adan@aureum.com', phone: '0300-0000003', password_hash: passwordHash('Rehman@123'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_004', full_name: 'Saqib Ali Rao', email: 'saqib@aureum.com', phone: '0300-0000004', password_hash: passwordHash('Rao@1234'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_005', full_name: 'Haris Ali', email: 'haris@aureum.com', phone: '0300-0000005', password_hash: passwordHash('Ali@1234'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_006', full_name: 'Umaimah Ahsan', email: 'umaimah@aureum.com', phone: '0300-0000006', password_hash: passwordHash('Ahsan@123'), role: 'sales_agent', team_id: 'team_b', status: 'active' },
+  { id: 'usr_007', full_name: 'Rimsha Khan', email: 'rimsha@aureum.com', phone: '0300-0000007', password_hash: passwordHash('Khan@123'), role: 'sales_agent', team_id: 'team_a', status: 'active' },
+  { id: 'usr_008', full_name: 'Muhammad Saqlain', email: 'muhammad.saqlain@aureum.com', phone: '0300-0000008', password_hash: passwordHash('Saqlain@123'), role: 'sales_agent', team_id: 'team_a', status: 'active' }
 ];
 
 const CRM_TIMEZONE = 'Asia/Karachi';
@@ -96,7 +96,7 @@ const USER_STATUS_LABELS = { active: 'Active', inactive: 'Inactive', pending: 'P
 const USER_ROLE_LABELS = { super_admin: 'Super Admin', sales_manager: 'Sales Manager', sales_agent: 'Sales Agent' };
 const teams = [
   { id: 'team_a', name: 'Sales Team A', description: 'Primary Lahore sales desk', manager_id: 'usr_002' },
-  { id: 'team_b', name: 'Sales Team B', description: 'Expansion and partner sales desk', manager_id: 'usr_007' }
+  { id: 'team_b', name: 'Sales Team B', description: 'Expansion and partner sales desk', manager_id: null }
 ];
 const userInvites = new Map();
 const userAuditLogs = new Map();
@@ -114,7 +114,7 @@ users.forEach((user, index) => {
   user.last_login_at = user.last_login_at || (index < 5 ? '2026-10-09T07:30:00.000Z' : undefined);
   user.last_activity_at = user.last_activity_at || user.last_login_at || user.updated_at;
   user.created_by = user.created_by || 'usr_001';
-  user.created_by_name = user.created_by_name || 'Malik Raza';
+  user.created_by_name = user.created_by_name || 'Waqas';
 });
 
 let leads = [
@@ -183,7 +183,7 @@ function userScopedTo(actor, target) { return Boolean(actor && target && (actor.
 function userActivityStatus(user) { return user.activity_status || (user.status !== 'active' ? 'Offline' : 'Online'); }
 function userManagementView(actor, target) {
   const safe = publicUser(target);
-  return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id) || target.team_name || '', status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
+  return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id) || target.team_name || '', status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canDelete: actor?.role === 'super_admin' && target.role !== 'super_admin' && target.id !== actor.id, canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
 }
 function userManagementTeams(actor) { return teams.filter(team => actor.role === 'super_admin' || team.id === actor.team_id).map(team => ({ id: team.id, name: team.name, description: team.description, managerId: team.manager_id, managerName: users.find(user => user.id === team.manager_id)?.full_name || '', memberCount: users.filter(user => user.team_id === team.id).length })); }
 function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(4).toString('hex').toUpperCase()}!9`; }
@@ -971,9 +971,18 @@ async function handle(req, res) {
     return;
   }
 
-  if (RELATIONAL_API && req.__aureumUser) {
+  if (RELATIONAL_API && url.pathname.startsWith('/api/')) {
     const handled = await RELATIONAL_API.handle(req, res, url, req.__aureumUser);
     if (handled !== false) { req.__aureumRelationalHandled = true; return; }
+  }
+
+  // Neon is the system of record. If a request reaches this point in Neon
+  // mode, never fall through to the legacy in-memory compatibility routes.
+  // A missing migration must be visible as an API error rather than returning
+  // stale seed data that looks like a successful database response.
+  if (NEON_REPOSITORY && NEON_WORKSPACE_ID && url.pathname.startsWith('/api/')) {
+    json(res, 501, { error: 'This CRM endpoint has not been migrated to the Neon repository yet.' });
+    return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/users/me') {
@@ -1694,13 +1703,12 @@ async function initializeDatabase() {
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId();
   if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
   RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, crmTimezone: CRM_TIMEZONE });
-  const rows = await NEON_SQL`SELECT state FROM aureum_crm_state WHERE id = ${NEON_STATE_ID}`;
-  if (rows[0]?.state) applyStoredState(rows[0].state);
-  await persistNeonState();
-  // Do not hold the HTTP listener while the compatibility snapshot is
-  // reconciled across the normalized tables. The response path performs the
-  // same idempotent reconciliation after each API request.
-  queueRelationalSync();
+  // The normalized crm schema is authoritative whenever Neon is configured.
+  // Do not hydrate the legacy compatibility snapshot here: doing so can load
+  // stale users/records and overwrite newer relational data during a cold
+  // Vercel instance startup. The compatibility routes remain available only
+  // for no-Neon/test mode; Neon requests are handled by the repository or
+  // fail closed rather than reading the in-process seed.
   console.log('Aureum CRM connected to Neon PostgreSQL');
 }
 

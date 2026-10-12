@@ -4,8 +4,8 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('dashboard date ranges recalculate metrics and preserve user scope', async t => {
   const api = await startApiServer(t);
-  const manager = await api.login('manager@aureum.com');
-  const agent = await api.login('advisor@aureum.com');
+  const manager = await api.login('dua@aureum.com');
+  const agent = await api.login('adan@aureum.com');
 
   const agentMonth = await api.request('/api/dashboard/summary?dateRange=this_month', { headers: { cookie: agent } });
   const agentToday = await api.request('/api/dashboard/summary?dateRange=today', { headers: { cookie: agent } });
@@ -31,7 +31,7 @@ test('dashboard date ranges recalculate metrics and preserve user scope', async 
 
 test('sales managers can edit, note, and schedule from a permitted customer profile', async t => {
   const api = await startApiServer(t);
-  const manager = await api.login('manager@aureum.com');
+  const manager = await api.login('dua@aureum.com');
 
   const jsonHeaders = { cookie: manager, 'content-type': 'application/json' };
   const updated = await api.request('/api/customers/customer_001', { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ area: 'DHA Phase 6' }) });

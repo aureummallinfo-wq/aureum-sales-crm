@@ -4,7 +4,7 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E security regression blocks CSRF, static source exposure, and unsafe error leakage', async t => {
   const api = await startApiServer(t);
-  const agent = await api.login('advisor@aureum.com');
+  const agent = await api.login('adan@aureum.com');
 
   const csrf = await api.request('/api/account/me', {
     method: 'PATCH',

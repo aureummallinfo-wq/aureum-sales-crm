@@ -4,9 +4,9 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E access control blocks direct API bypasses for each final CRM role', async t => {
   const api = await startApiServer(t);
-  const admin = await api.login('admin@aureum.com');
-  const manager = await api.login('manager@aureum.com');
-  const agent = await api.login('advisor@aureum.com');
+  const admin = await api.login('waqas@aureum.com');
+  const manager = await api.login('dua@aureum.com');
+  const agent = await api.login('adan@aureum.com');
 
   const protectedWithoutSession = await api.request('/api/dashboard/summary');
   assert.equal(protectedWithoutSession.response.status, 401);

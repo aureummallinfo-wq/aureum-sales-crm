@@ -4,7 +4,7 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 test('E2E temporary password onboarding forces password change before workspace access', async t => {
   const api = await startApiServer(t);
-  const admin = await api.login('admin@aureum.com');
+  const admin = await api.login('waqas@aureum.com');
   const email = `qa.onboarding.${Date.now()}@aureum.com`;
   const temporaryPassword = 'TempAureum123!';
   const permanentPassword = 'PermanentAureum123!';
