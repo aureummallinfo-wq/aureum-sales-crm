@@ -3,6 +3,7 @@
 Thumbs.db
 .idea/
 .vscode/
+.codex/
 *.swp
 
 # Local environment and secrets
@@ -26,3 +27,5 @@ DOC/
 # Product documentation is kept locally and intentionally excluded from GitHub
 *.md
 !docs/qa/*.md
+!docs/production/*.md
+.neon

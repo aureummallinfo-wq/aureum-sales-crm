@@ -3,10 +3,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
+const { neon } = require('@neondatabase/serverless');
 const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeText } = require('./security-utils');
+const { syncCrmSnapshot } = require('./db/neon-state-sync');
+const { createNeonRepository } = require('./db/neon-repository');
+const { createRelationalApi } = require('./db/relational-api');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
+const NEON_DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const NEON_SQL = NEON_DATABASE_URL ? neon(NEON_DATABASE_URL) : null;
+const NEON_REPOSITORY = NEON_SQL ? createNeonRepository(NEON_SQL) : null;
+let NEON_WORKSPACE_ID = null;
+let RELATIONAL_API = null;
+const NEON_STATE_ID = 'default';
 // The local CRM runs as a single API process, so keep user-created records in a
 // small atomic JSON store. Test servers use random ports and remain in-memory;
 // production deployments can opt in explicitly with AUREUM_PERSISTENCE=1.
@@ -173,7 +183,7 @@ function userScopedTo(actor, target) { return Boolean(actor && target && (actor.
 function userActivityStatus(user) { return user.activity_status || (user.status !== 'active' ? 'Offline' : 'Online'); }
 function userManagementView(actor, target) {
   const safe = publicUser(target);
-  return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id), status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
+  return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id) || target.team_name || '', status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
 }
 function userManagementTeams(actor) { return teams.filter(team => actor.role === 'super_admin' || team.id === actor.team_id).map(team => ({ id: team.id, name: team.name, description: team.description, managerId: team.manager_id, managerName: users.find(user => user.id === team.manager_id)?.full_name || '', memberCount: users.filter(user => user.team_id === team.id).length })); }
 function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(4).toString('hex').toUpperCase()}!9`; }
@@ -416,9 +426,130 @@ const chatLinks = new Map([
   ['group_hot_leads', [{ id: 'link_hot_1', chat_id: 'group_hot_leads', title: 'Hot lead review board', url: 'https://aureum.example/internal/hot-leads', shared_by: 'usr_002', shared_at: '2026-10-08T10:15:00.000Z' }]]
 ]);
 function persistenceSnapshot() {
-  return { version: 1, leads, leadActivities: [...leadActivities.entries()], chatMessages: [...chatMessages.entries()], groupChats, groupMessages: [...groupMessages.entries()], directMessages: [...directMessages.entries()], chatAttachments: [...chatAttachments.entries()], chatLinks: [...chatLinks.entries()] };
+  return {
+    version: 2,
+    users,
+    teams,
+    chatChannels,
+    userInvites: [...userInvites.entries()],
+    userAuditLogs: [...userAuditLogs.entries()],
+    leads,
+    leadActivities: [...leadActivities.entries()],
+    customers,
+    customerActivities: [...customerActivities.entries()],
+    customerNotes: [...customerNotes.entries()],
+    customerFollowUps: [...customerFollowUps.entries()],
+    followUps,
+    followUpActivities: [...followUpActivities.entries()],
+    chatMessages: [...chatMessages.entries()],
+    chatReadReceipts: [...chatReadReceipts.entries()],
+    groupChats,
+    groupMessages: [...groupMessages.entries()],
+    directMessages: [...directMessages.entries()],
+    chatAttachments: [...chatAttachments.entries()],
+    chatLinks: [...chatLinks.entries()],
+    userActivities: [...userActivities.entries()],
+    systemSettings,
+    accountPreferences: [...accountPreferences.entries()],
+    leadStatuses,
+    leadTags,
+    leadSources,
+    notificationDefinitions,
+    notificationSettings: [...notificationSettings.entries()],
+    notifications: [...notifications.entries()],
+    activityLogs,
+    webhookConnections,
+    webhookLogs,
+    failedWebhookLeads
+  };
 }
+
+let neonSchemaPromise;
+let relationalSyncQueue = Promise.resolve();
+let relationalSyncQueued = false;
+let relationalSyncLastQueuedAt = 0;
+
+function queueRelationalSync() {
+  if (!NEON_SQL) return;
+  if (relationalSyncQueued || Date.now() - relationalSyncLastQueuedAt < 5000) return;
+  relationalSyncQueued = true;
+  relationalSyncLastQueuedAt = Date.now();
+  relationalSyncQueue = relationalSyncQueue
+    .catch(() => undefined)
+    .then(() => syncCrmSnapshot(NEON_SQL, persistenceSnapshot()))
+    .catch(error => console.error('CRM relational reconciliation failed:', error.message))
+    .finally(() => { relationalSyncQueued = false; });
+}
+
+function ensureNeonSchema() {
+  if (!NEON_SQL) return Promise.resolve();
+  if (!neonSchemaPromise) {
+    neonSchemaPromise = NEON_SQL`CREATE TABLE IF NOT EXISTS aureum_crm_state (id text PRIMARY KEY, version integer NOT NULL, state jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())`;
+  }
+  return neonSchemaPromise;
+}
+
+async function persistNeonState() {
+  await ensureNeonSchema();
+  const snapshot = JSON.stringify(persistenceSnapshot());
+  await NEON_SQL`INSERT INTO aureum_crm_state (id, version, state, updated_at) VALUES (${NEON_STATE_ID}, 2, ${snapshot}::jsonb, now()) ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`;
+}
+
+function replaceArray(target, source) {
+  if (Array.isArray(source)) target.splice(0, target.length, ...source);
+}
+
+function replaceMap(target, entries) {
+  if (!Array.isArray(entries)) return;
+  target.clear();
+  entries.forEach(([id, value]) => target.set(id, value));
+}
+
+function applyStoredState(saved) {
+  if (!saved || typeof saved !== 'object') return;
+  replaceArray(users, saved.users);
+  replaceArray(teams, saved.teams);
+  replaceArray(chatChannels, saved.chatChannels);
+  replaceMap(userInvites, saved.userInvites);
+  replaceMap(userAuditLogs, saved.userAuditLogs);
+  if (Array.isArray(saved.leads)) leads = saved.leads;
+  replaceMap(leadActivities, saved.leadActivities);
+  if (Array.isArray(saved.customers)) customers = saved.customers;
+  replaceMap(customerActivities, saved.customerActivities);
+  replaceMap(customerNotes, saved.customerNotes);
+  replaceMap(customerFollowUps, saved.customerFollowUps);
+  if (Array.isArray(saved.followUps)) followUps = saved.followUps;
+  replaceMap(followUpActivities, saved.followUpActivities);
+  replaceMap(chatMessages, saved.chatMessages);
+  replaceMap(chatReadReceipts, saved.chatReadReceipts);
+  replaceArray(groupChats, saved.groupChats);
+  replaceMap(groupMessages, saved.groupMessages);
+  replaceMap(directMessages, saved.directMessages);
+  replaceMap(chatAttachments, saved.chatAttachments);
+  replaceMap(chatLinks, saved.chatLinks);
+  replaceMap(userActivities, saved.userActivities);
+  if (saved.systemSettings && typeof saved.systemSettings === 'object') {
+    Object.keys(systemSettings).forEach(key => {
+      if (saved.systemSettings[key] !== undefined) systemSettings[key] = saved.systemSettings[key];
+    });
+  }
+  replaceMap(accountPreferences, saved.accountPreferences);
+  replaceArray(leadStatuses, saved.leadStatuses);
+  replaceArray(leadTags, saved.leadTags);
+  replaceArray(leadSources, saved.leadSources);
+  replaceMap(notificationSettings, saved.notificationSettings);
+  replaceMap(notifications, saved.notifications);
+  replaceArray(activityLogs, saved.activityLogs);
+  replaceArray(webhookConnections, saved.webhookConnections);
+  replaceArray(webhookLogs, saved.webhookLogs);
+  replaceArray(failedWebhookLeads, saved.failedWebhookLeads);
+}
+
 function persistState() {
+  if (NEON_SQL) {
+    persistNeonState().catch(error => console.error('Neon persistence write failed:', error.message));
+    return;
+  }
   if (!PERSISTENCE_ENABLED) return;
   try {
     fs.mkdirSync(path.dirname(PERSISTENCE_FILE), { recursive: true });
@@ -428,20 +559,12 @@ function persistState() {
   } catch (error) { console.error('CRM persistence write failed:', error.message); }
 }
 function hydratePersistentState() {
-  if (!PERSISTENCE_ENABLED || !fs.existsSync(PERSISTENCE_FILE)) return;
+  if (NEON_SQL || !PERSISTENCE_ENABLED || !fs.existsSync(PERSISTENCE_FILE)) return;
   try {
     const saved = JSON.parse(fs.readFileSync(PERSISTENCE_FILE, 'utf8'));
-    if (Array.isArray(saved.leads)) leads = saved.leads;
-    if (Array.isArray(saved.leadActivities)) { leadActivities.clear(); saved.leadActivities.forEach(([id, entries]) => leadActivities.set(id, Array.isArray(entries) ? entries : [])); }
-    if (Array.isArray(saved.chatMessages)) { chatMessages.clear(); saved.chatMessages.forEach(([id, entries]) => chatMessages.set(id, Array.isArray(entries) ? entries : [])); }
-    if (Array.isArray(saved.groupChats)) groupChats.splice(0, groupChats.length, ...saved.groupChats);
-    if (Array.isArray(saved.groupMessages)) { groupMessages.clear(); saved.groupMessages.forEach(([id, entries]) => groupMessages.set(id, Array.isArray(entries) ? entries : [])); }
-    if (Array.isArray(saved.directMessages)) { directMessages.clear(); saved.directMessages.forEach(([id, entries]) => directMessages.set(id, Array.isArray(entries) ? entries : [])); }
-    if (Array.isArray(saved.chatAttachments)) { chatAttachments.clear(); saved.chatAttachments.forEach(([id, entries]) => chatAttachments.set(id, Array.isArray(entries) ? entries : [])); }
-    if (Array.isArray(saved.chatLinks)) { chatLinks.clear(); saved.chatLinks.forEach(([id, entries]) => chatLinks.set(id, Array.isArray(entries) ? entries : [])); }
+    applyStoredState(saved);
   } catch (error) { console.error('CRM persistence load failed:', error.message); }
 }
-hydratePersistentState();
 const userActivities = new Map(users.map(user => [user.id, [{ id: `${user.id}_activity_1`, activity_type: 'User profile active', description: `${user.full_name} is available in the Aureum workspace.`, created_at: '2026-10-08T08:00:00.000Z' }]]));
 
 const systemSettings = {
@@ -677,6 +800,7 @@ function sessionFromToken(token) {
 }
 
 function currentUser(req) {
+  if (req.__aureumUser) return req.__aureumUser;
   const token = parseCookies(req).aureum_session;
   const session = token ? sessionFromToken(token) : null;
   if (!session) return null;
@@ -763,7 +887,13 @@ async function handle(req, res) {
   }
 
   if (isPublicWebhook) {
-    const connectionId = url.pathname.split('/').pop(); const connection = webhookConnectionById(connectionId); const ip = req.socket.remoteAddress || 'unknown';
+    const connectionId = url.pathname.split('/').pop();
+    if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+      try { const payload = await readBodyLimited(req, 100_000); const result = await NEON_REPOSITORY.ingestWebhookLead(NEON_WORKSPACE_ID, connectionId, String(req.headers['x-aureum-webhook-secret'] || ''), payload); if (result.ok) { json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead?.id || null, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } else json(res, result.status || 400, { error: result.error }); } catch (error) { json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, { error: error.code === 'PAYLOAD_TOO_LARGE' ? 'Webhook payload is too large.' : 'Webhook payload is invalid.' }); }
+      req.__aureumRelationalHandled = true;
+      return;
+    }
+    const connection = webhookConnectionById(connectionId); const ip = req.socket.remoteAddress || 'unknown';
     if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; }
     const rateKey = `${connectionId}:${ip}`; const now = Date.now(); const rate = webhookRateLimits.get(rateKey) || { count: 0, startedAt: now }; if (now - rate.startedAt > 60_000) { rate.count = 0; rate.startedAt = now; } rate.count += 1; webhookRateLimits.set(rateKey, rate);
     if (rate.count > 60) { connection.unauthorized_attempts = (connection.unauthorized_attempts || 0) + 1; createWebhookLog(connection, 'Unauthorized', 'Webhook rate limit exceeded', null, 'Rate limit exceeded'); json(res, 429, { error: 'Webhook temporarily rate limited.' }); return; }
@@ -774,8 +904,32 @@ async function handle(req, res) {
     return;
   }
 
+  if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+    const token = parseCookies(req).aureum_session;
+    req.__aureumUser = token ? await NEON_REPOSITORY.findSession(token) : null;
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/auth/login') {
     try {
+      if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+        const ip = req.socket.remoteAddress || 'local';
+        const body = await readBody(req);
+        const identifier = String(body.identifier || '').trim().toLowerCase();
+        const user = await NEON_REPOSITORY.findUserByIdentifier(NEON_WORKSPACE_ID, identifier);
+        const supplied = passwordHash(String(body.password || ''));
+        const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
+        if (!valid || user.status !== 'active') {
+          await NEON_REPOSITORY.recordLogin({ userId: user?.db_id, email: user?.email || identifier, eventType: 'login_failed', ipAddress: ip, userAgent: req.headers['user-agent'] });
+          json(res, 401, { error: 'Invalid email/phone or password' }); return;
+        }
+        const token = createSessionToken(user.id);
+        await NEON_REPOSITORY.createSession({ userId: user.db_id, token, expiresAt: new Date(Date.now() + SESSION_TTL).toISOString(), ipAddress: ip, userAgent: req.headers['user-agent'] });
+        await NEON_REPOSITORY.updateLastLogin(user.db_id);
+        await NEON_REPOSITORY.recordLogin({ userId: user.db_id, email: user.email, eventType: 'login_success', ipAddress: ip, userAgent: req.headers['user-agent'] });
+        req.__aureumRelationalHandled = true;
+        json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
+        return;
+      }
       const ip = req.socket.remoteAddress || 'local';
       const attempt = loginAttempts.get(ip) || { count: 0, firstAt: Date.now() };
       if (Date.now() - attempt.firstAt > 10 * 60 * 1000) { attempt.count = 0; attempt.firstAt = Date.now(); }
@@ -796,6 +950,11 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+    if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+      const token = parseCookies(req).aureum_session;
+      if (token) { await NEON_REPOSITORY.revokeSession(token); if (req.__aureumUser) await NEON_REPOSITORY.recordLogin({ userId: req.__aureumUser.db_id, email: req.__aureumUser.email, eventType: 'logout', ipAddress: req.socket.remoteAddress || 'local', userAgent: req.headers['user-agent'] }); }
+      req.__aureumRelationalHandled = true;
+    }
     json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
     return;
   }
@@ -810,6 +969,11 @@ async function handle(req, res) {
     const user = requireAuth(req, res);
     if (user) json(res, 200, { role: user.role, permissions: rolePermissions[user.role] });
     return;
+  }
+
+  if (RELATIONAL_API && req.__aureumUser) {
+    const handled = await RELATIONAL_API.handle(req, res, url, req.__aureumUser);
+    if (handled !== false) { req.__aureumRelationalHandled = true; return; }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/users/me') {
@@ -1521,8 +1685,36 @@ async function handle(req, res) {
   json(res, 404, { error: 'API route not found' });
 }
 
+async function initializeDatabase() {
+  if (!NEON_SQL) {
+    hydratePersistentState();
+    return;
+  }
+  await ensureNeonSchema();
+  NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId();
+  if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
+  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, crmTimezone: CRM_TIMEZONE });
+  const rows = await NEON_SQL`SELECT state FROM aureum_crm_state WHERE id = ${NEON_STATE_ID}`;
+  if (rows[0]?.state) applyStoredState(rows[0].state);
+  await persistNeonState();
+  // Do not hold the HTTP listener while the compatibility snapshot is
+  // reconciled across the normalized tables. The response path performs the
+  // same idempotent reconciliation after each API request.
+  queueRelationalSync();
+  console.log('Aureum CRM connected to Neon PostgreSQL');
+}
+
+const databaseReady = initializeDatabase();
+
 function requestHandler(req, res) {
-  return handle(req, res).catch(error => {
+  return databaseReady.then(() => handle(req, res)).then(result => {
+  if (NEON_SQL && !req.__aureumRelationalHandled && req.url.startsWith('/api/') && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+    // The response is already written by the route. Queue the durable sync so
+    // the next request cannot race a second full snapshot reconciliation.
+    queueRelationalSync();
+  }
+  return result;
+  }).catch(error => {
   console.error(error);
   if (res.headersSent) { res.end(); return; }
   json(res, 500, { error: 'Something went wrong. Please try again.' });
