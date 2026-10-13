@@ -11,6 +11,19 @@ test('E2E Sales Agent flow stays scoped to own leads, customers, follow-ups, and
   assert.ok(myLeads.body.data.length > 0);
   assert.ok(myLeads.body.data.every(lead => lead.assigned_agent_id === 'usr_003'));
 
+  const createdLead = await api.request('/api/leads', {
+    method: 'POST',
+    headers: { cookie, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      full_name: 'Agent Created Lead',
+      phone: '03001234567',
+      interested_in: 'Apartment',
+      assigned_agent_id: 'usr_004'
+    })
+  });
+  assert.equal(createdLead.response.status, 201);
+  assert.equal(createdLead.body.data.assigned_agent_id, 'usr_003');
+
   const customers = await api.request('/api/customers/my', { headers: { cookie } });
   assert.equal(customers.response.status, 200);
   assert.ok(customers.body.data.every(customer => customer.assigned_agent_id === 'usr_003'));

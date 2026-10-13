@@ -4,7 +4,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | UT-001 | Auth / Routes | Super Admin route access | Super Admin | Route matrix loaded | Check all admin routes | Admin can access dashboard, all-leads, my-leads, customers, follow-ups, team-chat, reports, users, settings, my-account | P0 | Critical | Unit |
 | UT-002 | Auth / Routes | Sales Manager route access | Sales Manager | Route matrix loaded | Check manager routes | Manager can access allowed team routes and cannot access settings | P0 | Critical | Unit |
-| UT-003 | Auth / Routes | Sales Agent route access | Sales Agent | Route matrix loaded | Check agent routes | Agent can access own workspace routes and cannot access all-leads, add-lead, reports, users, settings | P0 | Critical | Unit |
+| UT-003 | Auth / Routes | Sales Agent route access | Sales Agent | Route matrix loaded | Check agent routes | Agent can access own workspace routes and add-lead, while remaining blocked from all-leads, reports, users, settings | P0 | Critical | Unit |
 | UT-004 | Auth / Routes | Unknown role deny | Unknown | Unknown role supplied | Check any protected route | Unknown role is denied by default | P0 | Critical | Unit |
 | UT-005 | Auth / Routes | Unknown route deny | All | Unknown route supplied | Check unknown route | Unknown protected route is denied by default | P0 | Critical | Unit |
 | UT-006 | Leads | Lead ownership | Sales Agent | Agent and other-agent lead exist | Check owned and non-owned leads | Agent sees own lead only | P0 | Critical | Unit |

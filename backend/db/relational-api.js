@@ -160,13 +160,14 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     }
 
     if (req.method === 'POST' && pathname === '/api/leads') {
-      if (!role(user, ['super_admin', 'sales_manager'], res)) return true;
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
       const body = await readBody(req); const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
       if (!fullName || !phone || !safeText(body.interested_in, 160)) return json(res, 400, { error: 'Full name, phone, and interested in are required' });
       if (!validatePhone(phone) || (email && !validateEmail(email))) return json(res, 422, { error: 'Enter a valid phone number and email address.' });
-      const assignedAgentId = safeText(body.assigned_agent_id, 120);
+      const requestedAssignedAgentId = safeText(body.assigned_agent_id, 120);
+      const assignedAgentId = user.role === 'sales_agent' ? user.id : requestedAssignedAgentId;
       const assignedAgent = assignedAgentId ? await repository.findUser(workspaceId, assignedAgentId) : null;
-      if (assignedAgentId && (!assignedAgent || assignedAgent.status !== 'active' || !['sales_agent', 'sales_manager'].includes(assignedAgent.role) || (user.role === 'sales_manager' && assignedAgent.team_id !== user.team_id))) return json(res, 422, { error: 'Choose an active advisor from your permitted team.' });
+      if (assignedAgentId && (!assignedAgent || assignedAgent.status !== 'active' || !['sales_agent', 'sales_manager'].includes(assignedAgent.role) || (user.role === 'sales_manager' && assignedAgent.team_id !== user.team_id) || (user.role === 'sales_agent' && assignedAgent.id !== user.id))) return json(res, 422, { error: 'Choose an active advisor from your permitted team.' });
       const tags = Array.isArray(body.tags) ? [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 10) : [];
       const lead = await repository.createLead({ workspaceId, actor: user, lead: { ...body, full_name: fullName, phone, email, whatsapp_number: safeText(body.whatsapp_number || phone, 32), interested_in: safeText(body.interested_in, 160), lead_source: safeText(body.lead_source || 'Manual Entry', 80), status: safeText(body.status || 'New', 80), priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', assigned_agent_id: assignedAgent?.id || null, assigned_team_id: assignedAgent?.team_id || (user.role === 'sales_manager' ? user.team_id : null), tags } });
       return json(res, 201, { data: leadView(lead) });

@@ -34,7 +34,7 @@ Final QA date: 2026-10-09
 ## Security Checks Completed
 
 - Authentication required for protected APIs.
-- Sales Agent restricted from All Leads, Add Lead, Reports, Users, and Settings.
+- Sales Agent restricted from All Leads, Reports, Users, and Settings; Add Lead is available with self-assignment enforced.
 - Sales Manager restricted from Settings and webhook configuration.
 - Object ownership and team scoping validated.
 - Webhook secret validation, duplicate detection, failed inbox, and masked secret handling validated.

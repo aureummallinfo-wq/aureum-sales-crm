@@ -6,7 +6,7 @@
 | `/dashboard` | No | Yes | Yes | Yes | Role-scoped metrics. |
 | `/all-leads` | No | Yes | Yes | No | Sales Agent blocked. |
 | `/my-leads` | No | Yes | Yes | Yes | Owned/assigned view. |
-| `/add-lead` | No | No | Yes | No | Manager intake only. |
+| `/add-lead` | No | Yes | Yes | Yes | Sales Agents create leads assigned to themselves. |
 | `/customers` | No | Yes | Yes | Yes | Data scoped by role. |
 | `/follow-ups` | No | Yes | Yes | Yes | Data scoped by role. |
 | `/team-chat` | No | Yes | Yes | Yes | Management channel hidden from agents. |
@@ -20,7 +20,7 @@
 
 ## Blocked Behaviors
 
-- Sales Agent cannot access All Leads, Add Lead, Reports, Users, Settings, or settings webhooks.
+- Sales Agent cannot access All Leads, Reports, Users, Settings, or settings webhooks. Sales Agents can add leads within their own assignment scope.
 - Sales Manager cannot access Settings or webhook configuration.
 - Unauthenticated users receive `401` on protected APIs.
 - Cross-agent and cross-team IDOR attempts receive `403` or scoped `404`.

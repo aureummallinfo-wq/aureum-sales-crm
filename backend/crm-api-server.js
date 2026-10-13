@@ -33,9 +33,9 @@ const webhookLogs = [];
 const failedWebhookLeads = [];
 
 const rolePermissions = {
-  super_admin: ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
+  super_admin: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
   sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
-  sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
+  sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
 };
 
 const dashboardByRole = {
@@ -1188,14 +1188,15 @@ async function handle(req, res) {
   }
 
   if (req.method === 'POST' && url.pathname === '/api/leads') {
-    const user = requireRole(req, res, ['sales_manager']);
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'sales_agent']);
     if (user) {
       try {
         const body = await readBody(req);
         const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
         if (!fullName || !phone || !safeText(body.interested_in, 160)) { json(res, 400, { error: 'Full name, phone, and interested in are required' }); return; }
         if (!validatePhone(phone) || (email && !validateEmail(email))) { json(res, 422, { error: 'Enter a valid phone number and email address.' }); return; }
-        const assigned = users.find(item => item.id === body.assigned_agent_id && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id));
+        const requestedAssignedAgentId = user.role === 'sales_agent' ? user.id : body.assigned_agent_id;
+        const assigned = users.find(item => item.id === requestedAssignedAgentId && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id));
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
         if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
         const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
@@ -1533,7 +1534,7 @@ async function handle(req, res) {
     }
     if (req.method === 'GET' && url.pathname === '/api/settings/permissions') {
       const roleKey = { super_admin: 'SUPER_ADMIN', sales_manager: 'SALES_MANAGER', sales_agent: 'SALES_AGENT' };
-      const data = permissionCatalog.map(([key, label]) => ({ key, label, super_admin: key === 'settings.manage' || key.startsWith('settings') ? true : true, sales_manager: ['dashboard.view', 'leads.view_all', 'leads.view_own', 'leads.create', 'leads.assign', 'customers.view', 'followups.manage', 'chat.use', 'reports.view', 'agents.manage'].includes(key), sales_agent: ['dashboard.view', 'leads.view_own', 'customers.view', 'followups.manage', 'chat.use'].includes(key) }));
+      const data = permissionCatalog.map(([key, label]) => ({ key, label, super_admin: key === 'settings.manage' || key.startsWith('settings') ? true : true, sales_manager: ['dashboard.view', 'leads.view_all', 'leads.view_own', 'leads.create', 'leads.assign', 'customers.view', 'followups.manage', 'chat.use', 'reports.view', 'agents.manage'].includes(key), sales_agent: ['dashboard.view', 'leads.view_own', 'leads.create', 'customers.view', 'followups.manage', 'chat.use'].includes(key) }));
       json(res, 200, { roles: roleKey, data }); return;
     }
     if (req.method === 'PATCH' && url.pathname === '/api/settings/permissions') { addActivityLog(user.id, 'settings', 'permissions', 'Permission settings reviewed', 'Fixed Phase 1 role permissions were reviewed.'); json(res, 200, { data: { message: 'Phase 1 role permissions are fixed by policy.' } }); return; }

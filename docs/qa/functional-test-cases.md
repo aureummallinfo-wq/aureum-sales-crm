@@ -13,7 +13,7 @@
 | FT-009 | Dashboard | Agent dashboard | Sales Agent | Logged in | Open dashboard | Own leads, follow-ups, customers, metrics only | P1 | High | Functional |
 | FT-010 | Leads | All Leads access | Leadership, Agent | Logged in | Open All Leads by role | Admin/manager allowed; agent denied | P0 | Critical | E2E |
 | FT-011 | Leads | My Leads access | All | Logged in | Open My Leads | All roles allowed with scoped data | P0 | High | Functional |
-| FT-012 | Leads | Add Lead access | Manager, Agent | Logged in | Submit add lead | Manager can add; agent cannot | P0 | High | E2E |
+| FT-012 | Leads | Add Lead access | Manager, Agent | Logged in | Submit add lead | Manager and agent can add; agent is assigned to self | P0 | High | E2E |
 | FT-013 | Leads | Lead detail drawer | Permitted user | Lead exists | Open lead drawer | Overview, notes, activity, actions render | P1 | High | Functional |
 | FT-014 | Leads | Lead status update | Permitted user | Lead exists | Change status | Status and activity update | P1 | High | Functional |
 | FT-015 | Customers | Customer list scoping | All | Customers exist | Open customers by role | Admin all, manager team, agent own | P0 | Critical | Functional |

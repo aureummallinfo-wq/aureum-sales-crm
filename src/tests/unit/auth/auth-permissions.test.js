@@ -13,5 +13,5 @@ test('auth permissions expose only the three final CRM roles and explicit route 
   }
 
   assert.deepEqual(ROUTE_PERMISSIONS.settings, ['super_admin']);
-  assert.deepEqual(ROUTE_PERMISSIONS['add-lead'], ['sales_manager']);
+  assert.deepEqual(ROUTE_PERMISSIONS['add-lead'], ['super_admin', 'sales_manager', 'sales_agent']);
 });

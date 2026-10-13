@@ -3,7 +3,7 @@ const ROUTE_PERMISSIONS = Object.freeze({
   dashboard: CRM_ROLES,
   'all-leads': ['super_admin', 'sales_manager'],
   'my-leads': CRM_ROLES,
-  'add-lead': ['sales_manager'],
+  'add-lead': ['super_admin', 'sales_manager', 'sales_agent'],
   customers: CRM_ROLES,
   'follow-ups': CRM_ROLES,
   tasks: CRM_ROLES,
