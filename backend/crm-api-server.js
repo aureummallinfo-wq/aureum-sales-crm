@@ -175,9 +175,9 @@ const followUpActivities = new Map(followUps.map(item => [item.id, [{ id: `${ite
 
 function publicUser(user) {
   const { password_hash, ...safe } = user;
-  if (safe.presence_status) return safe;
   const presence = accountPreferences.get(user.id)?.presence_status || {};
-  return { ...safe, presence_status: presence.status || null, presence_mode: presence.mode || null };
+  const presenceStatus = userActivityStatus(user);
+  return { ...safe, presence_status: safe.presence_status || presence.status || null, presence_mode: safe.presence_mode || presence.mode || null, presenceStatus };
 }
 
 function userTeamName(teamId) { return teams.find(team => team.id === teamId)?.name || ''; }
@@ -186,7 +186,7 @@ const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
 function userActivityStatus(user, now = Date.now()) {
   if (!user || user.status !== 'active') return 'Offline';
-  const manual = String(accountPreferences.get(user.id)?.presence_status?.status || '').trim().toLowerCase();
+  const manual = String(user.presence_status || accountPreferences.get(user.id)?.presence_status?.status || '').trim().toLowerCase();
   if (['online', 'away', 'offline'].includes(manual)) return `${manual.slice(0, 1).toUpperCase()}${manual.slice(1)}`;
   const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
   if (!Number.isFinite(lastActivity)) return 'Offline';

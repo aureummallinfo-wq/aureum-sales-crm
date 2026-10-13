@@ -91,9 +91,8 @@
 
   function presencePickerModule9() {
     if (state.role !== 'SALES_AGENT') return '';
-    const current = ['Online', 'Away', 'Offline'].includes(state.authUser?.presence_status)
-      ? state.authUser.presence_status
-      : 'Online';
+    const savedOrLive = state.authUser?.presence_status || state.authUser?.presenceStatus;
+    const current = ['Online', 'Away', 'Offline'].includes(savedOrLive) ? savedOrLive : 'Offline';
     return `<div class="presence-picker"><label for="presence-status">My presence</label><select id="presence-status" data-presence-status aria-label="My presence status"><option value="Online" ${current === 'Online' ? 'selected' : ''}>Online</option><option value="Away" ${current === 'Away' ? 'selected' : ''}>Away</option><option value="Offline" ${current === 'Offline' ? 'selected' : ''}>Offline</option></select><small>Choose the status shown to your manager.</small></div>`;
   }
 
