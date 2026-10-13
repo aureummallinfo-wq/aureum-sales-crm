@@ -202,7 +202,7 @@
       if (raw.initial_note && response.data?.id) await apiFetch(`/api/leads/${response.data.id}/notes`, { method: 'POST', body: JSON.stringify({ note: raw.initial_note }) });
       showToast('Lead saved to the Aureum registry');
       if (mode === 'another') { form.reset(); form.querySelector('[name="lead_source"]').value = 'Manual Entry'; form.querySelector('[name="priority"]').value = 'Medium'; }
-      else navigate('leads');
+      else navigate(state.role === 'SALES_AGENT' ? 'my-leads' : 'leads');
     } catch (error) { showToast(error.message); }
   }
 

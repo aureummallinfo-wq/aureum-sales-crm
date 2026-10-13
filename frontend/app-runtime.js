@@ -155,7 +155,7 @@ function bind() {
   const followupNoteForm = document.querySelector('#followup-note-form');
   if (followupNoteForm) followupNoteForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(followupNoteForm).entries()); try { await apiFetch(`/api/follow-ups/${state.followupDetail.data.id}/notes`, { method: 'POST', body: JSON.stringify(data) }); state.followupMode = ''; await refreshFollowupDetail(); } catch (error) { showToast(error.message); } });
   const addLeadForm = document.querySelector('#add-lead-form');
-  if (addLeadForm) addLeadForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(addLeadForm).entries()); data.financing_required = data.financing_required === 'true'; try { await apiFetch('/api/leads', { method: 'POST', body: JSON.stringify(data) }); showToast('Lead saved to registry'); navigate('leads'); } catch (error) { showToast(error.message); } });
+  if (addLeadForm) addLeadForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(addLeadForm).entries()); data.financing_required = data.financing_required === 'true'; try { await apiFetch('/api/leads', { method: 'POST', body: JSON.stringify(data) }); showToast('Lead saved to registry'); navigate(state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'); } catch (error) { showToast(error.message); } });
 }
 
 async function boot() {
