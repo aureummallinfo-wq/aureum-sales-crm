@@ -24,6 +24,8 @@ const RUNNING_LOCAL_SERVER = require.main === module;
 const PERSISTENCE_ENABLED = process.env.NODE_ENV !== 'test' && (process.env.AUREUM_PERSISTENCE === '1' || (RUNNING_LOCAL_SERVER && PORT === 4173));
 const PERSISTENCE_FILE = process.env.AUREUM_PERSISTENCE_FILE || path.join(ROOT, 'backend', '.data', 'crm-persistence.json');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
+const LOGIN_MAX_FAILED_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
 const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173,https://aureum-sales-crm.vercel.app,https://aureum-sales-crm-web.vercel.app,https://aureum-sales-crm-frontend.vercel.app').split(',').map(value => value.trim()).filter(Boolean));
 const loginAttempts = new Map();
@@ -618,7 +620,7 @@ function userDetailPayload(actor, target) { return { user: userManagementView(ac
 function normalizeUserStatus(value) { const raw = String(value || '').trim(); return ({ Active: 'active', Inactive: 'inactive', Pending: 'pending', Suspended: 'suspended', active: 'active', inactive: 'inactive', pending: 'pending', suspended: 'suspended' })[raw] || 'active'; }
 function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
 function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_admin' || (actor?.role === 'sales_manager' && (!teamId || teamId === actor.team_id))); }
-function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at }; }
+function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); loginAttempts.delete(`user:${target.id}`); userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at }; }
 function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences }, security: { ...systemSettings.security }, emailAccess: { ...systemSettings.email_access } }; }
 function settingSlug(name) { return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
@@ -930,12 +932,20 @@ async function handle(req, res) {
         const body = await readBody(req);
         const identifier = String(body.identifier || '').trim().toLowerCase();
         const user = await NEON_REPOSITORY.findUserByIdentifier(NEON_WORKSPACE_ID, identifier);
+        const lock = user ? await NEON_REPOSITORY.loginLockStatus(user.db_id) : null;
+        if (lock?.locked_until && new Date(lock.locked_until).getTime() > Date.now()) {
+          const retryAfter = Math.max(1, Math.ceil((new Date(lock.locked_until).getTime() - Date.now()) / 1000));
+          json(res, 429, { error: 'Account temporarily locked after too many failed password attempts. Please try again later.', retryAfter }); return;
+        }
         const supplied = passwordHash(String(body.password || ''));
         const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
         if (!valid || user.status !== 'active') {
-          await NEON_REPOSITORY.recordLogin({ userId: user?.db_id, email: user?.email || identifier, eventType: 'login_failed', ipAddress: ip, userAgent: req.headers['user-agent'] });
+          const failure = user ? await NEON_REPOSITORY.recordLoginFailure(user.db_id) : null;
+          await NEON_REPOSITORY.recordLogin({ userId: user?.db_id, email: user?.email || identifier, eventType: 'login_failed', ipAddress: ip, userAgent: req.headers['user-agent'], metadata: { failedAttempts: failure?.failed_login_attempts || null, lockedUntil: failure?.locked_until || null } });
+          if (failure?.locked_until && new Date(failure.locked_until).getTime() > Date.now()) { const retryAfter = Math.max(1, Math.ceil((new Date(failure.locked_until).getTime() - Date.now()) / 1000)); json(res, 429, { error: 'Account temporarily locked after too many failed password attempts. Please try again later.', retryAfter }); return; }
           json(res, 401, { error: 'Invalid email/phone or password' }); return;
         }
+        await NEON_REPOSITORY.clearLoginFailures(user.db_id);
         const token = createSessionToken(user.id);
         await NEON_REPOSITORY.createSession({ userId: user.db_id, token, expiresAt: new Date(Date.now() + SESSION_TTL).toISOString(), ipAddress: ip, userAgent: req.headers['user-agent'] });
         await NEON_REPOSITORY.updateLastLogin(user.db_id);
@@ -947,17 +957,18 @@ async function handle(req, res) {
         return;
       }
       const ip = req.socket.remoteAddress || 'local';
-      const attempt = loginAttempts.get(ip) || { count: 0, firstAt: Date.now() };
-      if (Date.now() - attempt.firstAt > 10 * 60 * 1000) { attempt.count = 0; attempt.firstAt = Date.now(); }
-      if (attempt.count >= 8) { json(res, 429, { error: 'Too many login attempts. Please try again later.' }); return; }
       const body = await readBody(req);
       const identifier = String(body.identifier || '').trim().toLowerCase();
       const user = users.find(item => item.email.toLowerCase() === identifier || item.phone === identifier || (identifier === 'agent@aureum.com' && item.id === 'usr_003'));
+      const attemptKey = user ? `user:${user.id}` : `identifier:${identifier}|ip:${ip}`;
+      const attempt = loginAttempts.get(attemptKey) || { count: 0, firstAt: Date.now(), lockedUntil: 0 };
+      if (attempt.lockedUntil && attempt.lockedUntil > Date.now()) { const retryAfter = Math.max(1, Math.ceil((attempt.lockedUntil - Date.now()) / 1000)); json(res, 429, { error: 'Account temporarily locked after too many failed password attempts. Please try again later.', retryAfter }); return; }
+      if (Date.now() - attempt.firstAt > LOGIN_LOCKOUT_MS) { attempt.count = 0; attempt.firstAt = Date.now(); attempt.lockedUntil = 0; }
       const supplied = passwordHash(String(body.password || ''));
       const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
       if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() < Date.now()) { user.invite_status = 'Expired'; addActivityLog(user.id, 'security', user.id, 'temporary_password_expired', 'A temporary password login attempt was rejected after expiry.'); json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return; }
-      if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: 'Invalid email/phone or password' }); return; }
-      loginAttempts.delete(ip);
+      if (!valid || user.status !== 'active') { attempt.count += 1; if (attempt.count >= LOGIN_MAX_FAILED_ATTEMPTS) attempt.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS; loginAttempts.set(attemptKey, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); if (attempt.lockedUntil) { json(res, 429, { error: 'Account temporarily locked after too many failed password attempts. Please try again later.', retryAfter: Math.ceil(LOGIN_LOCKOUT_MS / 1000) }); return; } json(res, 401, { error: 'Invalid email/phone or password' }); return; }
+      loginAttempts.delete(attemptKey);
       const token = createSessionToken(user.id);
       const currentPreferences = accountPreferences.get(user.id);
       if (currentPreferences) { delete currentPreferences.presence_status; accountPreferences.set(user.id, currentPreferences); }
@@ -1119,7 +1130,7 @@ async function handle(req, res) {
 
   if (req.method === 'POST' && url.pathname === '/api/account/change-password') {
     const user = requireAuth(req, res);
-    if (user) { const body = await readBody(req); const current = String(body.currentPassword || body.current_password || ''); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (passwordHash(current) !== user.password_hash) { json(res, 400, { error: 'Current password is incorrect.' }); return; } if (!passwordPolicySatisfied(next)) { json(res, 400, { error: 'Password does not meet the configured password policy.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } if (next === current) { json(res, 400, { error: 'New password must be different from current password.' }); return; } user.password_hash = passwordHash(next); user.must_change_password = false; user.has_temporary_password = false; user.temporary_password_expires_at = undefined; user.invite_status = 'Accepted'; user.invite_accepted_at = new Date().toISOString(); user.status = 'active'; user.updated_at = new Date().toISOString(); addUserAudit(user.id, user.id, 'password_changed', 'Password changed successfully.'); json(res, 200, { success: true, message: 'Password changed successfully.', mustChangePassword: false, user: userManagementView(user, user) }); }
+    if (user) { const body = await readBody(req); const current = String(body.currentPassword || body.current_password || ''); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (passwordHash(current) !== user.password_hash) { json(res, 400, { error: 'Current password is incorrect.' }); return; } if (!passwordPolicySatisfied(next)) { json(res, 400, { error: 'Password does not meet the configured password policy.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } if (next === current) { json(res, 400, { error: 'New password must be different from current password.' }); return; } user.password_hash = passwordHash(next); user.must_change_password = false; user.has_temporary_password = false; user.temporary_password_expires_at = undefined; user.invite_status = 'Accepted'; user.invite_accepted_at = new Date().toISOString(); user.status = 'active'; loginAttempts.delete(`user:${user.id}`); user.updated_at = new Date().toISOString(); addUserAudit(user.id, user.id, 'password_changed', 'Password changed successfully.'); json(res, 200, { success: true, message: 'Password changed successfully.', mustChangePassword: false, user: userManagementView(user, user) }); }
     return;
   }
 
@@ -1762,6 +1773,9 @@ async function initializeDatabase() {
     return;
   }
   await ensureNeonSchema();
+  await NEON_SQL.query(`ALTER TABLE IF EXISTS crm.users
+    ADD COLUMN IF NOT EXISTS failed_login_attempts integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS locked_until timestamptz`);
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId();
   if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
   await NEON_REPOSITORY.normalizeSingleTeam(NEON_WORKSPACE_ID);
@@ -1795,7 +1809,7 @@ function requestHandler(req, res) {
 module.exports = { handle, requestHandler };
 
 if (require.main === module) {
-  http.createServer(requestHandler).listen(PORT, () => {
+  http.createServer(requestHandler).listen(PORT, '127.0.0.1', () => {
     console.log(`Aureum CRM local server running at http://127.0.0.1:${PORT}`);
   });
 }

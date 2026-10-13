@@ -139,6 +139,33 @@ function createNeonRepository(sql) {
     await sql.query('INSERT INTO crm.login_activity (user_id, email, event_type, ip_address, user_agent, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)', [userId || null, email || null, eventType, ipAddress || null, userAgent || null, JSON.stringify(metadata)]);
   }
 
+  async function loginLockStatus(userId) {
+    if (!userId) return null;
+    const rows = await sql.query('SELECT failed_login_attempts, locked_until FROM crm.users WHERE id = $1 LIMIT 1', [userId]);
+    return rows[0] || null;
+  }
+
+  async function recordLoginFailure(userId) {
+    if (!userId) return null;
+    const rows = await sql.query(`WITH next_attempt AS (
+      SELECT id, CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1 ELSE failed_login_attempts + 1 END AS attempts
+      FROM crm.users WHERE id = $1 FOR UPDATE
+    )
+    UPDATE crm.users AS users
+    SET failed_login_attempts = next_attempt.attempts,
+        locked_until = CASE WHEN next_attempt.attempts >= 5 THEN now() + interval '15 minutes' ELSE NULL END,
+        updated_at = now()
+    FROM next_attempt
+    WHERE users.id = next_attempt.id
+    RETURNING users.failed_login_attempts, users.locked_until`, [userId]);
+    return rows[0] || null;
+  }
+
+  async function clearLoginFailures(userId) {
+    if (!userId) return;
+    await sql.query('UPDATE crm.users SET failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $1', [userId]);
+  }
+
   async function updateLastLogin(userId) { await sql.query('UPDATE crm.users SET last_login_at = now(), last_activity_at = now(), updated_at = now() WHERE id = $1', [userId]); }
 
   async function updateLastActivity(userIdentifier) {
@@ -201,7 +228,7 @@ function createNeonRepository(sql) {
     if (patch.phone !== undefined) assign('phone', patch.phone || null);
     if (patch.role !== undefined) assign('role_key', patch.role);
     if (patch.status !== undefined) assign('status', patch.status);
-    if (patch.password_hash !== undefined) assign('password_hash', patch.password_hash);
+    if (patch.password_hash !== undefined) { assign('password_hash', patch.password_hash); fields.push('failed_login_attempts = 0', 'locked_until = NULL'); }
     if (patch.must_change_password !== undefined) assign('must_change_password', Boolean(patch.must_change_password));
     if (patch.team_id !== undefined) assign('team_id', await resolveTeamId(workspace, patch.team_id));
     if (!fields.length) return findUser(workspace, targetIdentifier);
@@ -239,7 +266,7 @@ function createNeonRepository(sql) {
 
   async function changePassword(workspace, userIdentifier, nextPasswordHash) {
     const userId = await resolveUserId(workspace, userIdentifier); if (!userId) return null;
-    await sql.query('UPDATE crm.users SET password_hash = $1, must_change_password = false, status = \'active\', updated_at = now() WHERE id = $2', [nextPasswordHash, userId]);
+    await sql.query('UPDATE crm.users SET password_hash = $1, must_change_password = false, status = \'active\', failed_login_attempts = 0, locked_until = NULL, updated_at = now() WHERE id = $2', [nextPasswordHash, userId]);
     await recordLogin({ userId, eventType: 'password_changed', metadata: { source: 'account' } });
     return findUser(workspace, userIdentifier);
   }
@@ -625,7 +652,7 @@ function createNeonRepository(sql) {
   async function markMessageRead(workspace,user,identifier) { const userId=await resolveUserId(workspace,user.id);await sql.query('INSERT INTO crm.chat_read_receipts (message_id,user_id,read_at) SELECT id,$2,now() FROM crm.chat_messages WHERE workspace_id=$1 AND legacy_id=$3 ON CONFLICT (message_id,user_id) DO UPDATE SET read_at=now()',[workspace,userId,String(identifier)]);return true; }
   async function reportRows(workspace,user) { const agents=await listUsers(workspace,user);const leads=await listLeads({workspaceId:workspace,user});const customers=await listCustomers({workspaceId:workspace,user});const followUps=await listFollowUps({workspaceId:workspace,user});return agents.filter(item=>['sales_agent','sales_manager'].includes(item.role)).map(agent=>{const ls=leads.filter(item=>item.assigned_agent_id===agent.id);const cs=customers.filter(item=>item.assigned_agent_id===agent.id);const fs=followUps.filter(item=>item.assigned_agent_id===agent.id);const closed=ls.filter(item=>item.status==='Closed Won').length;const overdue=fs.filter(item=>item.status==='Overdue').length;const completed=fs.filter(item=>item.status==='Completed').length;const conversion=ls.length?Number((closed/ls.length*100).toFixed(1)):0;const performance=conversion>=20&&overdue<=1?'Excellent':conversion>=12&&overdue<=2?'Good':conversion>0?'Average':'Needs Attention';return {id:agent.id,agentId:agent.id,name:agent.full_name,agentName:agent.full_name,initials:String(agent.full_name||'?').split(/\s+/).map(part=>part[0]).slice(0,2).join('').toUpperCase(),email:agent.email,phone:agent.phone,role:agent.role,agentRole:agent.role==='sales_manager'?'Sales Manager':'Sales Agent',team:agent.team_id||'Unassigned',teamId:agent.team_id,assignedLeads:ls.length,activeLeads:ls.filter(item=>!['Closed Won','Closed Lost','Not Interested'].includes(item.status)).length,contactedLeads:ls.filter(item=>item.status!=='New').length,hotLeads:ls.filter(item=>['Hot','Booking'].includes(item.status)).length,followUpsAssigned:fs.length,followUpsDue:fs.filter(item=>['Pending','Rescheduled'].includes(item.status)).length,followUpsCompleted:completed,overdueFollowUps:overdue,customersHandled:cs.length,closedDeals:closed,lostLeads:ls.filter(item=>['Closed Lost','Lost'].includes(item.status)).length,conversionRate:conversion,conversionRateLabel:`${conversion}%`,performance,status:agent.status,presenceStatus:agent.presence_status||null,lastActivity:agent.last_login_at||agent.last_activity_at||agent.updated_at,lastActivityAt:agent.last_activity_at||agent.updated_at};}); }
 
-  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
 }
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.invite_status === 'sent'), temporary_password_expires_at: row.temporary_password_expires_at || null, access_email_sent_at: row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }

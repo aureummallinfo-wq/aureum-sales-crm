@@ -29,4 +29,26 @@ test('E2E security regression blocks CSRF, static source exposure, and unsafe er
   });
   assert.equal(invalidLogin.response.status, 401);
   assert.equal(invalidLogin.body.error, 'Invalid email/phone or password');
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const result = await api.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ identifier: 'dua@aureum.com', password: 'WrongPassword1!' })
+    });
+    assert.equal(result.response.status, 401);
+  }
+  const fifth = await api.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: 'dua@aureum.com', password: 'WrongPassword1!' })
+  });
+  assert.equal(fifth.response.status, 429);
+  assert.match(fifth.body.error, /temporarily locked/i);
+
+  const correctPasswordWhileLocked = await api.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ identifier: 'dua@aureum.com', password: 'Rana@123' })
+  });
+  assert.equal(correctPasswordWhileLocked.response.status, 429);
 });
