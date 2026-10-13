@@ -8,7 +8,7 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
 
   const leads = await api.request('/api/leads', { headers: { cookie } });
   assert.equal(leads.response.status, 200);
-  assert.ok(leads.body.data.every(lead => lead.assigned_team_id === 'team_a' || lead.assigned_team_id === null));
+  assert.ok(leads.body.data.some(lead => lead.assigned_team_id === 'team_b'), 'Sales Manager should see leads assigned to other agent teams');
 
   const createdLead = await api.request('/api/leads', {
     method: 'POST',

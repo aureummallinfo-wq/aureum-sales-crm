@@ -286,9 +286,9 @@ function createNeonRepository(sql) {
     return listNotificationSettings(workspace, userIdentifier);
   }
 
-  async function scope(workspace, user, alias = 'l') {
+  async function scope(workspace, user, alias = 'l', options = {}) {
     const conditions = [`${alias}.workspace_id = $1`, `${alias}.deleted_at IS NULL`]; const params = [workspace];
-    if (user?.role === 'sales_manager') { params.push(await resolveTeamId(workspace, user.team_id)); conditions.push(`${alias}.assigned_team_id = $${params.length}`); }
+    if (user?.role === 'sales_manager' && !options.allSalesManagerLeads) { params.push(await resolveTeamId(workspace, user.team_id)); conditions.push(`${alias}.assigned_team_id = $${params.length}`); }
     else if (user?.role !== 'super_admin') { params.push(await resolveUserId(workspace, user.id)); conditions.push(`${alias}.assigned_agent_id = $${params.length}`); }
     return { conditions, params };
   }
@@ -343,8 +343,8 @@ function createNeonRepository(sql) {
     LEFT JOIN crm.lead_sources src ON src.id = l.source_id LEFT JOIN crm.users au ON au.id = l.assigned_agent_id
     LEFT JOIN crm.teams t ON t.id = l.assigned_team_id LEFT JOIN crm.users cu ON cu.id = l.created_by`;
 
-  async function listLeads({ workspaceId: workspace, user, status, search, source, agentId, imported }) {
-    const scoped = await scope(workspace, user); const conditions = [...scoped.conditions]; const params = [...scoped.params];
+  async function listLeads({ workspaceId: workspace, user, status, search, source, agentId, imported, allSalesManagerLeads = false }) {
+    const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push(`ls.name = $${params.length}`); }
     if (source) { params.push(source); conditions.push(`src.name = $${params.length}`); }
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push(`l.assigned_agent_id = $${params.length}`); }
@@ -379,6 +379,16 @@ function createNeonRepository(sql) {
     if (patch.tags !== undefined) assign('metadata', JSON.stringify({ ...valueObject(current), tags: patch.tags }));
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
     await insertAudit(workspace, actor, 'lead_updated', 'lead', id, patch); await enqueueOutbox(workspace,'lead_updated','lead',id,patch); return getLead(workspace, identifier);
+  }
+
+  async function deleteLead(workspace, identifier, actor) {
+    const id = await resolveLeadId(workspace, identifier);
+    if (!id) return null;
+    const rows = await sql.query('UPDATE crm.leads SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id, legacy_id', [id]);
+    if (!rows[0]) return null;
+    await insertAudit(workspace, actor, 'lead_deleted', 'lead', id, { legacy_id: rows[0].legacy_id });
+    await enqueueOutbox(workspace, 'lead_deleted', 'lead', id, { legacy_id: rows[0].legacy_id });
+    return { id: rows[0].legacy_id || rows[0].id };
   }
 
   async function assignLead(workspace, identifier, actor, assignedAgent) { const id = await resolveLeadId(workspace, identifier); const agentId = await resolveUserId(workspace, assignedAgent); if (!id || !agentId) return null; const agent = await findUser(workspace, assignedAgent); const teamId = await resolveTeamId(workspace, agent?.team_id); await sql.query('UPDATE crm.leads SET assigned_agent_id = $1, assigned_team_id = $2, updated_at = now() WHERE id = $3', [agentId, teamId, id]); await insertAudit(workspace, actor, 'lead_assigned', 'lead', id, { assigned_agent_id: assignedAgent }); await enqueueOutbox(workspace,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent}); return getLead(workspace, identifier); }

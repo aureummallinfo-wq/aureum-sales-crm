@@ -21,6 +21,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (user.role === 'sales_manager') return item.assigned_team_id === user.team_id;
     return item.assigned_agent_id === user.id;
   }
+  function canViewLead(user, lead) { return user?.role === 'sales_manager' || canView(user, lead); }
 
   function webhookView(item) {
     if (!item) return null;
@@ -139,7 +140,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     if (req.method === 'GET' && (pathname === '/api/leads' || pathname === '/api/leads/my')) {
       if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager'], res)) return true;
-      const data = await repository.listLeads({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, status: url.searchParams.get('status') || '', search: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '', agentId: url.searchParams.get('agentId') || '', imported: url.searchParams.get('imported') || '' });
+      const data = await repository.listLeads({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, allSalesManagerLeads: user.role === 'sales_manager' && !pathname.endsWith('/my'), status: url.searchParams.get('status') || '', search: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '', agentId: url.searchParams.get('agentId') || '', imported: url.searchParams.get('imported') || '' });
       return json(res, 200, { scope: pathname.endsWith('/my') ? 'my' : 'all', requestedBy: user.role, data: data.map(leadView) });
     }
 
@@ -148,8 +149,16 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (!user) return unauthenticated(res);
       const lead = await repository.getLead(workspaceId, leadMatch[1]);
       if (!lead) return json(res, 404, { error: 'Lead not found' });
-      if (!canView(user, lead)) return deny(res, 'Access denied — lead is outside your ownership scope');
+      if (!canViewLead(user, lead)) return deny(res, 'Access denied — lead is outside your ownership scope');
       return json(res, 200, { data: leadView(lead) });
+    }
+
+    if (req.method === 'DELETE' && leadMatch) {
+      if (!role(user, ['super_admin'], res)) return true;
+      const lead = await repository.getLead(workspaceId, leadMatch[1]);
+      if (!lead) return json(res, 404, { error: 'Lead not found' });
+      const deleted = await repository.deleteLead(workspaceId, lead.id, user);
+      return deleted ? json(res, 200, { deleted: true, id: deleted.id }) : json(res, 404, { error: 'Lead not found' });
     }
 
     const leadCustomerMatch = pathname.match(/^\/api\/leads\/([^/]+)\/customer$/);
@@ -157,7 +166,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (!user) return unauthenticated(res);
       const lead = await repository.getLead(workspaceId, leadCustomerMatch[1]);
       if (!lead) return json(res, 404, { error: 'Lead not found' });
-      if (!canView(user, lead)) return deny(res, 'Access denied — lead is outside your ownership scope');
+      if (!canViewLead(user, lead)) return deny(res, 'Access denied — lead is outside your ownership scope');
       const customer = await repository.convertLeadToCustomer(workspaceId, lead.id, user);
       return json(res, 201, { data: customerView(customer), created: customer?.lead_id === lead.id });
     }
@@ -166,7 +175,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (!user) return unauthenticated(res);
       const current = await repository.getLead(workspaceId, leadMatch[1]);
       if (!current) return json(res, 404, { error: 'Lead not found' });
-      if (!canView(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
+      if (!canViewLead(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
       const body = await readBody(req);
       if (body.email !== undefined && body.email && !validateEmail(body.email)) return json(res, 422, { error: 'Enter a valid email address.' });
       if (body.phone !== undefined && !validatePhone(body.phone)) return json(res, 422, { error: 'Enter a valid phone number.' });
@@ -192,7 +201,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     const leadAction = pathname.match(/^\/api\/leads\/([^/]+)\/(assign|status|notes|tags|activity)$/);
     if (leadAction) {
-      if (!user) return unauthenticated(res); const current = await repository.getLead(workspaceId, leadAction[1]); if (!current) return json(res, 404, { error: 'Lead not found' }); if (!canView(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
+      if (!user) return unauthenticated(res); const current = await repository.getLead(workspaceId, leadAction[1]); if (!current) return json(res, 404, { error: 'Lead not found' }); if (!canViewLead(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
       const action = leadAction[2];
       if (req.method === 'GET' && action === 'activity') return json(res, 200, { data: await repository.listLeadActivities(workspaceId, current.id) });
       if (req.method === 'PATCH' && action === 'assign') { if (!['super_admin', 'sales_manager'].includes(user.role)) return deny(res, 'Only managers can assign leads'); const body = await readBody(req); const lead = await repository.assignLead(workspaceId, current.id, user, body.assigned_agent_id); return lead ? json(res, 200, { data: leadView(lead) }) : json(res, 400, { error: 'A valid active advisor from your permitted scope is required' }); }

@@ -202,7 +202,7 @@ function passwordPolicySatisfied(password) { const policy = systemSettings.secur
 function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
 
 function canViewLead(user, lead) {
-  if (user?.role === 'sales_manager' && lead?.is_imported && !lead.assigned_team_id) return true;
+  if (user?.role === 'sales_manager') return true;
   return canViewOwnedRecord(user, lead, 'assigned_agent_id', 'assigned_team_id');
 }
 
