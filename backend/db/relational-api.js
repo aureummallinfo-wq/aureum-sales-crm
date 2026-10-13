@@ -8,6 +8,8 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
   const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
   function presenceStatus(user, now = Date.now()) {
     if (!user || user.status !== 'active') return 'Offline';
+    const manual = String(user.presence_status || '').trim().toLowerCase();
+    if (['online', 'away', 'offline'].includes(manual)) return manual[0].toUpperCase() + manual.slice(1);
     const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
     if (!Number.isFinite(lastActivity)) return 'Offline';
     const age = Math.max(0, now - lastActivity);
@@ -135,7 +137,18 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (req.method === 'POST' && pathname === '/api/presence/heartbeat') {
       if (!user) return unauthenticated(res);
       const updated = await repository.updateLastActivity(user.id);
-      return json(res, 200, { data: { userId: user.id, presenceStatus: 'Online', lastActivityAt: updated?.last_activity_at || new Date().toISOString() } });
+      return json(res, 200, { data: { userId: user.id, presenceStatus: presenceStatus(updated || user), lastActivityAt: updated?.last_activity_at || new Date().toISOString() } });
+    }
+
+    if (req.method === 'PATCH' && pathname === '/api/presence/status') {
+      if (!user) return unauthenticated(res);
+      if (user.role !== 'sales_agent') return deny(res, 'Only Sales Agents can change their presence status.');
+      const body = await readBody(req);
+      const requested = String(body.status || '').trim();
+      if (!['Online', 'Away', 'Offline'].includes(requested)) return json(res, 422, { error: 'Choose Online, Away, or Offline.' });
+      const updated = await repository.updatePresenceStatus(workspaceId, user.id, requested);
+      if (!updated) return json(res, 404, { error: 'User not found.' });
+      return json(res, 200, { data: { userId: updated.id, presenceStatus: requested, presenceMode: 'manual', lastActivityAt: updated.last_activity_at || null } });
     }
 
     if (req.method === 'GET' && (pathname === '/api/leads' || pathname === '/api/leads/my')) {

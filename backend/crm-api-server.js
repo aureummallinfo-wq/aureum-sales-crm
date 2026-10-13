@@ -175,7 +175,9 @@ const followUpActivities = new Map(followUps.map(item => [item.id, [{ id: `${ite
 
 function publicUser(user) {
   const { password_hash, ...safe } = user;
-  return safe;
+  if (safe.presence_status) return safe;
+  const presence = accountPreferences.get(user.id)?.presence_status || {};
+  return { ...safe, presence_status: presence.status || null, presence_mode: presence.mode || null };
 }
 
 function userTeamName(teamId) { return teams.find(team => team.id === teamId)?.name || ''; }
@@ -184,6 +186,8 @@ const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
 function userActivityStatus(user, now = Date.now()) {
   if (!user || user.status !== 'active') return 'Offline';
+  const manual = String(accountPreferences.get(user.id)?.presence_status?.status || '').trim().toLowerCase();
+  if (['online', 'away', 'offline'].includes(manual)) return `${manual.slice(0, 1).toUpperCase()}${manual.slice(1)}`;
   const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
   if (!Number.isFinite(lastActivity)) return 'Offline';
   const age = Math.max(0, now - lastActivity);
@@ -978,9 +982,34 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/presence/heartbeat') {
     const user = requireAuth(req, res);
     if (user) {
-      user.last_activity_at = new Date().toISOString();
-      user.activity_status = 'Online';
-      json(res, 200, { data: { userId: user.id, presenceStatus: 'Online', lastActivityAt: user.last_activity_at } });
+      if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+        const updated = await NEON_REPOSITORY.updateLastActivity(user.id);
+        const current = updated || user;
+        const manual = String(current.presence_status || '').trim().toLowerCase();
+        const presenceStatus = ['online', 'away', 'offline'].includes(manual)
+          ? `${manual.slice(0, 1).toUpperCase()}${manual.slice(1)}`
+          : 'Online';
+        json(res, 200, { data: { userId: current.id, presenceStatus, lastActivityAt: current.last_activity_at || new Date().toISOString() } });
+      } else {
+        user.last_activity_at = new Date().toISOString();
+        user.activity_status = 'Online';
+        json(res, 200, { data: { userId: user.id, presenceStatus: 'Online', lastActivityAt: user.last_activity_at } });
+      }
+    }
+    return;
+  }
+
+  if (req.method === 'PATCH' && url.pathname === '/api/presence/status' && !NEON_REPOSITORY) {
+    const user = requireAuth(req, res);
+    if (user) {
+      if (user.role !== 'sales_agent') { json(res, 403, { error: 'Only Sales Agents can change their presence status.' }); return; }
+      const body = await readBody(req);
+      const requested = String(body.status || '').trim();
+      if (!['Online', 'Away', 'Offline'].includes(requested)) { json(res, 422, { error: 'Choose Online, Away, or Offline.' }); return; }
+      const current = accountPreferences.get(user.id) || {};
+      current.presence_status = { status: requested, mode: 'manual' };
+      accountPreferences.set(user.id, current);
+      json(res, 200, { data: { userId: user.id, presenceStatus: requested, presenceMode: 'manual', lastActivityAt: user.last_activity_at || null } });
     }
     return;
   }
