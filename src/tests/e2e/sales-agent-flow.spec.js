@@ -6,6 +6,10 @@ test('E2E Sales Agent flow stays scoped to own leads, customers, follow-ups, and
   const api = await startApiServer(t);
   const cookie = await api.login('adan@aureum.com');
 
+  const heartbeat = await api.request('/api/presence/heartbeat', { method: 'POST', headers: { cookie } });
+  assert.equal(heartbeat.response.status, 200);
+  assert.equal(heartbeat.body.data.presenceStatus, 'Online');
+
   const myLeads = await api.request('/api/leads/my', { headers: { cookie } });
   assert.equal(myLeads.response.status, 200);
   assert.ok(myLeads.body.data.length > 0);

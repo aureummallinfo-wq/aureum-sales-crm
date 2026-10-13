@@ -119,6 +119,7 @@ test('CRM readiness: Neon-backed authentication, roles, dashboard contracts, and
   for (const role of ['super_admin', 'sales_manager']) {
     const result = await api.request('/api/dashboard/agent-performance', { headers: { cookie: sessions[role] } });
     assertDataArray(result, '/api/dashboard/agent-performance', ['agentId', 'assignedLeads', 'conversionRate']);
+    assert.ok(result.body.data.every(row => ['Online', 'Away', 'Offline'].includes(row.presenceStatus)), 'agent performance rows must expose live presence status');
   }
 
   for (const route of ['/api/dashboard/agent-performance', '/api/leads', '/api/reports/summary', '/api/settings']) {

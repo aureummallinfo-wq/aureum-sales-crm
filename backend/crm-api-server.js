@@ -180,7 +180,17 @@ function publicUser(user) {
 
 function userTeamName(teamId) { return teams.find(team => team.id === teamId)?.name || ''; }
 function userScopedTo(actor, target) { return Boolean(actor && target && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && target.role === 'sales_agent' && target.team_id === actor.team_id))); }
-function userActivityStatus(user) { return user.activity_status || (user.status !== 'active' ? 'Offline' : 'Online'); }
+const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
+const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
+function userActivityStatus(user, now = Date.now()) {
+  if (!user || user.status !== 'active') return 'Offline';
+  const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
+  if (!Number.isFinite(lastActivity)) return 'Offline';
+  const age = Math.max(0, now - lastActivity);
+  if (age <= PRESENCE_ONLINE_WINDOW_MS) return 'Online';
+  if (age <= PRESENCE_AWAY_WINDOW_MS) return 'Away';
+  return 'Offline';
+}
 function userManagementView(actor, target) {
   const safe = publicUser(target);
   return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id) || target.team_name || '', status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canDelete: actor?.role === 'super_admin' && target.role !== 'super_admin' && target.id !== actor.id, canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
@@ -363,7 +373,7 @@ function dashboardAgentPerformance(user, bounds) {
     const agentFollowUps = followUps.filter(item => item.assigned_agent_id === agent.id && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds));
     const closedDeals = agentLeads.filter(item => item.status === 'Closed Won').length;
     const conversionRate = agentLeads.length ? Number(((closedDeals / agentLeads.length) * 100).toFixed(1)) : 0;
-    return { agentId: agent.id, agentName: agent.full_name, teamName: userTeamName(agent.team_id), assignedLeads: agentLeads.length, contactedLeads: agentLeads.filter(item => REPORT_CONTACTED_STATUSES.includes(item.status) || item.last_contacted_at !== 'Not contacted').length, completedFollowUps: agentFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: agentFollowUps.filter(item => item.status === 'Overdue').length, closedDeals, conversionRate };
+    return { agentId: agent.id, agentName: agent.full_name, teamName: userTeamName(agent.team_id), assignedLeads: agentLeads.length, contactedLeads: agentLeads.filter(item => REPORT_CONTACTED_STATUSES.includes(item.status) || item.last_contacted_at !== 'Not contacted').length, completedFollowUps: agentFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: agentFollowUps.filter(item => item.status === 'Overdue').length, closedDeals, conversionRate, presenceStatus: userActivityStatus(agent), lastActivityAt: agent.last_activity_at || agent.last_login_at || null };
   });
 }
 
@@ -667,7 +677,7 @@ const demoWebhookSecretHash = webhookHash('aureum-demo-webhook-secret');
 webhookConnections.push({ id: 'wh_demo_meta', connection_name: 'Meta Lead Ads · Demo intake', source_type: 'meta_lead_ads', source_platform: 'meta', webhook_url: '/api/webhooks/leads/wh_demo_meta', secret_hash: demoWebhookSecretHash, secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: 'Meta Lead Ads', default_lead_status: 'New', default_tags: ['Meta Lead', 'Imported Lead'], default_assigned_team: null, default_assigned_agent: null, auto_assign_lead: false, duplicate_check_rule: 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: 'usr_001', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' });
 
 function canViewChannel(user, channel) { return Boolean(user && (channel.visibility !== 'management' || ['super_admin', 'sales_manager'].includes(user.role))); }
-function chatUserView(user) { return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: user.status === 'active' }; }
+function chatUserView(user) { const presenceStatus = userActivityStatus(user); return { id: user.id, full_name: user.full_name, initials: user.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), role: user.role, status: user.status, online: presenceStatus === 'Online', presenceStatus, lastActivityAt: user.last_activity_at || user.last_login_at || null }; }
 function chatMessageView(message) { const sender = users.find(user => user.id === message.sender_id); return { ...message, sender: sender ? chatUserView(sender) : { full_name: 'Unknown user', initials: '??' } }; }
 const chatDefaultUnread = { channel_general: 0, channel_sales: 4, channel_announcements: 0, channel_followups: 2, channel_bookings: 0, channel_management: 1 };
 function chatReadKey(userId, chatId) { return `${userId}:${chatId}`; }
@@ -962,6 +972,16 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/auth/me') {
     const user = requireAuth(req, res);
     if (user) json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] });
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/presence/heartbeat') {
+    const user = requireAuth(req, res);
+    if (user) {
+      user.last_activity_at = new Date().toISOString();
+      user.activity_status = 'Online';
+      json(res, 200, { data: { userId: user.id, presenceStatus: 'Online', lastActivityAt: user.last_activity_at } });
+    }
     return;
   }
 

@@ -4,6 +4,17 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
   function deny(res, message = 'Access denied — insufficient permission') { json(res, 403, { error: message }); return true; }
   function unauthenticated(res) { json(res, 401, { error: 'Authentication required' }); return true; }
   function role(user, roles, res) { if (!user) { unauthenticated(res); return false; } if (roles.includes(user.role)) return true; deny(res); return false; }
+  const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
+  const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
+  function presenceStatus(user, now = Date.now()) {
+    if (!user || user.status !== 'active') return 'Offline';
+    const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
+    if (!Number.isFinite(lastActivity)) return 'Offline';
+    const age = Math.max(0, now - lastActivity);
+    if (age <= PRESENCE_ONLINE_WINDOW_MS) return 'Online';
+    if (age <= PRESENCE_AWAY_WINDOW_MS) return 'Away';
+    return 'Offline';
+  }
   function canView(user, item) {
     if (!user || !item) return false;
     if (user.role === 'super_admin') return true;
@@ -90,7 +101,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     for (const lead of leads) { const value = lead.created_at || lead.updated_at; const key = leadInflowKey(value, granularity); if (key) counts.set(key, (counts.get(key) || 0) + 1); }
     return leadInflowBuckets(bounds, granularity).map(label => ({ label, leads: counts.get(label) || 0 }));
   }
-  function reportRows(users, leads, customers, followUps) { return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role)).map(agent => { const assignedLeads = leads.filter(item => item.assigned_agent_id === agent.id); const assignedCustomers = customers.filter(item => item.assigned_agent_id === agent.id); const assignedFollowUps = followUps.filter(item => item.assigned_agent_id === agent.id); const closedDeals = assignedLeads.filter(item => item.status === 'Closed Won').length; const overdue = assignedFollowUps.filter(item => item.status === 'Overdue').length; const conversion = assignedLeads.length ? Number((closedDeals / assignedLeads.length * 100).toFixed(1)) : 0; return { agentId: agent.id, agentName: agent.full_name, agentRole: agent.role === 'sales_manager' ? 'Sales Manager' : 'Sales Agent', teamId: agent.team_id, teamName: agent.team_name || agent.team_id || 'Unassigned', status: agent.status === 'active' ? 'Active' : 'Inactive', assignedLeads: assignedLeads.length, contactedLeads: assignedLeads.filter(item => item.status !== 'New').length, hotLeads: assignedLeads.filter(item => ['Hot', 'Booking'].includes(item.status)).length, followUpsAssigned: assignedFollowUps.length, followUpsCompleted: assignedFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: overdue, closedDeals, lostLeads: assignedLeads.filter(item => ['Closed Lost', 'Lost'].includes(item.status)).length, totalCustomers: assignedCustomers.length, conversionRate: conversion, lastActivityAt: agent.last_activity_at || agent.updated_at }; }); }
+  function reportRows(users, leads, customers, followUps) { return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role)).map(agent => { const assignedLeads = leads.filter(item => item.assigned_agent_id === agent.id); const assignedCustomers = customers.filter(item => item.assigned_agent_id === agent.id); const assignedFollowUps = followUps.filter(item => item.assigned_agent_id === agent.id); const closedDeals = assignedLeads.filter(item => item.status === 'Closed Won').length; const overdue = assignedFollowUps.filter(item => item.status === 'Overdue').length; const conversion = assignedLeads.length ? Number((closedDeals / assignedLeads.length * 100).toFixed(1)) : 0; return { agentId: agent.id, agentName: agent.full_name, agentRole: agent.role === 'sales_manager' ? 'Sales Manager' : 'Sales Agent', teamId: agent.team_id, teamName: agent.team_name || agent.team_id || 'Unassigned', status: agent.status === 'active' ? 'Active' : 'Inactive', presenceStatus: presenceStatus(agent), assignedLeads: assignedLeads.length, contactedLeads: assignedLeads.filter(item => item.status !== 'New').length, hotLeads: assignedLeads.filter(item => ['Hot', 'Booking'].includes(item.status)).length, followUpsAssigned: assignedFollowUps.length, followUpsCompleted: assignedFollowUps.filter(item => item.status === 'Completed').length, overdueFollowUps: overdue, closedDeals, lostLeads: assignedLeads.filter(item => ['Closed Lost', 'Lost'].includes(item.status)).length, totalCustomers: assignedCustomers.length, conversionRate: conversion, lastActivityAt: agent.last_activity_at || agent.last_login_at || agent.updated_at }; }); }
 
   async function reportData(user, params = {}) {
     const bounds = dateBounds(params); const leadStatus = params.leadStatus && params.leadStatus !== 'all' ? params.leadStatus : ''; const leadSource = params.leadSource && params.leadSource !== 'all' ? params.leadSource : ''; const followUpStatus = params.followUpStatus && params.followUpStatus !== 'all' ? params.followUpStatus : ''; const requestedAgent = params.agentId && params.agentId !== 'all' ? params.agentId : ''; const requestedTeam = params.teamId && params.teamId !== 'all' ? params.teamId : '';
@@ -119,6 +130,12 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
   async function handle(req, res, url, user) {
     const pathname = url.pathname;
+
+    if (req.method === 'POST' && pathname === '/api/presence/heartbeat') {
+      if (!user) return unauthenticated(res);
+      const updated = await repository.updateLastActivity(user.id);
+      return json(res, 200, { data: { userId: user.id, presenceStatus: 'Online', lastActivityAt: updated?.last_activity_at || new Date().toISOString() } });
+    }
 
     if (req.method === 'GET' && (pathname === '/api/leads' || pathname === '/api/leads/my')) {
       if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager'], res)) return true;
