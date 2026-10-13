@@ -288,8 +288,9 @@ function createNeonRepository(sql) {
 
   async function scope(workspace, user, alias = 'l', options = {}) {
     const conditions = [`${alias}.workspace_id = $1`, `${alias}.deleted_at IS NULL`]; const params = [workspace];
-    if (user?.role === 'sales_manager' && !options.allSalesManagerLeads) { params.push(await resolveTeamId(workspace, user.team_id)); conditions.push(`${alias}.assigned_team_id = $${params.length}`); }
-    else if (user?.role !== 'super_admin') { params.push(await resolveUserId(workspace, user.id)); conditions.push(`${alias}.assigned_agent_id = $${params.length}`); }
+    if (user?.role === 'sales_manager') {
+      if (!options.allSalesManagerLeads) { params.push(await resolveTeamId(workspace, user.team_id)); conditions.push(`${alias}.assigned_team_id = $${params.length}`); }
+    } else if (user?.role !== 'super_admin') { params.push(await resolveUserId(workspace, user.id)); conditions.push(`${alias}.assigned_agent_id = $${params.length}`); }
     return { conditions, params };
   }
 
