@@ -12,7 +12,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '002_production_crm_schema.sql'),
   path.join(root, 'db', 'migrations', '003_workspace_settings.sql'),
   path.join(root, 'db', 'migrations', '004_crm_integration_metadata.sql'),
-  path.join(root, 'db', 'migrations', '005_tasks.sql')
+  path.join(root, 'db', 'migrations', '005_tasks.sql'),
+  path.join(root, 'db', 'migrations', '006_single_sales_team.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 

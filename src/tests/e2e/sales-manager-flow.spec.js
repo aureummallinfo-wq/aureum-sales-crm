@@ -8,7 +8,7 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
 
   const leads = await api.request('/api/leads', { headers: { cookie } });
   assert.equal(leads.response.status, 200);
-  assert.ok(leads.body.data.some(lead => lead.assigned_team_id === 'team_b'), 'Sales Manager should see leads assigned to other agent teams');
+  assert.ok(leads.body.data.every(lead => !lead.assigned_team_id || lead.assigned_team_id === 'team_a'), 'Sales Manager should see the single Sales Team A scope');
 
   const createdLead = await api.request('/api/leads', {
     method: 'POST',
@@ -59,7 +59,8 @@ test('E2E Sales Manager flow can operate team pipeline but cannot cross into set
   assert.ok(users.body.data.every(user => user.role === 'sales_agent' && user.teamId === 'team_a'));
 
   const outsideAgentReport = await api.request('/api/reports/agents/usr_006', { headers: { cookie } });
-  assert.equal(outsideAgentReport.response.status, 404);
+  assert.equal(outsideAgentReport.response.status, 200);
+  assert.equal(outsideAgentReport.body.data.agent.teamId, 'team_a');
 
   const settings = await api.request('/api/settings/webhooks', { headers: { cookie } });
   assert.equal(settings.response.status, 403);
