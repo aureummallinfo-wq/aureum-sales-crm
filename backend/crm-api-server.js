@@ -940,9 +940,11 @@ async function handle(req, res) {
         const token = createSessionToken(user.id);
         await NEON_REPOSITORY.createSession({ userId: user.db_id, token, expiresAt: new Date(Date.now() + SESSION_TTL).toISOString(), ipAddress: ip, userAgent: req.headers['user-agent'] });
         await NEON_REPOSITORY.updateLastLogin(user.db_id);
+        await NEON_REPOSITORY.clearPresenceStatus(NEON_WORKSPACE_ID, user.id);
+        const signedInUser = await NEON_REPOSITORY.findUserByIdentifier(NEON_WORKSPACE_ID, identifier);
         await NEON_REPOSITORY.recordLogin({ userId: user.db_id, email: user.email, eventType: 'login_success', ipAddress: ip, userAgent: req.headers['user-agent'] });
         req.__aureumRelationalHandled = true;
-        json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
+        json(res, 200, { user: publicUser(signedInUser || user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
         return;
       }
       const ip = req.socket.remoteAddress || 'local';
@@ -958,6 +960,8 @@ async function handle(req, res) {
       if (!valid || user.status !== 'active') { attempt.count += 1; loginAttempts.set(ip, attempt); addActivityLog(user?.id || 'anonymous', 'security', 'auth', 'failed_login', 'A sign-in attempt was rejected.'); json(res, 401, { error: 'Invalid email/phone or password' }); return; }
       loginAttempts.delete(ip);
       const token = createSessionToken(user.id);
+      const currentPreferences = accountPreferences.get(user.id);
+      if (currentPreferences) { delete currentPreferences.presence_status; accountPreferences.set(user.id, currentPreferences); }
       user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
       json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
     } catch (error) { json(res, 400, { error: error.message }); }
