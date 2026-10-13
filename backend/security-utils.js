@@ -29,7 +29,21 @@ function validatePasswordPolicy(password, minimumLength = 8) {
   return value.length >= Math.max(8, Number(minimumLength) || 8) && /[A-Z]/.test(value) && /[a-z]/.test(value) && /[0-9]/.test(value) && /[^A-Za-z0-9]/.test(value);
 }
 function validateEmail(value) { return /^\S+@\S+\.\S+$/.test(String(value || '').trim()); }
-function validatePhone(value) { return !value || /^[+0-9()\-\s]{7,24}$/.test(String(value).trim()); }
+function validatePhone(value) {
+  const text = String(value || '').trim();
+  if (!text) return true;
+
+  // Accept common international formats (E.164, spaced or punctuated national
+  // formats, and optional extensions) while rejecting letters and malformed
+  // values. The base number follows the ITU-T E.164 limit of 15 digits.
+  if (text.length > 40 || !/^[+0-9().\-\s]+(?:\s*(?:x|ext\.?|extension)\s*\d+)?$/i.test(text)) {
+    return false;
+  }
+
+  const baseNumber = text.replace(/\s*(?:x|ext\.?|extension)\s*\d+$/i, '');
+  const digitCount = (baseNumber.match(/\d/g) || []).length;
+  return digitCount >= 7 && digitCount <= 15;
+}
 function validateIsoDate(value) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()); }
 function safeText(value, maxLength = 5000) { return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, maxLength); }
 
