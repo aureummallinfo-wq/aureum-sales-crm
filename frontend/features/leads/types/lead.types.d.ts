@@ -2,7 +2,7 @@ export type UserRole = 'SUPER_ADMIN' | 'SALES_MANAGER' | 'SALES_AGENT';
 export type LeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Hot' | 'Warm' | 'Cold' | 'No Response' | 'Follow-up' | 'Visit Scheduled' | 'Visit Completed' | 'Meeting Scheduled' | 'Negotiation' | 'Booking' | 'Closed Won' | 'Closed Lost' | 'Not Interested' | 'Invalid';
 export type LeadSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Instagram' | 'Sales Partner' | 'Referral' | 'Walk-in' | 'Manual Entry' | string;
 export type LeadPriority = 'Low' | 'Medium' | 'High' | 'VIP';
-export type PropertyInterest = 'Apartment' | 'Commercial Shop' | 'Office' | 'Hotel Room' | 'Food Court Space' | 'Plot' | 'Other' | string;
+export type PropertyInterest = '1 Bed Apartment' | '2 Bed Apartment' | 'Commercial' | 'Office' | 'Food Court Space' | 'Other' | string;
 
 export interface Lead {
   id: string;
