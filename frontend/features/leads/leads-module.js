@@ -177,7 +177,7 @@
     return `<div class="drawer-backdrop" data-lead-module-close></div><aside class="drawer lead-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Lead record</div><h2>${escape(lead.full_name)}</h2><p class="page-subtitle">${escape(lead.assigned_agent || 'Unassigned')} · ${statusBadge(lead.status)}</p></div><button class="drawer-close" data-lead-module-close aria-label="Close lead details">×</button></div>${state.leadModule.editing ? '' : `<div class="lead-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-lead-drawer-tab="overview">Overview</button><button class="${tab === 'notes' ? 'active' : ''}" data-lead-drawer-tab="notes">Notes <span>${notes.length}</span></button><button class="${tab === 'activity' ? 'active' : ''}" data-lead-drawer-tab="activity">Activity <span>${activity.length}</span></button></div>`}${body}</aside>`;
   }
 
-  async function refreshLeads() { try { await loadLeads(state.screen === 'my-leads'); } catch { /* loadLeads renders its own error state */ } }
+  async function refreshLeads() { try { await loadLeads(state.screen === 'my-leads', true); } catch { /* loadLeads renders its own error state */ } }
   async function leadModuleAction(action, id) {
     const lead = (state.leads?.items || []).find(item => item.id === id) || currentLead();
     if (!lead) return;
