@@ -966,8 +966,16 @@ async function handle(req, res) {
   if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
     if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
       const token = parseCookies(req).aureum_session;
+      if (req.__aureumUser) await NEON_REPOSITORY.updatePresenceStatus(NEON_WORKSPACE_ID, req.__aureumUser.id, 'Offline');
       if (token) { await NEON_REPOSITORY.revokeSession(token); if (req.__aureumUser) await NEON_REPOSITORY.recordLogin({ userId: req.__aureumUser.db_id, email: req.__aureumUser.email, eventType: 'logout', ipAddress: req.socket.remoteAddress || 'local', userAgent: req.headers['user-agent'] }); }
       req.__aureumRelationalHandled = true;
+    } else {
+      const user = currentUser(req);
+      if (user) {
+        const current = accountPreferences.get(user.id) || {};
+        current.presence_status = { status: 'Offline', mode: 'manual' };
+        accountPreferences.set(user.id, current);
+      }
     }
     json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
     return;
