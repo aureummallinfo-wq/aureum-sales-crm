@@ -163,6 +163,7 @@ async function boot() {
   try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
   catch { state.authUser = null; state.screen = 'login'; }
   state.ready = true;
+  if (state.authUser) window.aureumEnsurePresenceHeartbeat?.();
   render();
   if (state.authUser && state.screen === 'dashboard') loadDashboard();
   if (state.authUser && state.screen === 'leads') loadLeads(false);

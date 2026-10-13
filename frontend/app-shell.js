@@ -411,7 +411,7 @@ function baseBind() {
     state.loginError = '';
     try {
       const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) });
-      state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; render(); showToast('Welcome to the Aureum workspace');
+      state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; window.aureumEnsurePresenceHeartbeat?.(); render(); showToast('Welcome to the Aureum workspace');
     } catch (error) { state.loginError = error.message; render(); }
   });
   const send = document.querySelector('[data-send-chat]');
@@ -562,7 +562,7 @@ function baseBind() {
   const customerFollowupForm = document.querySelector('#customer-followup-form');
   if (customerFollowupForm) customerFollowupForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(customerFollowupForm).entries()); try { await apiFetch(`/api/customers/${state.customerId}/follow-ups`, { method: 'POST', body: JSON.stringify(data) }); const result = await apiFetch(`/api/customers/${state.customerId}`); state.customerDetail = result; showToast('Customer follow-up scheduled'); } catch (error) { showToast(error.message); } render(); });
   const login = document.querySelector('#login-form');
-  if (login) login.addEventListener('submit', async event => { event.preventDefault(); const fields = login.querySelectorAll('input'); state.loginError = ''; try { const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) }); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; render(); if (typeof loadDashboard === 'function') loadDashboard(); showToast('Welcome to the Aureum workspace'); } catch (error) { state.loginError = error.message; render(); } });
+  if (login) login.addEventListener('submit', async event => { event.preventDefault(); const fields = login.querySelectorAll('input'); state.loginError = ''; try { const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) }); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; window.aureumEnsurePresenceHeartbeat?.(); render(); if (typeof loadDashboard === 'function') loadDashboard(); showToast('Welcome to the Aureum workspace'); } catch (error) { state.loginError = error.message; render(); } });
   const passwordToggle = document.querySelector('[data-toggle-password]');
   if (passwordToggle) passwordToggle.addEventListener('click', () => { const password = document.querySelector('#userPassword'); if (!password) return; password.type = password.type === 'password' ? 'text' : 'password'; passwordToggle.textContent = password.type === 'password' ? '◉' : '◌'; });
   const send = document.querySelector('[data-send-chat]');

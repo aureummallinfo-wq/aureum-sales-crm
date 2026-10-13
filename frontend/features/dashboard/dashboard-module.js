@@ -157,6 +157,8 @@ function ensurePresenceHeartbeat() {
   }, 30 * 1000);
 }
 
+window.aureumEnsurePresenceHeartbeat = ensurePresenceHeartbeat;
+
 async function loadDashboard(options = {}) {
   if (!state.authUser) return;
   ensurePresenceHeartbeat();
