@@ -348,9 +348,14 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .dashboard-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 .dashboard-card-heading h3 { margin-bottom: 4px; font-size: 16px; }
 .dashboard-card-heading p { color: var(--muted); font-size: 11px; }
-.dashboard-agent-filter { display: grid; gap: 4px; flex: 0 0 auto; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
-.dashboard-agent-filter select { min-height: 30px; max-width: 175px; padding: 6px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; outline: 0; background: var(--white); font: inherit; text-transform: none; }
-.dashboard-agent-filter select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,161,91,.12); }
+.dashboard-agent-filter { position: relative; flex: 0 0 auto; color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.dashboard-agent-filter summary { min-width: 125px; padding: 7px 9px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; outline: 0; background: var(--white); cursor: pointer; font: inherit; list-style: none; text-transform: none; }
+.dashboard-agent-filter summary::-webkit-details-marker { display: none; }
+.dashboard-agent-filter summary:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,161,91,.12); }
+.dashboard-agent-filter-menu { position: absolute; z-index: 10; top: calc(100% + 6px); right: 0; display: grid; min-width: 220px; max-height: 280px; padding: 9px; overflow: auto; gap: 7px; color: var(--ink); border: 1px solid var(--line); border-radius: 9px; background: var(--white); box-shadow: 0 12px 28px rgba(16,24,32,.2); text-transform: none; }
+.dashboard-agent-filter-menu label { display: flex; align-items: center; gap: 7px; padding: 3px; cursor: pointer; font-size: 10px; font-weight: 500; }
+.dashboard-agent-filter-menu input { accent-color: var(--gold); }
+.dashboard-agent-filter-actions { display: flex; gap: 6px; padding-top: 7px; border-top: 1px solid var(--line); }
 .dashboard-line-chart { position: relative; min-height: 300px; padding-top: 0; overflow: visible; }
 .dashboard-line-chart svg { display: block; width: 100%; height: 280px; overflow: visible; }
 .dashboard-line-chart .chart-gridline { stroke: rgba(198,161,91,.16); stroke-dasharray: 3 5; stroke-width: 1; }
@@ -1016,7 +1021,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .dashboard-toolbar-meta, .app-shell .dashboard-date-filter label { color: #a9a7a5; }
 .app-shell .dashboard-scope-label { color: #e3c878; }
 .app-shell .dashboard-date-filter select, .app-shell .dashboard-date-filter input { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
-.app-shell .dashboard-agent-filter select { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
+.app-shell .dashboard-agent-filter summary { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
+.app-shell .dashboard-agent-filter-menu { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
 .app-shell .dashboard-stat-card { min-height: 96px; gap: 10px; padding: 12px; }
 .app-shell .dashboard-stat-icon { width: 30px; height: 30px; flex-basis: 30px; font-size: 12px; }
 .app-shell .dashboard-stat-value { margin-top: 5px; font-size: 24px; }
