@@ -10,6 +10,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (!user || user.status !== 'active') return 'Offline';
     const manual = String(user.presence_status || '').trim().toLowerCase();
     if (['online', 'away', 'offline'].includes(manual)) return manual[0].toUpperCase() + manual.slice(1);
+    if (!user.last_login_at) return 'Offline';
     const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
     if (!Number.isFinite(lastActivity)) return 'Offline';
     const age = Math.max(0, now - lastActivity);

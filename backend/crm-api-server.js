@@ -188,6 +188,7 @@ function userActivityStatus(user, now = Date.now()) {
   if (!user || user.status !== 'active') return 'Offline';
   const manual = String(user.presence_status || accountPreferences.get(user.id)?.presence_status?.status || '').trim().toLowerCase();
   if (['online', 'away', 'offline'].includes(manual)) return `${manual.slice(0, 1).toUpperCase()}${manual.slice(1)}`;
+  if (!user.last_login_at) return 'Offline';
   const lastActivity = Date.parse(user.last_activity_at || user.last_login_at || '');
   if (!Number.isFinite(lastActivity)) return 'Offline';
   const age = Math.max(0, now - lastActivity);
