@@ -69,7 +69,7 @@ a { color: inherit; text-decoration: none; }
 .user-menu { position: absolute; top: 46px; right: 0; z-index: 30; width: 220px; padding: 15px; border: 1px solid var(--line); border-radius: 13px; background: var(--paper); box-shadow: var(--shadow); }
 .user-menu-name { font-size: 12px; font-weight: 800; }
 .user-menu-role { margin: 4px 0 13px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.presence-picker { display: grid; gap: 5px; margin: 0 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(247,241,231,.55); }
+.presence-picker { display: grid; gap: 5px; margin: 0 0 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .presence-picker label { color: var(--muted); font-size: 10px; font-weight: 700; }
 .presence-picker select { width: 100%; min-height: 31px; padding: 0 8px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: var(--paper); font-size: 11px; }
 .presence-picker small { color: var(--muted); font-size: 9px; line-height: 1.35; }
@@ -1057,6 +1057,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .app-shell .btn-secondary:hover, .app-shell .table-action:hover { background: rgba(201, 162, 77, .1); }
 .app-shell .btn-gold, .app-shell .btn-primary { color: #0b0b0b; border-color: #c9a24d; background: linear-gradient(135deg, #c9a24d, #e3c878); box-shadow: 0 0 16px rgba(227, 200, 120, .12); }
 .app-shell .btn-gold:hover, .app-shell .btn-primary:hover { box-shadow: 0 0 20px rgba(227, 200, 120, .28); }
+.app-shell .presence-picker { border-color: rgba(201, 162, 77, .24); background: #201f1f; }
+.app-shell .presence-picker label, .app-shell .presence-picker small { color: #a9a7a5; }
 .app-shell .drawer { color: #e5e2e1; border-left-color: rgba(201, 162, 77, .25); background: #151f2a; box-shadow: -24px 0 60px rgba(0, 0, 0, .55); }
 .app-shell .drawer-header, .app-shell .drawer-section { border-color: rgba(201, 162, 77, .2); }
 .app-shell .drawer-close, .app-shell .mobile-menu-toggle { color: #e3c878; border-color: rgba(201, 162, 77, .28); background: #201f1f; }
