@@ -28,8 +28,24 @@ const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '
 const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen, path]) => [path, screen]));
 screenForPath['/access-denied'] = 'unauthorized';
 
+const API_REQUEST_TIMEOUT_MS = 20000;
 async function apiFetch(path, options = {}) {
-  const response = await fetch(apiUrl(path), { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+  const controller = options.signal ? null : new AbortController();
+  const timeoutId = controller ? window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS) : null;
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options,
+      ...(controller ? { signal: controller.signal } : {})
+    });
+  } catch (error) {
+    if (timeoutId) window.clearTimeout(timeoutId);
+    if (error?.name === 'AbortError') throw new Error('The request timed out. Please try again.');
+    throw error;
+  }
+  if (timeoutId) window.clearTimeout(timeoutId);
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && state?.authUser && state.screen !== 'login') {
     state.authUser = null;
@@ -432,7 +448,6 @@ window.addEventListener('popstate', () => {
   render();
 });
 
-boot();
 
 // Follow-up and customer interaction layer for the local CRM prototype.
 const followupTypes = ['Call', 'WhatsApp', 'Email', 'Payment Plan Follow-up', 'Booking Follow-up', 'Site Visit Reminder', 'General Follow-up'];

@@ -173,6 +173,5 @@ async function boot() {
   if (state.authUser && state.screen === 'follow-ups') loadFollowups();
 }
 
-boot();
 window.aureumFinalBind = bind;
 window.aureumFinalBoot = boot;
