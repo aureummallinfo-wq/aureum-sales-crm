@@ -1101,6 +1101,8 @@ async function handle(req, res) {
         const next = { ...(current[key] || {}) };
         allowed.forEach(field => { if (body[field] !== undefined) next[field] = key === 'notifications' || key === 'appearance' && ['compact_mode', 'sidebar_collapsed'].includes(field) ? Boolean(body[field]) : String(body[field]); });
         if (key === 'appearance' && !['light', 'dark', 'system'].includes(next.theme)) { json(res, 422, { error: 'Unsupported appearance theme.' }); return; }
+        if (key === 'display' && next.date_format && !['DD MMM YYYY', 'MMM DD, YYYY', 'YYYY-MM-DD'].includes(next.date_format)) { json(res, 422, { error: 'Unsupported date format.' }); return; }
+        if (key === 'display' && next.time_format && !['12-hour', '24-hour'].includes(next.time_format)) { json(res, 422, { error: 'Unsupported time format.' }); return; }
         current[key] = next; accountPreferences.set(user.id, current);
         addActivityLog(user.id, 'account', user.id, 'account_preferences_updated', `Personal ${key} preferences updated.`);
       }

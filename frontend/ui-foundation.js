@@ -38,7 +38,7 @@
   const date = {
     isoToday: () => new Date().toISOString().slice(0, 10),
     isOverdue: (dateValue, timeValue, status) => status === 'Pending' && new Date(`${dateValue}T${timeValue || '23:59'}:00`).getTime() < Date.now(),
-    format: (dateValue, timeValue) => { const value = new Date(`${dateValue}T${timeValue || '00:00'}:00`); return Number.isNaN(value.getTime()) ? `${dateValue || ''} ${timeValue || ''}`.trim() : value.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    format: (dateValue, timeValue) => { const value = new Date(`${dateValue}T${timeValue || '00:00'}:00`); return Number.isNaN(value.getTime()) ? `${dateValue || ''} ${timeValue || ''}`.trim() : (window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(value) : value.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })); }
   };
 
   const validation = {

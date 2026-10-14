@@ -134,6 +134,24 @@ const state = {
   toast: ''
 };
 
+/* Personal display preferences are device-scoped, while the API remains the source
+   of truth after sign-in. These helpers are intentionally available to every screen
+   so dates and times never drift between modules. */
+const AUREUM_PREFERENCE_KEY = 'aureum.crm.preferences.v1';
+const AUREUM_DEFAULT_PREFERENCES = Object.freeze({ theme: 'light', date_format: 'DD MMM YYYY', time_format: '12-hour', timezone: 'Asia/Karachi' });
+function aureumReadLocalPreferences() { try { const value = JSON.parse(localStorage.getItem(AUREUM_PREFERENCE_KEY) || '{}'); return { ...AUREUM_DEFAULT_PREFERENCES, ...value }; } catch (_) { return { ...AUREUM_DEFAULT_PREFERENCES }; } }
+function aureumValidPreferences(value = {}) { const next = { ...AUREUM_DEFAULT_PREFERENCES, ...value }; if (!['light', 'dark', 'system'].includes(next.theme)) next.theme = AUREUM_DEFAULT_PREFERENCES.theme; if (!['DD MMM YYYY', 'MMM DD, YYYY', 'YYYY-MM-DD'].includes(next.date_format)) next.date_format = AUREUM_DEFAULT_PREFERENCES.date_format; if (!['12-hour', '24-hour'].includes(next.time_format)) next.time_format = AUREUM_DEFAULT_PREFERENCES.time_format; next.timezone = 'Asia/Karachi'; return next; }
+function aureumApplyTheme(theme) { const selected = ['light', 'dark', 'system'].includes(theme) ? theme : 'light'; const dark = selected === 'dark' || (selected === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches); document.documentElement.dataset.theme = dark ? 'dark' : 'light'; document.documentElement.style.colorScheme = dark ? 'dark' : 'light'; document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d141b' : '#f7f1e7'); }
+function aureumSetLocalPreferences(value) { const next = aureumValidPreferences(value); try { localStorage.setItem(AUREUM_PREFERENCE_KEY, JSON.stringify(next)); } catch (_) { /* private browsing can disable storage */ } aureumApplyTheme(next.theme); return next; }
+function aureumAccountPreferences() { return aureumValidPreferences({ ...aureumReadLocalPreferences(), ...(state.account?.preferences?.display || {}), ...(state.account?.preferences?.appearance || {}) }); }
+function aureumDateParts(value) { const date = value instanceof Date ? value : new Date(value); if (Number.isNaN(date.getTime())) return null; const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date); return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value])); }
+function aureumFormatDate(value) { const parts = aureumDateParts(value); if (!parts) return 'Not available'; const pref = aureumAccountPreferences(); if (pref.date_format === 'YYYY-MM-DD') return `${parts.year}-${parts.month}-${parts.day}`; if (pref.date_format === 'MMM DD, YYYY') return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', month: 'short', day: '2-digit', year: 'numeric' }).format(new Date(value)); return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value)); }
+function aureumFormatTime(value) { const date = value instanceof Date ? value : new Date(value); if (Number.isNaN(date.getTime())) return 'Not available'; const pref = aureumAccountPreferences(); return new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', hour: 'numeric', minute: '2-digit', hour12: pref.time_format === '12-hour' }).format(date); }
+function aureumFormatDateTime(value) { const date = value instanceof Date ? value : new Date(value); if (Number.isNaN(date.getTime())) return 'Not available'; return `${aureumFormatDate(date)}, ${aureumFormatTime(date)}`; }
+window.AureumPreferences = { key: AUREUM_PREFERENCE_KEY, defaults: AUREUM_DEFAULT_PREFERENCES, read: aureumReadLocalPreferences, applyTheme: aureumApplyTheme, saveLocal: aureumSetLocalPreferences, formatDate: aureumFormatDate, formatTime: aureumFormatTime, formatDateTime: aureumFormatDateTime };
+const localAureumPreferences = aureumReadLocalPreferences(); aureumApplyTheme(localAureumPreferences.theme);
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { const current = aureumReadLocalPreferences(); if (current.theme === 'system') aureumApplyTheme('system'); });
+
 const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Agent' };
 const navByRole = {
   SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users'], ['settings', 'Settings', 'settings']],
@@ -484,9 +502,9 @@ const followupStatuses = ['All', 'Pending', 'Completed', 'Overdue', 'Missed', 'R
 
 function followupDateLabel(date, time) {
   if (!date) return 'Not scheduled';
-  const parsed = new Date(`${date}T${time || '00:00'}:00`);
+  const parsed = new Date(`${date}T${time || '00:00'}:00+05:00`);
   if (Number.isNaN(parsed.getTime())) return `${date} · ${time || ''}`;
-  return parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(parsed) : parsed.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function followupDateMatches(item, filter) {

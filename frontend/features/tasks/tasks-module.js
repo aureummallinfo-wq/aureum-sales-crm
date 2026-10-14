@@ -5,7 +5,7 @@ function taskText(value) {
 function taskDate(value) {
   if (!value) return 'No due date';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'No due date' : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(date.getTime()) ? 'No due date' : (window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(date) : date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
 }
 
 function taskDueClass(value, status) {
