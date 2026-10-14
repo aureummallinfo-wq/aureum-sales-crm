@@ -1051,7 +1051,6 @@ async function handle(req, res) {
   if (req.method === 'PATCH' && url.pathname === '/api/presence/status' && !NEON_REPOSITORY) {
     const user = requireAuth(req, res);
     if (user) {
-      if (user.role !== 'sales_agent') { json(res, 403, { error: 'Only Sales Agents can change their presence status.' }); return; }
       const body = await readBody(req);
       const requested = String(body.status || '').trim();
       if (!['Online', 'Away', 'Offline'].includes(requested)) { json(res, 422, { error: 'Choose Online, Away, or Offline.' }); return; }

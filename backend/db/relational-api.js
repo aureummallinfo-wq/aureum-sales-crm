@@ -143,7 +143,6 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     if (req.method === 'PATCH' && pathname === '/api/presence/status') {
       if (!user) return unauthenticated(res);
-      if (user.role !== 'sales_agent') return deny(res, 'Only Sales Agents can change their presence status.');
       const body = await readBody(req);
       const requested = String(body.status || '').trim();
       if (!['Online', 'Away', 'Offline'].includes(requested)) return json(res, 422, { error: 'Choose Online, Away, or Offline.' });
