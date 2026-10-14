@@ -289,7 +289,7 @@ function syncTaggedLeadFollowUp(user, lead) {
   if (clock) { let hour = Number(clock[1]); if (clock[3]?.toUpperCase() === 'PM' && hour < 12) hour += 12; if (clock[3]?.toUpperCase() === 'AM' && hour === 12) hour = 0; dueTime = `${String(hour).padStart(2, '0')}:${clock[2]}`; }
   const now = new Date().toISOString();
   const item = { id: `followup_tag_${lead.id}`, customer_id: customer.id, lead_id: lead.id, created_by: user.id, follow_up_type: 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: lead.priority || 'Medium', status: 'Pending', notes: 'Created automatically from the Follow-up Needed tag.', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: lead.status, last_activity: lead.last_contacted_at || 'Not contacted', metadata: { source: 'follow-up-tag' }, created_at: now, updated_at: now };
-  followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up Needed tag.`); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
+  followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up Needed tag.`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
 }
 
 function canViewCustomer(user, customer) {
@@ -321,7 +321,7 @@ function refreshFollowUpStatuses() {
   followUps.forEach(item => {
     if (item.status !== 'Pending') return;
     const due = new Date(`${item.due_date}T${item.due_time || '23:59'}:00`).getTime();
-    if (!Number.isNaN(due) && due < now) item.status = 'Overdue';
+    if (!Number.isNaN(due) && due < now) { item.status = 'Overdue'; addFollowUpNotification(item, 'follow_up_overdue'); }
   });
 }
 
@@ -338,6 +338,23 @@ function addFollowUpActivity(item, userId, activityType, description, metadata =
   addCustomerActivity(item.customer_id, userId, activityType, description, metadata);
   const customer = customers.find(entry => entry.id === item.customer_id);
   if (customer?.lead_id) addLeadActivity(customer.lead_id, userId, activityType, description, metadata);
+}
+
+function addFollowUpNotification(item, eventKey = 'follow_up_due') {
+  const userId = item?.assigned_agent_id;
+  if (!userId) return;
+  const setting = (notificationSettings.get(userId) || []).find(entry => entry.event_key === eventKey);
+  if (setting && setting.in_app_enabled === false) return;
+  const list = notifications.get(userId) || [];
+  const dedupeKey = `${eventKey}:${item.id}`;
+  if (list.some(entry => entry.dedupe_key === dedupeKey)) return;
+  const customer = item.customer_name || 'Customer';
+  const type = item.follow_up_type || item.type || 'Follow-up';
+  const due = item.due_date ? ` due ${item.due_date}${item.due_time ? ` at ${item.due_time}` : ''}` : '';
+  const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
+  const message = eventKey === 'follow_up_overdue' ? `${customer} — ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} — ${type} was completed.` : `${customer} — ${type} scheduled${due}.`;
+  list.unshift({ id: `${userId}_${dedupeKey}`, dedupe_key: dedupeKey, event_type: eventKey, title, message, related_entity_type: 'follow_up', related_entity_id: item.id, is_read: false, created_at: new Date().toISOString() });
+  notifications.set(userId, list.slice(0, 100));
 }
 
 function dashboardBudgetMillions(value) {
@@ -1712,7 +1729,7 @@ async function handle(req, res) {
     if (!assigned || (user.role === 'sales_manager' && assigned.team_id !== user.team_id)) { json(res, 400, { error: 'Choose an active advisor from your permitted team' }); return; }
     if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 400, { error: 'A valid due date and time are required' }); return; }
     const item = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: body.lead_id || customer.lead_id || null, created_by: user.id, follow_up_type: safeText(body.follow_up_type || body.type || 'General Follow-up', 80), due_date: body.due_date, due_time: body.due_time, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', status: 'Pending', notes: safeText(body.notes || body.note, 2000), customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: assigned.id, assigned_agent: assigned.full_name, assigned_team_id: assigned.team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-    followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled for ${item.due_date} at ${item.due_time}`); customer.next_follow_up_at = `${item.due_date} · ${item.due_time}`;
+    followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled for ${item.due_date} at ${item.due_time}`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${item.due_date} · ${item.due_time}`;
     json(res, 201, { data: followUpView(item) }); return;
   }
 
@@ -1738,7 +1755,7 @@ async function handle(req, res) {
     if (action === 'activity' && req.method === 'GET') { json(res, 200, { data: followUpActivities.get(item.id) || [] }); return; }
     const body = await readBody(req);
     if (action === 'reschedule' && req.method === 'PATCH') { if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 400, { error: 'A valid new date and time are required' }); return; } const previous = { fromDate: item.due_date, fromTime: item.due_time, toDate: body.due_date, toTime: body.due_time, reason: safeText(body.reason, 500) }; item.rescheduled_from_date = item.due_date; item.rescheduled_from_time = item.due_time; item.reschedule_reason = previous.reason; item.reschedule_history = [...(item.reschedule_history || []), previous]; item.due_date = body.due_date; item.due_time = body.due_time; item.status = 'Rescheduled'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up rescheduled', previous.reason || `Moved to ${item.due_date} at ${item.due_time}`); json(res, 200, { data: followUpView(item) }); return; }
-    if (action === 'complete' && req.method === 'PATCH') { item.status = 'Completed'; item.completed_at = new Date().toISOString(); item.completed_by = user.id; item.completion_note = safeText(body.completion_note || body.note, 2000); item.customer_response = safeText(body.customer_response, 1000); item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up completed', item.completion_note || 'Follow-up marked as completed'); if (body.next_due_date && body.next_due_time && validateIsoDate(body.next_due_date) && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.next_due_time))) { item.next_follow_up = { due_date: body.next_due_date, due_time: body.next_due_time }; } json(res, 200, { data: followUpView(item) }); return; }
+    if (action === 'complete' && req.method === 'PATCH') { item.status = 'Completed'; item.completed_at = new Date().toISOString(); item.completed_by = user.id; item.completion_note = safeText(body.completion_note || body.note, 2000); item.customer_response = safeText(body.customer_response, 1000); item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up completed', item.completion_note || 'Follow-up marked as completed'); addFollowUpNotification(item, 'follow_up_completed'); if (body.next_due_date && body.next_due_time && validateIsoDate(body.next_due_date) && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.next_due_time))) { item.next_follow_up = { due_date: body.next_due_date, due_time: body.next_due_time }; } json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'missed' && req.method === 'PATCH') { item.status = 'Missed'; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up missed', body.reason || 'Follow-up marked as missed'); json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'cancel' && req.method === 'PATCH') { item.status = 'Cancelled'; item.cancelled_at = new Date().toISOString(); item.cancelled_by = user.id; item.cancel_reason = body.reason || ''; item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up cancelled', body.reason || 'Follow-up cancelled'); json(res, 200, { data: followUpView(item) }); return; }
     if (action === 'notes' && req.method === 'POST') { const noteText = safeText(body.note, 2000); if (!noteText) { json(res, 400, { error: 'Note is required' }); return; } addFollowUpActivity(item, user.id, 'Note added', noteText); item.notes = noteText; item.last_activity = noteText; item.updated_at = new Date().toISOString(); json(res, 201, { data: followUpView(item) }); return; }

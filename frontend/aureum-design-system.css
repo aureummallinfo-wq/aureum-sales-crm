@@ -217,6 +217,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .notification-panel { position: absolute; top: calc(100% + 12px); right: 0; z-index: 30; width: min(360px, calc(100vw - 28px)); overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); box-shadow: var(--shadow); }
 .notification-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .notification-head small, .notification-item small, .notification-item time { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+.notification-filter { display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.notification-filter label { font-weight: 700; }
+.notification-filter select { min-width: 0; flex: 1; padding: 6px 8px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: var(--paper); font: inherit; }
 .notification-item { display: flex; width: 100%; gap: 10px; padding: 13px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; cursor: pointer; }
 .notification-item:hover, .notification-item.unread { background: var(--cream-deep); }
 .notification-dot { flex: 0 0 7px; width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--gold); }
@@ -1148,6 +1151,8 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 .app-shell .notification-head { border-color: rgba(201, 162, 77, .2); }
 .app-shell .notification-head b { color: #f7f3ea; }
 .app-shell .notification-head small { color: #a9a7a5; }
+.app-shell .notification-filter { color: #a9a7a5; border-color: rgba(201, 162, 77, .2); }
+.app-shell .notification-filter select { color: #e5e2e1; border-color: rgba(255, 255, 255, .12); background: #101820; }
 .app-shell .notification-item { padding: 11px 14px; border-color: rgba(201, 162, 77, .16); }
 .app-shell .notification-item > span:last-child { display: block; min-width: 0; flex: 1; line-height: 1.35; }
 .app-shell .notification-item b { display: block; color: #f7f3ea; line-height: 1.25; }
