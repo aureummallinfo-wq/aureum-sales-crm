@@ -266,6 +266,32 @@ function ensureCustomerForLead(user, lead) {
   return customer;
 }
 
+function syncTaggedLeadFollowUp(user, lead) {
+  if (!lead) return;
+  const tagged = (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up needed');
+  const existing = followUps.find(item => item.lead_id === lead.id && item.metadata?.source === 'follow-up-tag');
+  if (!tagged) {
+    if (existing) {
+      const index = followUps.indexOf(existing);
+      if (index >= 0) followUps.splice(index, 1);
+      followUpActivities.delete(existing.id);
+      const customer = customers.find(item => item.id === existing.customer_id);
+      if (customer) customerFollowUps.set(customer.id, (customerFollowUps.get(customer.id) || []).filter(item => item.id !== existing.id));
+    }
+    return;
+  }
+  const customer = ensureCustomerForLead(user, lead);
+  if (!customer || existing) return;
+  const raw = String(lead.next_follow_up_at || '');
+  const dueDate = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] || new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const clock = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  let dueTime = '10:00';
+  if (clock) { let hour = Number(clock[1]); if (clock[3]?.toUpperCase() === 'PM' && hour < 12) hour += 12; if (clock[3]?.toUpperCase() === 'AM' && hour === 12) hour = 0; dueTime = `${String(hour).padStart(2, '0')}:${clock[2]}`; }
+  const now = new Date().toISOString();
+  const item = { id: `followup_tag_${lead.id}`, customer_id: customer.id, lead_id: lead.id, created_by: user.id, follow_up_type: 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: lead.priority || 'Medium', status: 'Pending', notes: 'Created automatically from the Follow-up Needed tag.', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: lead.status, last_activity: lead.last_contacted_at || 'Not contacted', metadata: { source: 'follow-up-tag' }, created_at: now, updated_at: now };
+  followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up Needed tag.`); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
+}
+
 function canViewCustomer(user, customer) {
   if (!user) return false;
   if (user.role === 'super_admin') return true;
@@ -1259,7 +1285,7 @@ async function handle(req, res) {
     editable.forEach(field => { if (body[field] !== undefined) lead[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
     if (body.financing_required !== undefined) lead.financing_required = Boolean(body.financing_required);
     if (body.tags) lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : lead.tags;
-    lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, 'Lead updated', 'Lead details updated'); persistState(); json(res, 200, { data: leadView(lead) }); return;
+    lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, 'Lead updated', 'Lead details updated'); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 200, { data: leadView(lead) }); return;
   }
 
   if (req.method === 'POST' && url.pathname === '/api/leads') {
@@ -1275,7 +1301,7 @@ async function handle(req, res) {
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
         if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
         const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
-        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); persistState(); json(res, 201, { data: leadView(lead) });
+        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
       } catch (error) { json(res, 400, { error: error.message }); }
     }
     return;
