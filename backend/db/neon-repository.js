@@ -549,6 +549,7 @@ function createNeonRepository(sql) {
     const userId = await resolveUserId(workspace, assignedAgentId); if (!userId || !followUpId) return;
     const definition = await sql.query('SELECT event_name FROM crm.notification_definitions WHERE event_key=$1 LIMIT 1', [eventKey]); if (!definition[0]) return;
     const setting = await sql.query('SELECT in_app_enabled FROM crm.notification_settings WHERE user_id=$1 AND event_key=$2 LIMIT 1', [userId, eventKey]); if (setting[0] && setting[0].in_app_enabled === false) return;
+    const personal = await sql.query("SELECT preference_value->>$2 AS enabled FROM crm.user_preferences WHERE user_id=$1 AND preference_key='notifications' LIMIT 1", [userId, eventKey]); if (personal[0]?.enabled === 'false') return;
     const customer = followUp?.customer_name || followUp?.lead_name || 'Customer';
     const type = followUp?.follow_up_type || 'Follow-up';
     const due = followUp?.due_date ? ` due ${followUp.due_date}${followUp.due_time ? ` at ${followUp.due_time}` : ''}` : '';

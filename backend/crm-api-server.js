@@ -345,6 +345,7 @@ function addFollowUpNotification(item, eventKey = 'follow_up_due') {
   if (!userId) return;
   const setting = (notificationSettings.get(userId) || []).find(entry => entry.event_key === eventKey);
   if (setting && setting.in_app_enabled === false) return;
+  if (accountPreferences.get(userId)?.notifications?.[eventKey] === false) return;
   const list = notifications.get(userId) || [];
   const dedupeKey = `${eventKey}:${item.id}`;
   if (list.some(entry => entry.dedupe_key === dedupeKey)) return;
@@ -633,7 +634,7 @@ const systemSettings = {
   email_access: { sender_name: 'Aureum Sales CRM', sender_email: 'noreply@aureum.com', access_email_subject: 'Your Aureum CRM access', access_email_template: 'Welcome to the Aureum Sales CRM workspace. Use the secure access details provided by your administrator.', password_reset_subject: 'Your Aureum CRM password was reset', password_reset_template: 'Your temporary password has been reset. Sign in and change it immediately.', email_enabled: true }
 };
 const accountPreferences = new Map(users.map(user => [user.id, {
-  notifications: { new_lead_assigned: true, follow_up_due: true, follow_up_overdue: true, team_chat_message: true, daily_digest: false },
+  notifications: { new_lead_assigned: true, follow_up_due: true, follow_up_overdue: true, follow_up_completed: true, team_chat_message: true, daily_digest: false },
   appearance: { theme: 'light', compact_mode: false, sidebar_collapsed: false },
   display: { language: 'English', timezone: 'Asia/Karachi', date_format: 'DD MMM YYYY', time_format: '12-hour' }
 }]));
@@ -1138,7 +1139,7 @@ async function handle(req, res) {
       if (req.method === 'PATCH') {
         const body = await readBody(req);
         const allowed = key === 'notifications'
-          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'team_chat_message', 'daily_digest']
+          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'follow_up_completed', 'team_chat_message', 'daily_digest']
           : key === 'appearance' ? ['theme', 'compact_mode', 'sidebar_collapsed'] : ['language', 'date_format', 'time_format'];
         const next = { ...(current[key] || {}) };
         allowed.forEach(field => { if (body[field] !== undefined) next[field] = key === 'notifications' || key === 'appearance' && ['compact_mode', 'sidebar_collapsed'].includes(field) ? Boolean(body[field]) : String(body[field]); });
