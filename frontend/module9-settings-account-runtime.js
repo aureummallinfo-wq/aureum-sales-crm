@@ -118,7 +118,6 @@
   async function saveAccountPreference(form, endpoint, success) { try { const data = Object.fromEntries(new FormData(form).entries()); Object.keys(data).forEach(key => { if (data[key] === 'on') data[key] = true; }); const result = await apiFetch(endpoint, { method: 'PATCH', body: JSON.stringify(data) }); const key = endpoint.split('/').pop(); state.account.preferences = { ...(state.account.preferences || {}), [key]: result.data }; if (key === 'appearance' || key === 'display') window.AureumPreferences?.saveLocal({ ...(window.AureumPreferences.read?.() || {}), ...(state.account.preferences.appearance || {}), ...(state.account.preferences.display || {}) }); showToast(success); render(); } catch (error) { showToast(error.message); } }
 
   function bindModule9Events() {
-    aureumGoals68Bind();
     const presence = document.querySelector('[data-presence-status]');
     if (presence) presence.addEventListener('change', async event => {
       try {
