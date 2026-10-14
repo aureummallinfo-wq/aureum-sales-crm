@@ -792,6 +792,7 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 .lead-error-state p { max-width: 470px; color: var(--muted); font-size: 12px; }
 .lead-create-form { display: grid; gap: 18px; }
 .lead-form-section { padding: 24px; }
+.lead-other-interest-field[hidden] { display: none !important; }
 .lead-form-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
 .lead-form-section-head .eyebrow { display: block; margin-bottom: 8px; }
 .lead-checkbox { margin-top: 28px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: #fffdf9; }
