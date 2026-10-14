@@ -548,6 +548,31 @@ html[data-theme="dark"] .report-filter-bar,
 html[data-theme="dark"] .report-metric-card,
 html[data-theme="dark"] .report-section { background: #121c25; }
 
+/* Reports used to carry their own dark palette. Keep the same layout, but let the
+   active workspace theme control every report surface and label. */
+.report-filter-bar,
+.report-metric-card,
+.report-section { color: var(--ink); border-color: var(--line); background: var(--paper); }
+.report-filter-heading h3,
+.report-table-card h3,
+.report-section h3 { color: var(--ink); }
+.report-filter-grid label { color: var(--muted); }
+.report-filter-grid select,
+.report-filter-grid input { color: var(--ink); border-color: var(--line); background: var(--white); }
+.report-filter-footer,
+.report-table-card .table-head p,
+.report-section > p,
+.report-metric-card .report-metric-label,
+.report-metric-card small,
+.report-loading-state { color: var(--muted); }
+.report-metric-card strong { color: var(--ink); }
+.report-mini-grid .report-metric-card { background: var(--white); }
+.report-bar-row { color: var(--muted); }
+.report-bar-value { color: var(--gold); }
+.report-drawer { color: var(--ink); border-color: var(--line); background: var(--paper); box-shadow: -20px 0 60px rgba(0, 0, 0, .24); }
+.report-drawer h2,
+.report-drawer h3 { color: var(--ink); }
+
 .appearance-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .appearance-theme-option { position: relative; display: grid; gap: 8px; padding: 12px; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; background: var(--paper); text-align: left; cursor: pointer; }
 .appearance-theme-option:hover, .appearance-theme-option:focus-within { border-color: var(--gold); }

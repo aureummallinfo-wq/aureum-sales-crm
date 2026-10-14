@@ -162,6 +162,7 @@ async function boot() {
   const requestedScreen = screenForPath[window.location.pathname] || 'dashboard';
   try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
   catch { state.authUser = null; state.screen = 'login'; }
+  if (state.authUser) await window.aureumLoadDisplayPreferences?.();
   state.ready = true;
   if (state.authUser) window.aureumEnsurePresenceHeartbeat?.();
   render();

@@ -151,6 +151,17 @@ function aureumFormatDateTime(value) { const date = value instanceof Date ? valu
 window.AureumPreferences = { key: AUREUM_PREFERENCE_KEY, defaults: AUREUM_DEFAULT_PREFERENCES, read: aureumReadLocalPreferences, applyTheme: aureumApplyTheme, saveLocal: aureumSetLocalPreferences, formatDate: aureumFormatDate, formatTime: aureumFormatTime, formatDateTime: aureumFormatDateTime };
 const localAureumPreferences = aureumReadLocalPreferences(); aureumApplyTheme(localAureumPreferences.theme);
 if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => { const current = aureumReadLocalPreferences(); if (current.theme === 'system') aureumApplyTheme('system'); });
+async function aureumLoadDisplayPreferences() {
+  if (!state.authUser) return;
+  try {
+    const [appearance, display] = await Promise.all([apiFetch('/api/account/preferences/appearance'), apiFetch('/api/account/preferences/display')]);
+    const appearanceData = { theme: 'light', compact_mode: false, sidebar_collapsed: false, ...(appearance.data || {}) };
+    const displayData = { language: 'English', timezone: 'Asia/Karachi', date_format: 'DD MMM YYYY', time_format: '12-hour', ...(display.data || {}) };
+    state.account = { ...(state.account || {}), preferences: { ...(state.account?.preferences || {}), appearance: appearanceData, display: displayData } };
+    window.AureumPreferences.saveLocal({ ...window.AureumPreferences.read(), ...appearanceData, ...displayData });
+  } catch (_) { /* the local defaults keep the first render safe when preferences are unavailable */ }
+}
+window.aureumLoadDisplayPreferences = aureumLoadDisplayPreferences;
 
 const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Agent' };
 const navByRole = {
