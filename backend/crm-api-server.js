@@ -1669,6 +1669,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && (url.pathname === '/api/follow-ups' || url.pathname === '/api/follow-ups/my')) {
     const user = url.pathname.endsWith('/my') ? requireAuth(req, res) : requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
+      leads.filter(lead => canViewLead(user, lead) && (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up needed')).forEach(lead => syncTaggedLeadFollowUp(user, lead));
       let data = followUps.filter(item => url.pathname.endsWith('/my') ? item.assigned_agent_id === user.id : canViewFollowUp(user, item));
       const status = url.searchParams.get('status');
       const type = url.searchParams.get('type');
