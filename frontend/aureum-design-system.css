@@ -315,6 +315,21 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .login-form .demo-note strong { color: #c7b375; }
 .login-security { margin-top: 18px; color: #6f7b7d; font-size: 9px; letter-spacing: .05em; text-align: center; text-transform: uppercase; }
 
+/* Keep the desktop sign-in experience within one viewport on shorter laptop
+   screens; the stacked mobile layout below remains naturally scrollable. */
+@media (min-width: 851px) and (max-height: 820px) {
+  .login-page { height: 100dvh; min-height: 100dvh; overflow: hidden; }
+  .login-brand { height: 100dvh; min-height: 0; padding: 28px 40px; }
+  .login-brand-content { min-height: 0; }
+  .login-form-wrap { height: 100dvh; min-height: 0; padding: 20px 30px; }
+  .login-form { padding: 24px 30px; }
+  .login-form-brand { padding-bottom: 18px; }
+  .login-form .page-subtitle { margin-bottom: 14px !important; }
+  .login-form .form-field { gap: 5px; margin-bottom: 11px; }
+  .login-form .form-help { margin: 0 0 14px; }
+  .login-form .login-note { margin: 12px 0 0; }
+}
+
 /* Dashboard module */
 .dashboard-welcome { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; padding: 25px 28px; border: 1px solid rgba(198,161,91,.32); border-radius: 16px; background: linear-gradient(125deg, #efe4d2, #f8f2e8 62%, #e8d4ae); box-shadow: 0 12px 30px rgba(42,33,24,.07); }
 .dashboard-welcome-side { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; gap: 12px; }
