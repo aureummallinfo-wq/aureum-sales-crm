@@ -94,6 +94,14 @@ function bind() {
   const chatSearch = document.querySelector('[data-chat-search]'); if (chatSearch) chatSearch.addEventListener('input', AureumUI.debounce(event => { state.chatSearch = event.target.value; render(); }, 180));
   const chatForm = document.querySelector('#chat-message-form'); if (chatForm) chatForm.addEventListener('submit', sendChatMessage);
   document.querySelectorAll('[data-reload-reports]').forEach(el => el.addEventListener('click', () => loadReports(true)));
+  // Bind the profile action directly as well as through the delegated report listener.
+  // This keeps the advisor profile click isolated from generic customer/drawer handlers
+  // when the report table is replaced during a refresh.
+  document.querySelectorAll('[data-report-agent-profile]').forEach(el => el.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openReportAgent(el.dataset.reportAgentProfile);
+  }));
   document.querySelectorAll('[data-report-agent]').forEach(el => el.addEventListener('click', () => openReportAgent(el.dataset.reportAgent)));
   document.querySelectorAll('[data-report-tab]').forEach(el => el.addEventListener('click', () => { state.reportAgentTab = el.dataset.reportTab; render(); }));
   document.querySelectorAll('[data-agent-open]').forEach(el => el.addEventListener('click', () => openAgent(el.dataset.agentOpen)));
