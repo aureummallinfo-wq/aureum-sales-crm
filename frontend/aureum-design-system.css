@@ -1526,3 +1526,126 @@ html[data-theme="dark"] .report-section { background: #121c25; }
   .app-shell .notification-item { min-height: 72px; padding: 12px 13px; }
   .app-shell .notification-item small { font-size: 10px; line-height: 1.4; }
 }
+
+/* Light workspace surfaces. The stitched shell below intentionally uses a dark
+   palette for dark mode, so keep a higher-specificity light palette here to avoid
+   legacy dark backgrounds leaking into cards, reports, and drawers. */
+html[data-theme="light"] .app-shell {
+  --ink: #181613;
+  --muted: #81796f;
+  --cream: #f7f1e7;
+  --cream-deep: #eee3d3;
+  --paper: #fffdfa;
+  --white: #ffffff;
+  --sidebar: #151514;
+  --sidebar-soft: #23221f;
+  --gold: #c6a15b;
+  --gold-soft: #ead8ac;
+  --gold-pale: #f8efd9;
+  --green: #2f6b4f;
+  --green-pale: #e7f1e9;
+  --red: #a84c45;
+  --red-pale: #f6e6e4;
+  --amber: #b97824;
+  --amber-pale: #fbefdc;
+  --line: rgba(51, 40, 27, .11);
+  --shadow: 0 16px 40px rgba(69, 47, 20, .08);
+  color: var(--ink);
+  background: var(--cream);
+}
+html[data-theme="light"] .app-shell .main,
+html[data-theme="light"] .app-shell .page { background: var(--cream); color: var(--ink); }
+html[data-theme="light"] .app-shell .topbar { background: rgba(247, 241, 231, .94); border-color: var(--line); }
+html[data-theme="light"] .app-shell .top-search,
+html[data-theme="light"] .app-shell .search-box,
+html[data-theme="light"] .app-shell .select,
+html[data-theme="light"] .app-shell .filter-bar,
+html[data-theme="light"] .app-shell .lead-filter-bar,
+html[data-theme="light"] .app-shell .customer-filter-bar,
+html[data-theme="light"] .app-shell .followup-filter-bar,
+html[data-theme="light"] .app-shell .followup-custom-date-bar { color: var(--ink); border-color: var(--line); background: var(--paper); }
+html[data-theme="light"] .app-shell .top-search input,
+html[data-theme="light"] .app-shell .form-field input,
+html[data-theme="light"] .app-shell .form-field select,
+html[data-theme="light"] .app-shell .form-field textarea,
+html[data-theme="light"] .app-shell .form-grid input,
+html[data-theme="light"] .app-shell .form-grid select,
+html[data-theme="light"] .app-shell .form-grid textarea,
+html[data-theme="light"] .app-shell .select,
+html[data-theme="light"] .app-shell select { color: var(--ink); border-color: var(--line); background: var(--paper); }
+html[data-theme="light"] .app-shell select { color-scheme: light; }
+html[data-theme="light"] .app-shell select option { color: var(--ink); background: var(--paper); }
+html[data-theme="light"] .app-shell .card,
+html[data-theme="light"] .app-shell .table-card,
+html[data-theme="light"] .app-shell .chart-card,
+html[data-theme="light"] .app-shell .kpi-card,
+html[data-theme="light"] .app-shell .dashboard-welcome,
+html[data-theme="light"] .app-shell .dashboard-card,
+html[data-theme="light"] .app-shell .followup-performance-card,
+html[data-theme="light"] .app-shell .followup-calendar-card,
+html[data-theme="light"] .app-shell .report-filter-bar,
+html[data-theme="light"] .app-shell .report-metric-card,
+html[data-theme="light"] .app-shell .report-section { color: var(--ink); border-color: var(--line); background: var(--paper); box-shadow: var(--shadow); }
+html[data-theme="light"] .app-shell .crumbs,
+html[data-theme="light"] .app-shell .page-header h1,
+html[data-theme="light"] .app-shell h2,
+html[data-theme="light"] .app-shell h3,
+html[data-theme="light"] .app-shell h4,
+html[data-theme="light"] .app-shell .kpi-value,
+html[data-theme="light"] .app-shell .detail-value,
+html[data-theme="light"] .app-shell .section-title h3,
+html[data-theme="light"] .app-shell .report-section h3,
+html[data-theme="light"] .app-shell .report-metric-card strong { color: var(--ink); }
+html[data-theme="light"] .app-shell .page-subtitle,
+html[data-theme="light"] .app-shell .person-meta,
+html[data-theme="light"] .app-shell .kpi-label,
+html[data-theme="light"] .app-shell .detail-label,
+html[data-theme="light"] .app-shell .timeline-copy,
+html[data-theme="light"] .app-shell .timeline-time,
+html[data-theme="light"] .app-shell .section-title p,
+html[data-theme="light"] .app-shell .table-head p,
+html[data-theme="light"] .app-shell .report-filter-grid label,
+html[data-theme="light"] .app-shell .report-filter-footer,
+html[data-theme="light"] .app-shell .report-section > p { color: var(--muted); }
+html[data-theme="light"] .app-shell table th { color: var(--ink); background: var(--cream-deep); border-color: var(--line); }
+html[data-theme="light"] .app-shell table td { color: var(--ink); border-color: var(--line); }
+html[data-theme="light"] .app-shell .table-wrap table th:first-child,
+html[data-theme="light"] .app-shell .table-wrap table td:first-child { background: var(--paper); box-shadow: 5px 0 8px rgba(69, 47, 20, .06); }
+html[data-theme="light"] .app-shell .table-wrap table thead th:first-child { background: var(--cream-deep); }
+html[data-theme="light"] .app-shell table tbody tr:hover { background: var(--gold-pale); }
+html[data-theme="light"] .app-shell .lead-summary-card,
+html[data-theme="light"] .app-shell .customer-summary-card,
+html[data-theme="light"] .app-shell .followup-summary-card,
+html[data-theme="light"] .app-shell .followup-metric,
+html[data-theme="light"] .app-shell .mini-stat,
+html[data-theme="light"] .app-shell .customer-note,
+html[data-theme="light"] .app-shell .customer-followup-preview,
+html[data-theme="light"] .app-shell .followup-history-row,
+html[data-theme="light"] .app-shell .followup-detail-note,
+html[data-theme="light"] .app-shell .presence-picker { color: var(--ink); border-color: var(--line); background: var(--paper); }
+html[data-theme="light"] .app-shell .drawer,
+html[data-theme="light"] .app-shell .report-drawer,
+html[data-theme="light"] .app-shell .notification-panel,
+html[data-theme="light"] .app-shell .global-search-popover { color: var(--ink); border-color: var(--line); background: var(--paper); box-shadow: -20px 0 60px rgba(69, 47, 20, .16); }
+html[data-theme="light"] .app-shell .drawer-header,
+html[data-theme="light"] .app-shell .drawer-section,
+html[data-theme="light"] .app-shell .tabs { border-color: var(--line); }
+html[data-theme="light"] .app-shell .drawer-close,
+html[data-theme="light"] .app-shell .mobile-menu-toggle { color: var(--ink); border-color: var(--line); background: var(--cream-deep); }
+html[data-theme="light"] .app-shell .chat-layout,
+html[data-theme="light"] .app-shell .chat-main,
+html[data-theme="light"] .app-shell .messages,
+html[data-theme="light"] .app-shell .chat-workspace { background: var(--paper); border-color: var(--line); }
+html[data-theme="light"] .app-shell .chat-sidebar,
+html[data-theme="light"] .app-shell .chat-details { color: var(--ink); background: var(--cream-deep); border-color: var(--line); }
+html[data-theme="light"] .app-shell .channel { color: var(--muted); }
+html[data-theme="light"] .app-shell .channel:hover,
+html[data-theme="light"] .app-shell .channel.active { color: var(--ink); background: var(--gold-pale); }
+html[data-theme="light"] .app-shell .message-bubble,
+html[data-theme="light"] .app-shell .chat-composer { color: var(--ink); border-color: var(--line); background: var(--paper); }
+html[data-theme="light"] .app-shell .message-bubble.mine { background: var(--gold-pale); }
+html[data-theme="light"] .app-shell .dashboard-toolbar,
+html[data-theme="light"] .app-shell .dashboard-date-filter select,
+html[data-theme="light"] .app-shell .dashboard-date-filter input,
+html[data-theme="light"] .app-shell .dashboard-agent-filter summary,
+html[data-theme="light"] .app-shell .dashboard-agent-filter-menu { color: var(--ink); border-color: var(--line); background: var(--paper); }
