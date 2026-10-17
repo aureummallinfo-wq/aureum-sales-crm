@@ -490,7 +490,9 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .import-preview { margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--cream); }
 .import-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: var(--muted); font-size: 12px; }
 .import-preview .table-wrap { max-height: 260px; overflow: auto; }
-.import-preview table { min-width: 600px; }
+.import-preview table { min-width: 980px; }
+.import-preview-input { width: 150px; min-height: 32px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--paper); font: inherit; font-size: 12px; }
+.import-preview-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
 .import-options { margin-top: 16px; }
 .import-result { display: grid; gap: 8px; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--cream); }
 .import-result-list { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
