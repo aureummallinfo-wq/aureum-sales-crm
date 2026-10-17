@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 
-function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, crmTimezone }) {
+function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone }) {
   function deny(res, message = 'Access denied — insufficient permission') { json(res, 403, { error: message }); return true; }
   function unauthenticated(res) { json(res, 401, { error: 'Authentication required' }); return true; }
   function role(user, roles, res) { if (!user) { unauthenticated(res); return false; } if (roles.includes(user.role)) return true; deny(res); return false; }
@@ -196,6 +196,21 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       const patch = Object.fromEntries(editable.filter(field => body[field] !== undefined).map(field => [field, field === 'financing_required' ? Boolean(body[field]) : body[field]]));
       const lead = await repository.updateLead(workspaceId, current.id, user, patch);
       return json(res, 200, { data: leadView(lead) });
+    }
+
+    if (req.method === 'POST' && pathname === '/api/leads/import/parse') {
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
+      const body = await readBodyLimited(req, 10000000);
+      const fileName = safeText(body.file_name, 180);
+      const encoded = String(body.file_base64 || '').replace(/^data:.*?;base64,/, '');
+      if (!fileName || !/\.(xlsx|xls)$/i.test(fileName) || !encoded) return json(res, 422, { error: 'Upload a valid Excel file.' });
+      if (typeof spreadsheetToCsv !== 'function') return json(res, 503, { error: 'Excel import is unavailable on this server.' });
+      try {
+        const csv = spreadsheetToCsv(Buffer.from(encoded, 'base64'), fileName);
+        return json(res, 200, { data: { csv, fileName } });
+      } catch (error) {
+        return json(res, 422, { error: error.message || 'The Excel file could not be read.' });
+      }
     }
 
     if (req.method === 'POST' && pathname === '/api/leads/import') {

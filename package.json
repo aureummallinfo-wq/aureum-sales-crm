@@ -21,6 +21,7 @@
   "dependencies": {
     "@neon/config": "^1.8.6",
     "@neon/env": "^1.5.3",
-    "@neondatabase/serverless": "^1.2.0"
+    "@neondatabase/serverless": "^1.2.0",
+    "xlsx": "^0.18.5"
   }
 }

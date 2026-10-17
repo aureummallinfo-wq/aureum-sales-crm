@@ -8,6 +8,7 @@ const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeT
 const { syncCrmSnapshot } = require('./db/neon-state-sync');
 const { createNeonRepository } = require('./db/neon-repository');
 const { createRelationalApi } = require('./db/relational-api');
+const { spreadsheetToCsv } = require('./spreadsheet-parser');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
@@ -1826,7 +1827,7 @@ async function initializeDatabase() {
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId();
   if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
   await NEON_REPOSITORY.normalizeSingleTeam(NEON_WORKSPACE_ID);
-  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, crmTimezone: CRM_TIMEZONE });
+  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE });
   // The normalized crm schema is authoritative whenever Neon is configured.
   // Do not hydrate the legacy compatibility snapshot here: doing so can load
   // stale users/records and overwrite newer relational data during a cold
