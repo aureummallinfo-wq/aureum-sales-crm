@@ -46,6 +46,10 @@
     const placeholder = state.leadModule.agentsLoading ? 'Loading active advisors…' : state.leadModule.agentsError ? 'Unable to load advisors' : 'Assign later';
     return `${includeBlank ? `<option value="">${escape(placeholder)}</option>` : ''}${agents.map(agent => `<option value="${escape(agent.id)}" ${String(agent.id) === String(selected) ? 'selected' : ''}>${escape(agent.full_name || agent.fullName || agent.name)}${agent.role === 'sales_manager' ? ' · Manager' : ''}</option>`).join('')}`;
   };
+  const agentFilterOptions = (selected = '') => {
+    const agents = state.leadModule.agents.filter(item => item.status === 'Active' || item.status === 'active' || !item.status);
+    return `<option value="">All agents</option>${agents.map(agent => `<option value="${escape(agent.id)}" ${String(agent.id) === String(selected) ? 'selected' : ''}>${escape(agent.full_name || agent.fullName || agent.name)}${agent.role === 'sales_manager' ? ' · Manager' : ''}</option>`).join('')}`;
+  };
   const populateLeadAgentSelect = () => {
     const select = document.querySelector('#lead-create-form select[name="assigned_agent_id"]');
     if (select) select.innerHTML = agentOptions();
@@ -150,6 +154,7 @@
       if (filters.source && (lead.lead_source || lead.source) !== filters.source) return false;
       if (filters.propertyType && lead.property_type !== filters.propertyType) return false;
       if (filters.priority && lead.priority !== filters.priority) return false;
+      if (filters.agentId && String(lead.assigned_agent_id || '') !== String(filters.agentId)) return false;
       return true;
     }) : [];
   }
@@ -205,7 +210,8 @@
     const importAction = canCreateLead() ? '<button class="btn btn-secondary" data-leads-template>Download CSV template</button><button class="btn btn-secondary" data-leads-import>Import CSV / Excel</button>' : '';
     const search = escape(state.leadFilters?.q || '');
     const tableHeaders = my ? '<th>Lead name</th><th>Phone / WhatsApp</th><th>Interested in</th><th>Budget</th><th>Status</th><th>Tags</th><th>Next follow-up</th><th>Last contacted</th><th>Actions</th>' : '<th>Lead name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Source</th><th>Assigned agent</th><th>Status</th><th>Tags</th><th>Next follow-up</th><th>Created date</th><th>Last contacted</th><th>Actions</th>';
-    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, my ? 'Ownership-scoped view' : 'Company / team registry')}${summaryCard('Hot leads', hot, hot ? 'Prioritize today' : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? 'Conversation in motion' : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? 'Review before end of day' : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${total} visible records · data is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label><select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-property aria-label="Filter by property type">${selectOptions(propertyTypes, state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    const agentFilter = !my && isManager() ? `<select class="select" data-leads-agent aria-label="Filter by assigned agent">${agentFilterOptions(state.leadFilters?.agentId || '')}</select>` : '';
+    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, my ? 'Ownership-scoped view' : 'Company / team registry')}${summaryCard('Hot leads', hot, hot ? 'Prioritize today' : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? 'Conversation in motion' : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? 'Review before end of day' : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${total} visible records · data is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-property aria-label="Filter by property type">${selectOptions(propertyTypes, state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
     return page + renderImportDialog();
   }
 
@@ -315,7 +321,7 @@
     const tab = event.target.closest('[data-leads-tab]');
     if (tab) { event.preventDefault(); state.leadFilters.status = tab.dataset.leadsTab || ''; render(); return; }
     const reset = event.target.closest('[data-leads-reset]');
-    if (reset) { state.leadFilters = { q: '', status: '', source: '', propertyType: '', priority: '' }; render(); return; }
+    if (reset) { state.leadFilters = { q: '', status: '', source: '', propertyType: '', priority: '', agentId: '' }; if (state.screen === 'leads') refreshLeads(); else render(); return; }
     const action = event.target.closest('[data-leads-action]');
     if (action) { event.preventDefault(); leadModuleAction(action.dataset.leadsAction, action.dataset.leadId); return; }
     const drawerTab = event.target.closest('[data-lead-drawer-tab]');
@@ -345,6 +351,7 @@
     if (input.matches('[data-leads-source]')) state.leadFilters.source = input.value;
     if (input.matches('[data-leads-property]')) state.leadFilters.propertyType = input.value;
     if (input.matches('[data-leads-priority]')) state.leadFilters.priority = input.value;
+    if (input.matches('[data-leads-agent]')) { state.leadFilters.agentId = input.value; refreshLeads(); return; }
     if (input.matches('[data-leads-source], [data-leads-property], [data-leads-priority]')) render();
   });
   document.addEventListener('submit', event => {

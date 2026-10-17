@@ -111,7 +111,7 @@ function navigate(screen) {
   if (screen === 'dashboard') loadDashboard();
   if (screen === 'leads') loadLeads(false);
   if (screen === 'my-leads') loadLeads(true);
-  if (screen === 'add-lead') window.loadLeadAgents?.();
+  if (screen === 'add-lead' || screen === 'leads') window.loadLeadAgents?.();
   if (screen === 'customers') loadCustomers();
   if (screen === 'follow-ups') loadFollowups();
 }

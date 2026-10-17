@@ -116,7 +116,7 @@ const state = {
   ready: false,
   dashboard: { loading: true, error: '', data: null },
   leads: { loading: false, error: '', items: [] },
-  leadFilters: { q: '', status: '', source: '' },
+  leadFilters: { q: '', status: '', source: '', propertyType: '', priority: '', agentId: '' },
   leadDetail: null,
   customers: { loading: false, error: '', items: [] },
   followups: { loading: false, error: '', items: [] },
@@ -698,7 +698,9 @@ function renderDashboard() {
 async function loadLeads(my = false, force = false) {
   if (!state.authUser) return;
   state.leads = { loading: true, error: '', items: state.leads.items || [] }; render();
-  try { const result = await apiFetch(my ? '/api/leads/my' : '/api/leads', { cacheTtl: 30 * 1000, force }); state.leads = { loading: false, error: '', items: result.data || [] }; }
+  const agentId = !my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) ? String(state.leadFilters?.agentId || '') : '';
+  const endpoint = my || !agentId ? (my ? '/api/leads/my' : '/api/leads') : `/api/leads?agentId=${encodeURIComponent(agentId)}`;
+  try { const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force }); state.leads = { loading: false, error: '', items: result.data || [] }; }
   catch (error) { state.leads = { loading: false, error: error.message, items: state.leads.items || [] }; }
   render();
 }
