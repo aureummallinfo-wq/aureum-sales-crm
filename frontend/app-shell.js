@@ -210,7 +210,7 @@ function navigate(screen) {
 
 function openFollowupCount() {
   const items = Array.isArray(state.followups?.items) ? state.followups.items : [];
-  return items.filter(item => !['Completed', 'Cancelled'].includes(String(item.status || '').trim())).length;
+  return items.filter(item => !['completed', 'cancelled'].includes(String(item.status || '').trim().toLowerCase())).length;
 }
 
 function layout(content) {
