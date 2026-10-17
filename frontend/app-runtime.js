@@ -169,7 +169,7 @@ async function boot() {
   if (state.authUser && state.screen === 'dashboard') loadDashboard();
   if (state.authUser && state.screen === 'leads') loadLeads(false);
   if (state.authUser && state.screen === 'my-leads') loadLeads(true);
-  if (state.authUser && state.screen === 'add-lead') window.loadLeadAgents?.();
+  if (state.authUser && (state.screen === 'add-lead' || state.screen === 'leads')) window.loadLeadAgents?.();
   if (state.authUser && state.screen === 'customers') loadCustomers();
   if (state.authUser) loadFollowups();
 }

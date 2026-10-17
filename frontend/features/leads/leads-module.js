@@ -367,5 +367,5 @@
   window.renderAddLead = renderAddLeadModule;
   window.renderLeadDrawer = renderLeadDrawerModule;
   window.loadLeadAgents = loadLeadAgents;
-  if (state.authUser && state.screen === 'add-lead') loadLeadAgents();
+  if (state.authUser && (state.screen === 'add-lead' || state.screen === 'leads')) loadLeadAgents();
 })();
