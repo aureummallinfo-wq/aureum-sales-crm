@@ -10,12 +10,13 @@
   const priorities = constants.priorities || ['Low', 'Medium', 'High', 'VIP'];
   const tags = constants.tags || ['High Intent', 'VIP', 'Investor', 'Family Buyer', 'Retail VIP', 'Follow-up Needed'];
 
-  state.leadModule = state.leadModule || { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '' };
+  state.leadModule = state.leadModule || { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', importDialog: null };
   state.leadModule.agents = Array.isArray(state.leadModule.agents) ? state.leadModule.agents : [];
   state.leadModule.agentsLoading = Boolean(state.leadModule.agentsLoading);
   state.leadModule.agentsLoaded = Boolean(state.leadModule.agentsLoaded);
   state.leadModule.agentsError = state.leadModule.agentsError || '';
   state.leadModule.editing = Boolean(state.leadModule.editing);
+  state.leadModule.importDialog = state.leadModule.importDialog || null;
 
   const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const valueOf = (lead, key, fallback = '—') => lead && lead[key] !== undefined && lead[key] !== null && lead[key] !== '' ? lead[key] : fallback;
@@ -79,6 +80,48 @@
   }
   const formatTags = lead => (Array.isArray(lead?.tags) ? lead.tags : lead?.tag ? [lead.tag] : []).map(tag => `<span class="lead-tag">${escape(tag)}</span>`).join('') || '<span class="person-meta">No tags</span>';
   const safeDate = value => value && value !== '—' ? escape(value) : '—';
+
+  const importHeaderAliases = { name: 'full_name', full_name: 'full_name', fullname: 'full_name', phone: 'phone', phone_number: 'phone', mobile: 'phone', whatsapp: 'whatsapp_number', whatsapp_number: 'whatsapp_number', email: 'email', city: 'city', area: 'area', locality: 'area', interested_in: 'interested_in', interest: 'interested_in', property: 'interested_in', property_type: 'property_type', budget: 'budget', preferred_location: 'preferred_location', purpose: 'purpose', buying_timeline: 'buying_timeline', lead_source: 'lead_source', source: 'lead_source', priority: 'priority', status: 'status', assigned_agent_id: 'assigned_agent_id', financing_required: 'financing_required', tags: 'tags', tag: 'tags' };
+  const normalizeImportHeader = value => { const key = String(value || '').replace(/^\uFEFF/, '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''); return importHeaderAliases[key] || key; };
+  function parseCsvImport(text) {
+    const rows = []; let row = []; let cell = ''; let quoted = false;
+    for (let index = 0; index < String(text || '').length; index += 1) { const char = text[index]; const next = text[index + 1]; if (char === '"' && quoted && next === '"') { cell += '"'; index += 1; } else if (char === '"') quoted = !quoted; else if (char === ',' && !quoted) { row.push(cell); cell = ''; } else if ((char === '\n' || char === '\r') && !quoted) { if (char === '\r' && next === '\n') index += 1; row.push(cell); if (row.some(value => String(value).trim())) rows.push(row); row = []; cell = ''; } else cell += char; }
+    if (cell || row.length) { row.push(cell); if (row.some(value => String(value).trim())) rows.push(row); }
+    if (rows.length < 2) return { headers: [], rows: [], error: 'The CSV must contain a header row and at least one lead.' };
+    const headers = rows[0].map(normalizeImportHeader); const required = ['full_name', 'phone', 'interested_in']; const missing = required.filter(field => !headers.includes(field));
+    if (missing.length) return { headers, rows: [], error: `Missing required columns: ${missing.map(titleCase).join(', ')}.` };
+    return { headers, rows: rows.slice(1).map((values, index) => { const item = { __row_number: index + 2 }; headers.forEach((header, cellIndex) => { if (header && importHeaderAliases[header]) item[header] = String(values[cellIndex] || '').trim(); }); return item; }).filter(item => Object.keys(item).some(key => key !== '__row_number' && item[key])) };
+  }
+  function importRowErrors(rows) { return Object.fromEntries(rows.filter(row => !row.full_name || !row.phone || !row.interested_in).map(row => [row.__row_number, 'Full name, phone, and interested in are required.'])); }
+  function importCsvCell(value) { const text = String(value ?? ''); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }
+  function downloadImportTemplate() { const csv = [['Full Name', 'Phone', 'Email', 'WhatsApp', 'City', 'Area', 'Interested In', 'Property Type', 'Budget', 'Preferred Location', 'Purpose', 'Lead Source', 'Priority', 'Status', 'Assigned Agent ID', 'Next Follow-up', 'Tags'], ['Ahmed Khan', '+92 300 1234567', 'ahmed@example.com', '', 'Lahore', 'DHA', '1 Bed Apartment', '1 Bed Apartment', 'PKR 25M', 'DHA Phase 6', 'Investment', 'Manual Entry', 'High', 'New', '', '2026-10-20T14:00', 'Investor']].map(row => row.map(importCsvCell).join(',')).join('\n'); const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const link = document.createElement('a'); link.href = url; link.download = 'aureum-lead-import-template.csv'; link.click(); URL.revokeObjectURL(url); }
+  function renderImportDialog() {
+    const dialog = state.leadModule.importDialog;
+    if (!dialog?.open) return '';
+    const rows = dialog.rows || [];
+    const errors = dialog.errors || {};
+    const valid = rows.filter(row => !errors[row.__row_number]);
+    const result = dialog.result;
+    const resultView = result ? `<div class="import-result"><strong>Import complete</strong><span>${result.imported} imported · ${result.skippedCount} skipped · ${result.failedCount} failed</span>${result.failed?.length ? `<div class="import-result-list">${result.failed.slice(0, 8).map(item => `<div>Row ${item.row}: ${escape(item.error)}</div>`).join('')}</div>` : ''}</div>` : '';
+    const preview = !result && rows.length ? `<div class="import-preview"><div class="import-preview-head"><strong>Preview</strong><span>${valid.length} ready · ${Object.keys(errors).length} invalid</span></div><div class="table-wrap"><table><thead><tr><th>Row</th><th>Name</th><th>Phone</th><th>Interested in</th><th>Validation</th></tr></thead><tbody>${rows.slice(0, 8).map(row => `<tr><td>${row.__row_number}</td><td>${escape(row.full_name || '—')}</td><td>${escape(row.phone || '—')}</td><td>${escape(row.interested_in || '—')}</td><td>${errors[row.__row_number] ? `<span class="badge badge-overdue">${escape(errors[row.__row_number])}</span>` : '<span class="badge badge-completed">Ready</span>'}</td></tr>`).join('')}</tbody></table></div>${rows.length > 8 ? `<p class="form-hint">Showing the first 8 rows. All ${rows.length} rows will be processed.</p>` : ''}</div>` : '';
+    const buttonLabel = dialog.uploading ? 'Importing…' : `Import ${valid.length} lead${valid.length === 1 ? '' : 's'}`;
+    const body = resultView || `${preview}<div class="form-grid import-options"><div class="form-field"><label for="import-duplicates">Duplicate handling</label><select id="import-duplicates" data-import-duplicates ${dialog.uploading ? 'disabled' : ''}><option value="skip" ${dialog.duplicateMode !== 'allow' ? 'selected' : ''}>Skip matching phone or email</option><option value="allow" ${dialog.duplicateMode === 'allow' ? 'selected' : ''}>Create duplicates anyway</option></select><small class="form-hint">Matches are checked against existing CRM leads before creation.</small></div></div><div class="drawer-action-row"><button class="btn btn-secondary" type="button" data-import-template>Download template</button><span class="form-hint">Required: Full Name, Phone, Interested In</span><button class="btn btn-gold" type="button" data-import-confirm ${dialog.uploading || !valid.length ? 'disabled' : ''}>${buttonLabel}</button></div>`;
+    return `<div class="import-dialog-backdrop" data-import-close><section class="import-dialog" role="dialog" aria-modal="true" aria-labelledby="import-dialog-title" onclick="event.stopPropagation()"><div class="drawer-header"><div><div class="eyebrow">Lead intake</div><h2 id="import-dialog-title">Import leads from CSV</h2><p class="page-subtitle">${escape(dialog.fileName || 'Upload a CSV file')} · agents import into their own pipeline.</p></div><button class="drawer-close" type="button" data-import-close aria-label="Close import dialog">×</button></div>${body}</section></div>`;
+  }
+
+  async function openImportPicker() {
+    const input = document.createElement('input'); input.type = 'file'; input.accept = '.csv,text/csv';
+    input.addEventListener('change', async () => { const file = input.files?.[0]; if (!file) return; const parsed = parseCsvImport(await file.text()); if (parsed.error) { showToast(parsed.error); return; } state.leadModule.importDialog = { open: true, fileName: file.name, rows: parsed.rows, errors: importRowErrors(parsed.rows), duplicateMode: 'skip', uploading: false, result: null }; render(); });
+    input.click();
+  }
+
+  async function confirmImport() {
+    const dialog = state.leadModule.importDialog; if (!dialog || dialog.uploading) return;
+    const rows = (dialog.rows || []).filter(row => !dialog.errors?.[row.__row_number]); if (!rows.length) return;
+    dialog.uploading = true; render();
+    try { const response = await apiFetch('/api/leads/import', { method: 'POST', body: JSON.stringify({ rows, duplicate_mode: dialog.duplicateMode }) }); dialog.uploading = false; dialog.result = response.data || {}; await refreshLeads(); render(); }
+    catch (error) { dialog.uploading = false; render(); showToast(error.message || 'CSV import failed.'); }
+  }
 
   function roleCopy(my) {
     if (my && state.role === 'SALES_AGENT') return 'Only leads assigned to your advisor account are visible here.';
@@ -148,9 +191,11 @@
     // Keep lead intake available from the management registry and primary
     // navigation, but keep My Leads focused on the assigned pipeline.
     const addAction = !my && canCreateLead() ? '<button class="btn btn-gold" data-screen="add-lead">+ Add new lead</button>' : '';
+    const importAction = canCreateLead() ? '<button class="btn btn-secondary" data-leads-import>Import CSV</button>' : '';
     const search = escape(state.leadFilters?.q || '');
     const tableHeaders = my ? '<th>Lead name</th><th>Phone / WhatsApp</th><th>Interested in</th><th>Budget</th><th>Status</th><th>Tags</th><th>Next follow-up</th><th>Last contacted</th><th>Actions</th>' : '<th>Lead name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Source</th><th>Assigned agent</th><th>Status</th><th>Tags</th><th>Next follow-up</th><th>Created date</th><th>Last contacted</th><th>Actions</th>';
-    return pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, my ? 'Ownership-scoped view' : 'Company / team registry')}${summaryCard('Hot leads', hot, hot ? 'Prioritize today' : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? 'Conversation in motion' : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? 'Review before end of day' : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${total} visible records · data is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label><select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-property aria-label="Filter by property type">${selectOptions(propertyTypes, state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, my ? 'Ownership-scoped view' : 'Company / team registry')}${summaryCard('Hot leads', hot, hot ? 'Prioritize today' : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? 'Conversation in motion' : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? 'Review before end of day' : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${total} visible records · data is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label><select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-property aria-label="Filter by property type">${selectOptions(propertyTypes, state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    return page + renderImportDialog();
   }
 
   function formField(label, name, input, full = false, required = false) {
@@ -230,6 +275,14 @@
   }
 
   document.addEventListener('click', event => {
+    const importButton = event.target.closest?.('[data-leads-import]');
+    if (importButton) { event.preventDefault(); openImportPicker(); return; }
+    const importClose = event.target.closest?.('[data-import-close]');
+    if (importClose && (event.target === importClose || importClose.matches('button'))) { state.leadModule.importDialog = null; render(); return; }
+    const importTemplate = event.target.closest?.('[data-import-template]');
+    if (importTemplate) { event.preventDefault(); downloadImportTemplate(); return; }
+    const importConfirm = event.target.closest?.('[data-import-confirm]');
+    if (importConfirm) { event.preventDefault(); confirmImport(); return; }
     const addLead = event.target.closest?.('[data-screen="add-lead"]');
     if (addLead && state.screen !== 'add-lead') {
       event.preventDefault();
@@ -266,6 +319,7 @@
   document.addEventListener('input', event => { const input = event.target.closest('[data-leads-search]'); if (input) { state.leadFilters.q = input.value; render(); const next = document.querySelector('[data-leads-search]'); if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); } } });
   document.addEventListener('change', event => {
     const input = event.target;
+    if (input.matches('[data-import-duplicates]') && state.leadModule.importDialog) { state.leadModule.importDialog.duplicateMode = input.value === 'allow' ? 'allow' : 'skip'; return; }
     if (input.matches('[data-interest-select]')) { syncOtherInterestField(input.closest('form')); return; }
     if (input.matches('[data-leads-source]')) state.leadFilters.source = input.value;
     if (input.matches('[data-leads-property]')) state.leadFilters.propertyType = input.value;

@@ -198,6 +198,37 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res, 200, { data: leadView(lead) });
     }
 
+    if (req.method === 'POST' && pathname === '/api/leads/import') {
+      if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
+      const body = await readBodyLimited(req, 500000);
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (!rows.length) return json(res, 400, { error: 'Add at least one CSV row to import.' });
+      if (rows.length > 250) return json(res, 413, { error: 'Import up to 250 leads at a time.' });
+      const duplicateMode = body.duplicate_mode === 'allow' ? 'allow' : 'skip';
+      const created = []; const skipped = []; const failed = []; const seen = new Set();
+      const value = (row, ...keys) => { for (const key of keys) { if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim()) return row[key]; } return ''; };
+      const allowedStatuses = ['New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'No Response', 'Not Interested', 'Invalid'];
+      for (let index = 0; index < rows.length; index += 1) {
+        const row = rows[index] || {}; const rowNumber = Number(row.__row_number) || index + 2;
+        const fullName = safeText(value(row, 'full_name', 'fullName', 'name'), 120); const phone = safeText(value(row, 'phone', 'phone_number', 'mobile'), 32); const email = safeText(value(row, 'email'), 160).toLowerCase(); const interestedIn = safeText(value(row, 'interested_in', 'interestedIn', 'interest'), 160);
+        if (!fullName || !phone || !interestedIn) { failed.push({ row: rowNumber, error: 'Full name, phone, and interested in are required.' }); continue; }
+        if (!validatePhone(phone) || (email && !validateEmail(email))) { failed.push({ row: rowNumber, error: 'Enter a valid phone number and email address.' }); continue; }
+        const key = `${phone.replace(/\D/g, '')}|${email}`;
+        if (seen.has(key) && duplicateMode === 'skip') { skipped.push({ row: rowNumber, reason: 'Duplicate row in this file.' }); continue; }
+        seen.add(key);
+        const duplicate = duplicateMode === 'skip' ? await repository.findLeadDuplicate(workspaceId, { phone, email }) : null;
+        if (duplicate) { skipped.push({ row: rowNumber, reason: `Matches existing lead ${duplicate.full_name || duplicate.id}.` }); continue; }
+        const requestedAssignedAgentId = safeText(value(row, 'assigned_agent_id', 'assignedAgentId'), 120);
+        const assignedAgentId = user.role === 'sales_agent' ? user.id : requestedAssignedAgentId;
+        const assignedAgent = assignedAgentId ? await repository.findUser(workspaceId, assignedAgentId) : null;
+        if (requestedAssignedAgentId && (!assignedAgent || assignedAgent.status !== 'active' || !['sales_agent', 'sales_manager'].includes(assignedAgent.role) || (user.role === 'sales_manager' && assignedAgent.team_id !== user.team_id) || (user.role === 'sales_agent' && assignedAgent.id !== user.id))) { failed.push({ row: rowNumber, error: 'Assigned agent is outside your permitted scope.' }); continue; }
+        const rawTags = value(row, 'tags', 'tag'); const tags = [...new Set((Array.isArray(rawTags) ? rawTags : String(rawTags || '').split(/[|;]/)).map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 10);
+        const status = safeText(value(row, 'status') || 'New', 80); const lead = { ...row, full_name: fullName, phone, email, whatsapp_number: safeText(value(row, 'whatsapp_number', 'whatsapp') || phone, 32), city: safeText(value(row, 'city'), 80), area: safeText(value(row, 'area'), 80), interested_in: interestedIn, property_type: safeText(value(row, 'property_type', 'propertyType'), 80), budget: safeText(value(row, 'budget'), 80), preferred_location: safeText(value(row, 'preferred_location', 'preferredLocation'), 120), purpose: safeText(value(row, 'purpose'), 80), buying_timeline: safeText(value(row, 'buying_timeline', 'buyingTimeline'), 80), financing_required: ['true', 'yes', '1'].includes(String(value(row, 'financing_required', 'financingRequired')).toLowerCase()), lead_source: safeText(value(row, 'lead_source', 'leadSource') || 'Manual Entry', 80), status: allowedStatuses.includes(status) ? status : 'New', priority: ['Low', 'Medium', 'High', 'VIP'].includes(value(row, 'priority')) ? value(row, 'priority') : 'Medium', assigned_agent_id: assignedAgent?.id || null, assigned_team_id: assignedAgent?.team_id || (user.role === 'sales_manager' ? user.team_id : null), tags, is_imported: true, imported_from: 'CSV' };
+        try { const item = await repository.createLead({ workspaceId, actor: user, lead }); created.push({ row: rowNumber, id: item.legacy_id || item.id, name: item.full_name }); } catch (error) { failed.push({ row: rowNumber, error: error.code === '23505' ? 'Duplicate lead.' : 'Lead could not be created.' }); }
+      }
+      return json(res, 200, { data: { created, skipped, failed, total: rows.length, imported: created.length, skippedCount: skipped.length, failedCount: failed.length } });
+    }
+
     if (req.method === 'POST' && pathname === '/api/leads') {
       if (!role(user, ['super_admin', 'sales_manager', 'sales_agent'], res)) return true;
       const body = await readBody(req); const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
