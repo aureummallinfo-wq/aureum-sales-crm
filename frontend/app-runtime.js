@@ -171,7 +171,7 @@ async function boot() {
   if (state.authUser && state.screen === 'my-leads') loadLeads(true);
   if (state.authUser && state.screen === 'add-lead') window.loadLeadAgents?.();
   if (state.authUser && state.screen === 'customers') loadCustomers();
-  if (state.authUser && state.screen === 'follow-ups') loadFollowups();
+  if (state.authUser) loadFollowups();
 }
 
 window.aureumFinalBind = bind;

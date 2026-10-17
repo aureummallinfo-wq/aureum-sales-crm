@@ -44,11 +44,13 @@ a { color: inherit; text-decoration: none; }
 .brand-subtitle { margin-top: 3px; color: #958d82; font-size: 9px; letter-spacing: .18em; text-transform: uppercase; }
 .sidebar-label { padding: 0 13px 9px; color: #706a61; font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
 .nav-list { display: grid; gap: 4px; }
-.nav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 13px; color: #aaa39a; border: 0; border-radius: 11px; background: transparent; text-align: left; transition: .2s ease; }
+.nav-item { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 13px; color: #aaa39a; border: 0; border-radius: 11px; background: transparent; text-align: left; transition: .2s ease; }
 .nav-item:hover { color: #fff; background: rgba(255,255,255,.06); }
 .nav-item.active { color: #fff; background: linear-gradient(90deg, rgba(198,161,91,.28), rgba(198,161,91,.07)); box-shadow: inset 3px 0 var(--gold); }
 .nav-icon { width: 18px; color: currentColor; text-align: center; font-size: 16px; }
 .nav-item span:last-child { font-size: 13px; font-weight: 600; }
+.nav-item .nav-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: auto; padding: 0 5px; color: #1b1711; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; background: var(--gold); font-size: 10px; font-weight: 800; line-height: 1; }
+.nav-item.active .nav-badge { background: var(--gold-soft); }
 .sidebar-footer { margin-top: auto; padding: 15px 12px 0; border-top: 1px solid rgba(255,255,255,.1); }
 .secure-note { display: flex; align-items: center; gap: 9px; color: #9f978b; font-size: 11px; line-height: 1.4; }
 .secure-dot { width: 8px; height: 8px; border-radius: 50%; background: #7eb393; box-shadow: 0 0 0 4px rgba(126,179,147,.12); }
@@ -608,8 +610,9 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 @media (max-width: 850px) {
   .sidebar { position: fixed; width: 74px; padding: 18px 9px; }
   .brand { justify-content: center; padding: 0 0 24px; }
-  .brand-copy, .sidebar-label, .nav-item span:last-child, .sidebar-footer { display: none; }
+  .brand-copy, .sidebar-label, .nav-item > span:not(.nav-icon):not(.nav-badge), .sidebar-footer { display: none; }
   .nav-item { justify-content: center; padding: 12px 0; }
+  .nav-item .nav-badge { position: absolute; top: 2px; right: 2px; margin-left: 0; }
   .main { width: calc(100% - 74px); margin-left: 74px; }
   .topbar { padding: 0 20px; }
   .top-search { width: 150px; }

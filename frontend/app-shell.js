@@ -208,8 +208,18 @@ function navigate(screen) {
   render();
 }
 
+function openFollowupCount() {
+  const items = Array.isArray(state.followups?.items) ? state.followups.items : [];
+  return items.filter(item => !['Completed', 'Cancelled'].includes(String(item.status || '').trim())).length;
+}
+
 function layout(content) {
-  const nav = navByRole[state.role].map(([id, label, ico]) => `<button class="nav-item ${state.screen === id ? 'active' : ''}" data-screen="${id}" aria-label="${label}" title="${label}">${icon(ico)}<span>${label}</span></button>`).join('');
+  const nav = navByRole[state.role].map(([id, label, ico]) => {
+    const count = id === 'follow-ups' ? openFollowupCount() : 0;
+    const badge = id === 'follow-ups' && count > 0 ? `<span class="nav-badge" aria-label="${count} open follow-ups">${count > 99 ? '99+' : count}</span>` : '';
+    const accessibleLabel = id === 'follow-ups' && count > 0 ? `${label}, ${count} open follow-ups` : label;
+    return `<button class="nav-item ${state.screen === id ? 'active' : ''}" data-screen="${id}" aria-label="${accessibleLabel}" title="${accessibleLabel}">${icon(ico)}<span>${label}</span>${badge}</button>`;
+  }).join('');
   const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${state.authUser.full_name}</div><div class="user-menu-role">${roleLabels[state.role]} · ${state.authUser.email}</div><button class="btn btn-secondary btn-sm" data-logout>Log out</button></div>` : '';
   return `<div class="app-shell"><aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input placeholder="Search CRM" aria-label="Search CRM" /></div><button class="icon-btn" aria-label="Notifications">${icons.bell}</button><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${state.toast}</div>` : ''}</div>`;
 }
@@ -633,9 +643,9 @@ function baseBind() {
   const noteForm = document.querySelector('#customer-note-form');
   if (noteForm) noteForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(noteForm).entries()); try { await apiFetch(`/api/customers/${state.customerId}/notes`, { method: 'POST', body: JSON.stringify(data) }); const result = await apiFetch(`/api/customers/${state.customerId}`); state.customerDetail = result; showToast('Customer note saved'); } catch (error) { showToast(error.message); } render(); });
   const customerFollowupForm = document.querySelector('#customer-followup-form');
-  if (customerFollowupForm) customerFollowupForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(customerFollowupForm).entries()); try { await apiFetch(`/api/customers/${state.customerId}/follow-ups`, { method: 'POST', body: JSON.stringify(data) }); const result = await apiFetch(`/api/customers/${state.customerId}`); state.customerDetail = result; showToast('Customer follow-up scheduled'); } catch (error) { showToast(error.message); } render(); });
+  if (customerFollowupForm) customerFollowupForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(customerFollowupForm).entries()); try { await apiFetch(`/api/customers/${state.customerId}/follow-ups`, { method: 'POST', body: JSON.stringify(data) }); const result = await apiFetch(`/api/customers/${state.customerId}`); state.customerDetail = result; await loadFollowups(true); showToast('Customer follow-up scheduled'); } catch (error) { showToast(error.message); } render(); });
   const login = document.querySelector('#login-form');
-  if (login) login.addEventListener('submit', async event => { event.preventDefault(); const fields = login.querySelectorAll('input'); state.loginError = ''; try { const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) }); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; window.aureumEnsurePresenceHeartbeat?.(); render(); if (typeof loadDashboard === 'function') loadDashboard(); showToast('Welcome to the Aureum workspace'); } catch (error) { state.loginError = error.message; render(); } });
+  if (login) login.addEventListener('submit', async event => { event.preventDefault(); const fields = login.querySelectorAll('input'); state.loginError = ''; try { const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) }); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; window.aureumEnsurePresenceHeartbeat?.(); render(); if (typeof loadDashboard === 'function') loadDashboard(); loadFollowups(); showToast('Welcome to the Aureum workspace'); } catch (error) { state.loginError = error.message; render(); } });
   const passwordToggle = document.querySelector('[data-toggle-password]');
   if (passwordToggle) passwordToggle.addEventListener('click', () => { const password = document.querySelector('#userPassword'); if (!password) return; password.type = password.type === 'password' ? 'text' : 'password'; passwordToggle.textContent = password.type === 'password' ? '◉' : '◌'; });
   const send = document.querySelector('[data-send-chat]');
