@@ -25,6 +25,10 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     return item.assigned_agent_id === user.id;
   }
   function canViewLead(user, lead) { return user?.role === 'sales_manager' || canView(user, lead); }
+  function normalizeTags(value) {
+    const source = Array.isArray(value) ? value : String(value || '').split(/[|;,]/);
+    return [...new Set(source.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 10);
+  }
 
   function webhookView(item) {
     if (!item) return null;
@@ -193,7 +197,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (body.email !== undefined && body.email && !validateEmail(body.email)) return json(res, 422, { error: 'Enter a valid email address.' });
       if (body.phone !== undefined && !validatePhone(body.phone)) return json(res, 422, { error: 'Enter a valid phone number.' });
       const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'lead_source', 'priority', 'next_follow_up_at', 'status', 'financing_required', 'tags'];
-      const patch = Object.fromEntries(editable.filter(field => body[field] !== undefined).map(field => [field, field === 'financing_required' ? Boolean(body[field]) : body[field]]));
+      const patch = Object.fromEntries(editable.filter(field => body[field] !== undefined).map(field => [field, field === 'financing_required' ? Boolean(body[field]) : field === 'tags' ? normalizeTags(body[field]) : body[field]]));
       const lead = await repository.updateLead(workspaceId, current.id, user, patch);
       return json(res, 200, { data: leadView(lead) });
     }

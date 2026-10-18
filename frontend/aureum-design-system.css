@@ -472,6 +472,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .form-field label { color: var(--muted); font-size: 11px; font-weight: 700; }
 .form-field input, .form-field select, .form-field textarea { width: 100%; padding: 12px 13px; color: var(--ink); border: 1px solid var(--line); border-radius: 10px; outline: 0; background: var(--white); font-size: 12px; }
 .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(198,161,91,.12); }
+.form-field select.tag-multi-select { min-height: 108px; padding: 6px 8px; }
+.form-field select.tag-multi-select option { padding: 5px 6px; }
 .form-help { display: flex; align-items: center; justify-content: space-between; margin: 2px 0 20px; color: var(--muted); font-size: 11px; }
 .checkbox { display: flex; align-items: center; gap: 7px; }
 .checkbox input { accent-color: var(--gold); }

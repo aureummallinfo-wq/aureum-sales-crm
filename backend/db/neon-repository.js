@@ -17,6 +17,11 @@ function valueArray(value) {
   return [];
 }
 
+function normalizeTags(value) {
+  const source = Array.isArray(value) ? value : String(value || '').split(/[|;,]/);
+  return [...new Set(source.map(item => String(item || '').trim()).filter(Boolean))].slice(0, 10);
+}
+
 function localDateParts(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return { date: '', time: '' };
@@ -466,7 +471,7 @@ function createNeonRepository(sql) {
   async function syncLeadFollowUpTag(workspace, actor, lead) {
     try {
     if (!lead?.id) return;
-    const tags = valueArray(lead.tags).map(item => String(item).trim().toLowerCase());
+    const tags = normalizeTags(lead.tags).map(item => item.toLowerCase());
     const tagged = tags.includes('follow-up needed');
     const leadId = await resolveLeadId(workspace, lead.id);
     if (!leadId) return;
@@ -519,7 +524,7 @@ function createNeonRepository(sql) {
     if (patch.status !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.status]); assign('status_id', rows[0]?.id || null); }
     if (patch.lead_source !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.lead_source]); assign('source_id', rows[0]?.id || null); }
     if (patch.next_follow_up_at !== undefined) assign('next_follow_up_at', timestampValue(patch.next_follow_up_at));
-    if (patch.tags !== undefined) assign('metadata', JSON.stringify({ ...valueObject(current), tags: patch.tags }));
+    if (patch.tags !== undefined) assign('metadata', JSON.stringify({ ...valueObject(current), tags: normalizeTags(patch.tags) }));
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
     await insertAudit(workspace, actor, 'lead_updated', 'lead', id, patch); await enqueueOutbox(workspace,'lead_updated','lead',id,patch); const updated = await getLead(workspace, identifier); if (patch.tags !== undefined || patch.next_follow_up_at !== undefined) await syncLeadFollowUpTag(workspace, actor, updated); return updated;
   }
@@ -546,7 +551,7 @@ function createNeonRepository(sql) {
 
   async function listCustomers({ workspaceId: workspace, user, status, source, search }) { const scoped = await scope(workspace, user, 'c'); const conditions = [...scoped.conditions]; const params = [...scoped.params]; if (status) { params.push(status); conditions.push(`c.customer_status = $${params.length}`); } if (source) { params.push(source); conditions.push(`coalesce(c.metadata->>'lead_source','') = $${params.length}`); } if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p})`); } const rows = await sql.query(`${customerSelect} WHERE ${conditions.join(' AND ')} ORDER BY c.created_at DESC`, params); return rows.map(customerRecord); }
   async function getCustomer(workspace, identifier) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const rows = await sql.query(`${customerSelect} WHERE c.id = $1 AND c.deleted_at IS NULL LIMIT 1`, [id]); return rows[0] ? customerRecord(rows[0]) : null; }
-  async function updateCustomer(workspace, identifier, actor, patch) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const current = await getCustomer(workspace, identifier); const fields=[]; const params=[]; const assign=(column,value)=>{params.push(value);fields.push(`${column} = $${params.length}`)}; for(const column of ['full_name','phone','whatsapp_number','email']) if(patch[column]!==undefined)assign(column,patch[column]); if(patch.customer_status!==undefined)assign('customer_status',patch.customer_status); if(Object.keys(patch).some(key=>!['full_name','phone','whatsapp_number','email','customer_status'].includes(key)))assign('metadata',JSON.stringify({...valueObject(current),...patch})); if(fields.length){params.push(id);await sql.query(`UPDATE crm.customers SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params)} await insertAudit(workspace,actor,'customer_updated','customer',id,patch); return getCustomer(workspace,identifier); }
+  async function updateCustomer(workspace, identifier, actor, patch) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const current = await getCustomer(workspace, identifier); const fields=[]; const params=[]; const assign=(column,value)=>{params.push(value);fields.push(`${column} = $${params.length}`)}; for(const column of ['full_name','phone','whatsapp_number','email']) if(patch[column]!==undefined)assign(column,patch[column]); if(patch.customer_status!==undefined)assign('customer_status',patch.customer_status); if(Object.keys(patch).some(key=>!['full_name','phone','whatsapp_number','email','customer_status'].includes(key))) { const metadata = { ...valueObject(current), ...patch }; if (patch.tags !== undefined) metadata.tags = normalizeTags(patch.tags); assign('metadata',JSON.stringify(metadata)); } if(fields.length){params.push(id);await sql.query(`UPDATE crm.customers SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params)} await insertAudit(workspace,actor,'customer_updated','customer',id,patch); return getCustomer(workspace,identifier); }
   async function deleteCustomer(workspace, identifier, actor) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const rows = await sql.query('UPDATE crm.customers SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id, legacy_id', [id]); if (!rows[0]) return null; await insertAudit(workspace, actor, 'customer_deleted', 'customer', id, { legacy_id: rows[0].legacy_id }); return { id: rows[0].legacy_id || rows[0].id }; }
   async function changeCustomerStatus(workspace, identifier, actor, status) { const id=await resolveCustomerId(workspace,identifier); if(!id)return null; const old=await sql.query('SELECT customer_status FROM crm.customers WHERE id=$1',[id]); await sql.query('UPDATE crm.customers SET customer_status=$1,updated_at=now() WHERE id=$2',[status,id]); await sql.query('INSERT INTO crm.customer_status_history (customer_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.customer_status||null,status,await resolveUserId(workspace,actor.id)]); await insertAudit(workspace,actor,'customer_status_changed','customer',id,{status}); await enqueueOutbox(workspace,'customer_status_changed','customer',id,{status}); return getCustomer(workspace,identifier); }
   async function listCustomerNotes(workspace, identifier) { const id=await resolveCustomerId(workspace,identifier); if(!id)return[]; return sql.query(`SELECT n.id,n.note,u.legacy_id AS user_id,n.created_at FROM crm.customer_notes n LEFT JOIN crm.users u ON u.id=n.author_user_id WHERE n.customer_id=$1 AND n.deleted_at IS NULL ORDER BY n.created_at DESC`,[id]); }
