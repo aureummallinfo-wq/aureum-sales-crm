@@ -1,1 +1,1 @@
-window.AureumCustomerStatusColors = { Active: 'completed', Hot: 'hot', Warm: 'follow', Cold: 'neutral', 'Follow-up': 'follow', 'Booking Interested': 'booking', 'Closed Won': 'completed', 'Closed Lost': 'overdue', 'Not Interested': 'neutral' };
+window.AureumCustomerStatusColors = { Active: 'completed', Hot: 'hot', Cold: 'neutral', 'Follow-up': 'follow', Interested: 'booking', 'Not Interested': 'neutral', 'Closed Won': 'completed', Warm: 'follow', 'Booking Interested': 'booking', 'Closed Lost': 'overdue' };

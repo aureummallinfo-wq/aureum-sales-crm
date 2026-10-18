@@ -1,5 +1,5 @@
 export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent';
-export type CustomerStatus = 'Active' | 'Hot' | 'Warm' | 'Cold' | 'Follow-up' | 'Booking Interested' | 'Closed Won' | 'Closed Lost' | 'Not Interested';
+export type CustomerStatus = 'Active' | 'Hot' | 'Cold' | 'Follow-up' | 'Interested' | 'Not Interested' | 'Closed Won';
 export type CustomerSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Sales Partner' | 'Walk-in' | 'Referral' | 'Manual Entry';
 export type CustomerPriority = 'High' | 'Medium' | 'Low';
 export type PropertyInterest = '1 Bed Apartment' | '2 Bed Apartment' | 'Commercial Shop' | 'Corporate Office' | 'Food Court Space';

@@ -324,32 +324,44 @@ function createNeonRepository(sql) {
     return workspaceSettings(workspace);
   }
 
+  const customerStatusTablesReady = new Set();
+  async function ensureCustomerStatusTable(workspace) {
+    if (customerStatusTablesReady.has(String(workspace))) return;
+    await sql.query(`CREATE TABLE IF NOT EXISTS crm.customer_statuses (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), workspace_id uuid NOT NULL REFERENCES crm.workspaces(id) ON DELETE CASCADE, legacy_id text, name text NOT NULL, slug text NOT NULL, color text, sort_order integer NOT NULL DEFAULT 0, is_default boolean NOT NULL DEFAULT false, is_active boolean NOT NULL DEFAULT true, UNIQUE (workspace_id, slug), UNIQUE (workspace_id, legacy_id))`, []);
+    const defaults = [['customer-status-active','Active','active','#5d9670',10],['customer-status-hot','Hot','hot','#b36b55',20],['customer-status-cold','Cold','cold','#9e9a92',30],['customer-status-follow-up','Follow-up','follow-up','#b6904f',40],['customer-status-interested','Interested','interested','#b6904f',50],['customer-status-not-interested','Not Interested','not-interested','#9e9a92',60],['customer-status-closed-won','Closed Won','closed-won','#5d9670',70]];
+    for (const item of defaults) await sql.query(`INSERT INTO crm.customer_statuses (workspace_id,legacy_id,name,slug,color,sort_order,is_default,is_active) VALUES ($1,$2,$3,$4,$5,$6,true,true) ON CONFLICT (workspace_id,legacy_id) DO NOTHING`, [workspace, ...item]);
+    customerStatusTablesReady.add(String(workspace));
+  }
+
   async function listLeadConfiguration(workspace, type) {
-    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
-    const orderBy = type === 'lead-statuses' ? 'sort_order, name' : 'name';
+    if (type === 'customer-statuses') await ensureCustomerStatusTable(workspace);
+    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'customer-statuses' ? 'crm.customer_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
+    const orderBy = type === 'lead-statuses' || type === 'customer-statuses' ? 'sort_order, name' : 'name';
     return sql.query(`SELECT * FROM ${table} WHERE workspace_id = $1 ORDER BY ${orderBy}`, [workspace]);
   }
 
   async function createLeadConfiguration(workspace, type, input) {
-    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
-    const legacyId = input.id || `${type === 'lead-statuses' ? 'status' : type === 'lead-tags' ? 'tag' : 'source'}_${crypto.randomUUID().slice(0, 8)}`;
+    if (type === 'customer-statuses') await ensureCustomerStatusTable(workspace);
+    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'customer-statuses' ? 'crm.customer_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
+    const legacyId = input.id || `${type === 'lead-statuses' || type === 'customer-statuses' ? 'status' : type === 'lead-tags' ? 'tag' : 'source'}_${crypto.randomUUID().slice(0, 8)}`;
     const name = String(input.name || '').trim();
     const slug = String(input.slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 120);
     if (!name || !slug) return null;
-    const columns = type === 'lead-statuses' ? '(workspace_id,legacy_id,name,slug,color,sort_order,is_default,is_active)' : type === 'lead-tags' ? '(workspace_id,legacy_id,name,slug,tag_type,is_active)' : '(workspace_id,legacy_id,name,slug,is_default,is_active)';
-    const values = type === 'lead-statuses' ? [workspace, legacyId, name, slug, input.color || '#8d7658', Number(input.sort_order || 0), Boolean(input.is_default), input.is_active !== false] : type === 'lead-tags' ? [workspace, legacyId, name, slug, input.tag_type || 'lead', input.is_active !== false] : [workspace, legacyId, name, slug, Boolean(input.is_default), input.is_active !== false];
+    const columns = type === 'lead-statuses' || type === 'customer-statuses' ? '(workspace_id,legacy_id,name,slug,color,sort_order,is_default,is_active)' : type === 'lead-tags' ? '(workspace_id,legacy_id,name,slug,tag_type,is_active)' : '(workspace_id,legacy_id,name,slug,is_default,is_active)';
+    const values = type === 'lead-statuses' || type === 'customer-statuses' ? [workspace, legacyId, name, slug, input.color || '#8d7658', Number(input.sort_order || 0), Boolean(input.is_default), input.is_active !== false] : type === 'lead-tags' ? [workspace, legacyId, name, slug, input.tag_type || 'lead', input.is_active !== false] : [workspace, legacyId, name, slug, Boolean(input.is_default), input.is_active !== false];
     const placeholders = values.map((_, index) => `$${index + 1}`).join(',');
     const rows = await sql.query(`INSERT INTO ${table} ${columns} VALUES (${placeholders}) RETURNING *`, values);
     return rows[0] || null;
   }
 
   async function updateLeadConfiguration(workspace, type, identifier, patch) {
-    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
+    if (type === 'customer-statuses') await ensureCustomerStatusTable(workspace);
+    const table = type === 'lead-statuses' ? 'crm.lead_statuses' : type === 'customer-statuses' ? 'crm.customer_statuses' : type === 'lead-tags' ? 'crm.lead_tags' : 'crm.lead_sources';
     const fields = []; const params = [workspace, String(identifier)];
     const assign = (column, value) => { params.push(value); fields.push(`${column} = $${params.length}`); };
     if (patch.name !== undefined) { assign('name', String(patch.name).trim()); assign('slug', String(patch.slug || patch.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120)); }
-    if (patch.color !== undefined && type === 'lead-statuses') assign('color', patch.color);
-    if (patch.sort_order !== undefined && type === 'lead-statuses') assign('sort_order', Number(patch.sort_order));
+    if (patch.color !== undefined && (type === 'lead-statuses' || type === 'customer-statuses')) assign('color', patch.color);
+    if (patch.sort_order !== undefined && (type === 'lead-statuses' || type === 'customer-statuses')) assign('sort_order', Number(patch.sort_order));
     if (patch.tag_type !== undefined && type === 'lead-tags') assign('tag_type', patch.tag_type);
     if (patch.is_active !== undefined) assign('is_active', Boolean(patch.is_active));
     if (patch.is_default !== undefined && type !== 'lead-tags') assign('is_default', Boolean(patch.is_default));
@@ -362,7 +374,7 @@ function createNeonRepository(sql) {
   async function settingsActivities(workspace) {
     return sql.query(`SELECT a.id,a.action,a.entity_type,a.entity_id,a.after_data,a.created_at,u.legacy_id AS actor_user_id,u.full_name AS actor_name
       FROM crm.audit_events a LEFT JOIN crm.users u ON u.id=a.actor_user_id
-      WHERE a.workspace_id=$1 AND a.entity_type IN ('settings','webhook','lead_status','lead_source','lead_tag')
+      WHERE a.workspace_id=$1 AND a.entity_type IN ('settings','webhook','lead_status','customer_status','lead_source','lead_tag')
       ORDER BY a.created_at DESC LIMIT 100`, [workspace]);
   }
 
@@ -545,7 +557,7 @@ function createNeonRepository(sql) {
 
   async function addLeadActivity(workspace, identifier, actor, activityType, description, metadata = {}) { const id = await resolveLeadId(workspace, identifier); if (!id) return null; const rows = await sql.query('INSERT INTO crm.lead_activities (lead_id, actor_user_id, activity_type, description, metadata) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id, activity_type, description, created_at', [id, await resolveUserId(workspace, actor.id), activityType, description, JSON.stringify(metadata)]); return rows[0] || null; }
 
-  async function convertLeadToCustomer(workspace, identifier, actor) { const lead = await getLead(workspace, identifier); if (!lead) return null; const leadId = await resolveLeadId(workspace, identifier); const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]); if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id); const legacyId = `customer_${crypto.randomUUID()}`; await sql.query(`INSERT INTO crm.customers (workspace_id, legacy_id, lead_id, full_name, email, phone, whatsapp_number, customer_status, assigned_agent_id, assigned_team_id, created_by, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [workspace, legacyId, leadId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.status || 'Active', await resolveUserId(workspace, lead.assigned_agent_id), await resolveTeamId(workspace, lead.assigned_team_id), await resolveUserId(workspace, actor.id), JSON.stringify(lead)]); const customerId=await resolveCustomerId(workspace,legacyId); await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId }); await enqueueOutbox(workspace,'customer_created','customer',customerId,{legacy_id:legacyId,lead_id:identifier}); return getCustomer(workspace, legacyId); }
+  async function convertLeadToCustomer(workspace, identifier, actor) { const lead = await getLead(workspace, identifier); if (!lead) return null; const leadId = await resolveLeadId(workspace, identifier); const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]); if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id); const legacyId = `customer_${crypto.randomUUID()}`; await sql.query(`INSERT INTO crm.customers (workspace_id, legacy_id, lead_id, full_name, email, phone, whatsapp_number, customer_status, assigned_agent_id, assigned_team_id, created_by, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [workspace, legacyId, leadId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.status === 'Closed Won' ? 'Closed Won' : lead.status === 'Hot' ? 'Hot' : lead.status === 'Follow-up' ? 'Follow-up' : 'Active', await resolveUserId(workspace, lead.assigned_agent_id), await resolveTeamId(workspace, lead.assigned_team_id), await resolveUserId(workspace, actor.id), JSON.stringify(lead)]); const customerId=await resolveCustomerId(workspace,legacyId); await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId }); await enqueueOutbox(workspace,'customer_created','customer',customerId,{legacy_id:legacyId,lead_id:identifier}); return getCustomer(workspace, legacyId); }
 
   const customerSelect = `SELECT c.*, l.legacy_id AS lead_id_legacy, au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent, t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy FROM crm.customers c LEFT JOIN crm.leads l ON l.id = c.lead_id LEFT JOIN crm.users au ON au.id = c.assigned_agent_id LEFT JOIN crm.teams t ON t.id = c.assigned_team_id LEFT JOIN crm.users cu ON cu.id = c.created_by`;
 

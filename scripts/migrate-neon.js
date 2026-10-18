@@ -14,7 +14,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '004_crm_integration_metadata.sql'),
   path.join(root, 'db', 'migrations', '005_tasks.sql'),
   path.join(root, 'db', 'migrations', '006_single_sales_team.sql'),
-  path.join(root, 'db', 'migrations', '007_login_lockout.sql')
+  path.join(root, 'db', 'migrations', '007_login_lockout.sql'),
+  path.join(root, 'db', 'migrations', '008_customer_statuses.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -23,7 +24,7 @@ const tables = [
   'customer_activities', 'customer_notes', 'customer_follow_ups', 'follow_ups', 'follow_up_activities',
   'chat_channels', 'chat_messages', 'chat_read_receipts', 'chat_groups', 'chat_group_members',
   'direct_messages', 'chat_attachments', 'chat_links', 'user_activities', 'system_settings',
-  'account_preferences', 'lead_statuses', 'lead_tags', 'lead_sources', 'notification_settings',
+  'account_preferences', 'lead_statuses', 'customer_statuses', 'lead_tags', 'lead_sources', 'notification_settings',
   'notifications', 'activity_logs', 'webhook_connections', 'webhook_logs', 'failed_webhook_leads', 'tasks'
 ];
 

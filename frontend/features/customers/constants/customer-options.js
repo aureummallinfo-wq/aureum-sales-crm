@@ -1,5 +1,5 @@
 window.AureumCustomerConstants = {
-  statuses: ['Active', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Booking Interested', 'Closed Won', 'Closed Lost', 'Not Interested'],
+  statuses: ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested', 'Not Interested', 'Closed Won'],
   sources: ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'],
   interests: ['1 Bed Apartment', '2 Bed Apartment', 'Commercial Shop', 'Corporate Office', 'Food Court Space'],
   propertyTypes: ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'],
