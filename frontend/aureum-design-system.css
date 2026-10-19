@@ -1825,6 +1825,12 @@ html[data-theme="light"] .app-shell .dashboard-followup-row.is-overdue .dashboar
 html[data-theme="light"] .app-shell .dashboard-followup-row.is-overdue .dashboard-followup-main span { color: var(--muted); }
 html[data-theme="light"] .app-shell .empty-state { color: var(--muted); }
 html[data-theme="light"] .app-shell .empty-state strong { color: var(--ink); }
+html[data-theme="light"] .app-shell .followup-calendar-day,
+html[data-theme="light"] .app-shell .followup-calendar-empty { color: var(--ink); border-color: transparent; background: var(--paper); }
+html[data-theme="light"] .app-shell .followup-calendar-day:hover,
+html[data-theme="light"] .app-shell .followup-calendar-day.selected { border-color: var(--gold); background: var(--gold-pale); }
+html[data-theme="light"] .app-shell .followup-calendar-week,
+html[data-theme="light"] .app-shell .followup-calendar-legend { color: var(--muted); }
 
 /* Team Chat has a mobile inbox-specific palette that also needs an explicit
    light reset; otherwise its white labels disappear against cream surfaces. */
