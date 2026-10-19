@@ -42,7 +42,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .followup-latest-response { max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
 .app-shell .followup-table-wrap table { width: 100%; min-width: 1260px; table-layout: auto; }
 .followup-table-wrap th, .followup-table-wrap td { white-space: nowrap; }
-.followup-table-wrap .followup-latest-response { width: 220px; white-space: normal; }
 .followup-table-wrap .badge { white-space: nowrap; overflow-wrap: normal; }
 .followup-table-wrap .followup-action-menu[open] { padding-bottom: 76px; }
 .followup-table-wrap .followup-action-options { top: 30px; }

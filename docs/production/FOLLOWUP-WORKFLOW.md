@@ -4,6 +4,8 @@ The main Follow-ups list has one current row per existing customer in the signed
 
 The full table shows customer, phone / WhatsApp, type, assigned agent, lead status, due date, due time, priority, status and last activity. Each row has an **Actions** dropdown containing only **Reschedule** and **Add note**. Use the top **+ Schedule follow-up** button to create a schedule. **Add note** records a note and activity without changing the contact date, Contacted outcome, overdue status, or last-contacted timestamp. Scheduling from the customer profile uses the same date, time, note and tag form.
 
+The Follow-ups table's **Last activity** column displays only the activity date and Pakistan time. An unavailable timestamp displays a dash. Descriptions and advisor names are omitted from this column; recorded notes and activity history remain stored.
+
 | Action | Follow-up result | Last activity |
 | --- | --- | --- |
 | Save a call and next contact | Contacted until its new deadline, then Overdue | Latest response, agent, timestamp |

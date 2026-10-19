@@ -8,10 +8,11 @@
       <div class="form-field" data-next-contact-date hidden><label>Next contact date<input name="next_due_date" type="date" disabled /></label></div></div>
       ${contacted ? '' : '<p class="form-hint">An internal note defers the overdue reminder. Choose Customer contacted to record the call and set the next contact.</p>'}`;
   }
-  function activity(item) {
+  function activity(item, { dateTimeOnly = false } = {}) {
     const description = item.last_activity_description || item.last_activity || 'No activity yet';
     const instant = item.last_activity_at ? new Date(item.last_activity_at) : null;
-    const time = instant && Number.isFinite(instant.getTime()) ? instant.toLocaleString('en-GB',{timeZone:'Asia/Karachi',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+    const time = instant && Number.isFinite(instant.getTime()) ? instant.toLocaleString('en-GB',{timeZone:'Asia/Karachi',day:'2-digit',month:'short',...(dateTimeOnly ? { year:'numeric' } : {}),hour:'2-digit',minute:'2-digit'}) : '';
+    if (dateTimeOnly) return time ? `<time datetime="${escape(instant.toISOString())}">${escape(time)}</time>` : '—';
     return `<div class="followup-latest-response">${escape(description)}</div><div class="person-meta">${escape([item.last_activity_by,time].filter(Boolean).join(' · '))}</div>`;
   }
   function noteFields() {

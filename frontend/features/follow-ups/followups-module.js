@@ -59,7 +59,7 @@
       <td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b><span>${esc(item.notes || 'No note added')}</span></button>${item.followup_tag ? `<span class="customer-tag">${esc(item.followup_tag)}</span>` : ''}</td>
       <td>${esc(item.phone)}</td><td>${esc(item.type)}</td><td>${esc(item.agent)}</td><td>${badge(value(item, 'lead_status'))}</td>
       <td>${esc(item.due_date)}</td><td>${esc(item.due_time)}</td><td>${badge(value(item, 'priority'))}</td><td>${statusBadge(item)}</td>
-      <td>${window.AureumFollowUpNoteUI.activity(item)}</td><td>${actionMenu(item)}</td></tr>`).join('')}</tbody></table></div>`;
+      <td>${window.AureumFollowUpNoteUI.activity(item, { dateTimeOnly: true })}</td><td>${actionMenu(item)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   function calendar(itemsToRender) {
