@@ -1,14 +1,14 @@
 (function initializeAureumLeadsModule() {
   const constants = window.AureumLeadConstants || {};
-  const allStatuses = constants.statuses || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
-  const primaryStatuses = constants.statusGroups?.primary || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Negotiation","Closed Won"];
-  const moreStatuses = constants.statusGroups?.more || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+  const allStatuses = constants.statuses || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
+  const primaryStatuses = constants.statusGroups?.primary || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled"];
+  const moreStatuses = constants.statusGroups?.more || ["Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const sources = constants.sources || ['Website', 'WhatsApp', 'Facebook', 'Instagram', 'Sales Partner', 'Referral', 'Walk-in', 'Manual Entry'];
   const propertyTypes = constants.propertyTypes || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
   const purposes = constants.purposes || ['End use', 'Investment', 'Business', 'Rental', 'Other'];
   const timelines = constants.timelines || ['Within 30 days', '1–3 months', '3–6 months', 'Exploring', 'Not decided'];
   const priorities = constants.priorities || ['Low', 'Medium', 'High', 'VIP'];
-  const tags = constants.tags || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+  const tags = constants.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
 
   state.leadModule = state.leadModule || { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', importDialog: null };
   state.leadModule.agents = Array.isArray(state.leadModule.agents) ? state.leadModule.agents : [];

@@ -1,6 +1,6 @@
-export const CANONICAL_LEAD_STATUSES = ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"] as const;
+export const CANONICAL_LEAD_STATUSES = ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"] as const;
 export type CanonicalLeadStatus = typeof CANONICAL_LEAD_STATUSES[number];
-export const CANONICAL_CUSTOMER_STATUSES = ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"] as const;
+export const CANONICAL_CUSTOMER_STATUSES = ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"] as const;
 export type CanonicalCustomerStatus = typeof CANONICAL_CUSTOMER_STATUSES[number];
 export const CANONICAL_FOLLOW_UP_STATUSES = ["Pending", "Contacted", "Completed", "Overdue", "Missed", "Rescheduled", "Cancelled"] as const;
 export type CanonicalFollowUpStatus = typeof CANONICAL_FOLLOW_UP_STATUSES[number];

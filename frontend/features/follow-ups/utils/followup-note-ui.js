@@ -19,7 +19,7 @@
     return `<div class="form-field"><label>Note<textarea name="note" rows="4" maxlength="2000" required placeholder="Add a useful detail about this customer."></textarea></label></div><input type="hidden" name="customer_contacted" value="false" /><input type="hidden" name="next_followup_days" value="none" />`;
   }
   function scheduleFields({ dueDate = '', dueTime = '10:00', minDate = '', tag = 'Follow-up', selectedTags } = {}) {
-    const tags = window.AureumCRMStatusTags?.values || window.AureumCustomerConstants?.statuses || window.AureumLeadConstants?.statuses || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+    const tags = window.AureumCRMStatusTags?.values || window.AureumCustomerConstants?.statuses || window.AureumLeadConstants?.statuses || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
     const selected = (Array.isArray(selectedTags) ? selectedTags : [tag]).filter(value => tags.includes(value));
     if (!selected.length) selected.push('Follow-up');
     return `<div class="form-field"><label>Call note / customer response<textarea name="note" rows="4" maxlength="2000" required placeholder="What did the customer say? What happens next?"></textarea></label></div>

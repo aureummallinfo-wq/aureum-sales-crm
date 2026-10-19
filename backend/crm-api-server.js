@@ -1466,7 +1466,7 @@ async function handle(req, res) {
       const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) { json(res, 400, { error: 'Note is required' }); return; } let saved;try { saved=memoryFollowUpWorkflow().saveNote(user,{leadId:lead.id,note,input:body}); } catch(error) { json(res,422,{error:error.message});return; } persistState(); json(res, 201, { data: saved.entry }); return;
     }
     if (req.method === 'POST' && action === 'tags') {
-      const body = await readBody(req); if (Array.isArray(body.tags)) lead.tags = [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0,12); else if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.tags = [...lead.tags]; addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); persistState(); json(res, 201, { data: leadView(lead) }); return;
+      const body = await readBody(req); if (Array.isArray(body.tags)) lead.tags = [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0,20); else if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.tags = [...lead.tags]; addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); persistState(); json(res, 201, { data: leadView(lead) }); return;
     }
     json(res, 405, { error: 'Method not allowed' }); return;
   }

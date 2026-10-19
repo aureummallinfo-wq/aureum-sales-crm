@@ -1,10 +1,10 @@
 (function initializeAureumCustomersModule() {
   const options = window.AureumCustomerConstants || {};
-  const defaultStatuses = options.statuses || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+  const defaultStatuses = options.statuses || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const sources = options.sources || ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'];
   const interests = options.interests || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial Shop', 'Corporate Office', 'Food Court Space'];
   const propertyTypes = options.propertyTypes || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
-  const tagOptions = options.tags || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+  const tagOptions = options.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const priorities = options.priorities || ['High', 'Medium', 'Low'];
   const userNames = { usr_001: 'Malik Raza', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };
   state.customerModule = state.customerModule || { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' } };
@@ -14,7 +14,10 @@
     state.customerModule.statusesLoaded = true;
     apiFetch('/api/settings/customer-statuses').then(result => {
       const configured = (result.data || []).filter(item => item.is_active !== false).map(item => String(item.name || '').trim()).filter(name => defaultStatuses.includes(name));
-      if (configured.length) { state.customerModule.statuses = [...new Set(configured)]; render(); }
+      // Keep the shared CRM vocabulary atomic. An older database may still
+      // return a partial/retired configuration while migration 011 is pending;
+      // that must not shrink the customer portal's status list.
+      if (configured.length === defaultStatuses.length && new Set(configured).size === defaultStatuses.length) { state.customerModule.statuses = defaultStatuses; render(); }
     }).catch(() => { /* static defaults keep customer status editing available if settings are unavailable */ });
   }
 
@@ -34,7 +37,7 @@
     const choices = selected && !items.some(item => String(item) === String(selected)) ? [...items, selected] : items;
     return `${placeholder ? `<option value="">${escape(placeholder)}</option>` : ''}${choices.map(item => `<option value="${escape(item)}" ${String(item) === String(selected) ? 'selected' : ''}>${escape(item)}</option>`).join('')}`;
   };
-  const normalizeTags = value => [...new Set((Array.isArray(value) ? value : value ? String(value).split(/[|;]/) : []).map(tag => String(tag || '').trim()).filter(Boolean))];
+  const normalizeTags = value => [...new Set((Array.isArray(value) ? value : value ? String(value).split(/[|;]/) : []).map(tag => { const text = String(tag || '').trim(); const canonical = window.AureumCRMStatusTags?.legacy?.[text] || text; return tagOptions.includes(canonical) ? canonical : ''; }).filter(Boolean))];
   const multiTagOptions = selected => tagOptions.map(tag => `<option value="${escape(tag)}" ${normalizeTags(selected).some(item => item.toLowerCase() === String(tag).toLowerCase()) ? 'selected' : ''}>${escape(tag)}</option>`).join('');
   const multiTagField = (selected = '') => `<select name="tags" class="tag-multi-select" multiple size="4" aria-describedby="customer-tags-help">${multiTagOptions(selected)}</select><small id="customer-tags-help" class="form-hint">Select one or more tags.</small>`;
   const tags = customer => (Array.isArray(customer?.tags) ? customer.tags : []).filter(tag => tagOptions.includes(tag)).map(tag => `<span class="customer-tag">${escape(tag)}</span>`).join('') || '<span class="person-meta">No tags</span>';
