@@ -1,5 +1,5 @@
 (() => {
-  const localHosts = new Set(['localhost', '127.0.0.1']);
-  const configuredApiBase = window.__AUREUM_API_BASE_URL__ || '';
-  window.__AUREUM_API_BASE_URL__ = configuredApiBase || (localHosts.has(window.location.hostname) ? '' : 'https://aureum-sales-crm.vercel.app');
+  // Vercel deploys the app and its API together. Keep previews on their own
+  // backend; a separately hosted frontend can supply an explicit API override.
+  window.__AUREUM_API_BASE_URL__ = window.__AUREUM_API_BASE_URL__ || '';
 })();
