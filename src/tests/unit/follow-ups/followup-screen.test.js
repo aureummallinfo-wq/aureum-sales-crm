@@ -29,7 +29,8 @@ function screen(now = '2026-10-19T12:00:00Z', items = []) {
     FormData: class {
       constructor(form) { this.data = new Map(Object.entries(form.values)); }
       entries() { return this.data.entries(); }
-      get(name) { return this.data.get(name); }
+      get(name) { const value = this.data.get(name); return Array.isArray(value) ? value[0] : value; }
+      getAll(name) { const value = this.data.get(name); return value === undefined ? [] : Array.isArray(value) ? value : [value]; }
     },
     badge: text => `<span>${text}</span>`, icons: { search: '' },
     pageHeader: (_, title, description, actions = '') => `<h1>${title}</h1>${actions}`,
@@ -139,7 +140,7 @@ test('search keeps keyboard focus and selection while filtering customer rows', 
 test('full follow-up table retains its fields and Actions dropdown offers only Reschedule and Add note', () => {
   const app = screen(undefined, [reminder('customer-followup', '2026-10-18')]);
   const html = app.render();
-  assert.deepEqual([...html.matchAll(/<th>([^<]+)<\/th>/g)].map(match => match[1]), ['Customer', 'Phone / WhatsApp', 'Type', 'Assigned agent', 'Lead status', 'Due date', 'Due time', 'Priority', 'Status', 'Last activity', 'Actions']);
+  assert.deepEqual([...html.matchAll(/<th>([^<]+)<\/th>/g)].map(match => match[1]), ['Customer', 'Phone / WhatsApp', 'Type', 'Assigned agent', 'Status tags', 'Due date', 'Due time', 'Priority', 'Status', 'Last activity', 'Actions']);
   const menu = html.match(/<details class="followup-action-menu">.*?<\/details>/s)?.[0];
   assert.ok(menu);
   assert.deepEqual([...menu.matchAll(/data-followup-module-action="([^"]+)"/g)].map(match => match[1]), ['reschedule', 'note']);
@@ -160,30 +161,60 @@ test('full follow-up table retains its fields and Actions dropdown offers only R
   assert.match(drawer, /id="followup-module-reschedule-form"/);
   assert.match(drawer, /name="next_due_date" type="date" value="2026-10-20"/);
   assert.match(drawer, /name="next_due_time" type="time"/);
-  assert.match(drawer, /value="Follow-up Needed" selected/);
-  assert.match(drawer, /value="VIP"/);
+  assert.match(drawer, /value="Follow-up" selected/);
+  assert.match(drawer, /value="Visit Scheduled"/);
 });
 
-test('top Schedule follow-up button opens a new schedule with customer, note, date, time and tag', () => {
+test('New Customer Follow-up selects a permitted customer and saves their note, date, time and tag', async () => {
   const app = screen();
-  assert.match(app.render(), /data-followup-module-create>\+ Schedule follow-up/);
+  app.state.authUser = { id: 'agent' };
+  app.state.customers = { items: [
+    { id: 'new-customer', full_name: 'New Customer', phone: '0300-1234567', assigned_agent_id: 'agent' },
+    { id: 'other-customer', full_name: 'Other Customer', assigned_agent_id: 'another-agent' }
+  ] };
+  assert.match(app.render(), /data-followup-module-create>\+ New Customer Follow-up/);
   app.clickCreate();
   assert.equal(app.state.drawer, 'create-followup');
   const form = app.drawer();
+  assert.match(form, /<h2>New Customer Follow-up<\/h2>/);
+  assert.match(form, /<select name="customer_id" required>/);
+  assert.match(form, /<option value="">Choose a customer<\/option>/);
+  assert.match(form, /value="new-customer"\s*>New Customer/);
+  assert.doesNotMatch(form, /value="other-customer"/);
   for (const field of ['customer_id', 'note', 'next_due_date', 'next_due_time', 'followup_tag']) assert.ok(form.includes(`name="${field}"`), field);
   assert.match(form, /type="submit">Schedule follow-up/);
+  const payload = { customer_id: 'new-customer', note: 'Customer requested a call tomorrow.', customer_contacted: 'true', next_followup_days: 'custom', next_due_date: '2026-10-20', next_due_time: '14:30', followup_tag: 'Follow-up', followup_tags: ['Follow-up'] };
+  await app.submit('followup-module-create-form', payload);
+  assert.equal(app.requests[0].endpoint, '/api/customers/new-customer/notes');
+  assert.equal(app.requests[0].method, 'POST');
+  assert.deepEqual(JSON.parse(app.requests[0].body), payload);
+  assert.equal(app.state.drawer, null);
+});
+
+test('multiple status tags stay selected and are all submitted when rescheduling', async () => {
+  const app = screen();
+  const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
+  app.state.followupDetail = { data: { ...reminder('followup', '2026-10-18'), followup_tags: selected } };
+  app.state.drawer = 'followup';
+  const html = app.drawer();
+  assert.match(html, /name="followup_tag"[^>]*multiple/);
+  for (const tag of selected) assert.ok(html.includes(`value="${tag}" selected`));
+  await app.submit('followup-module-reschedule-form', { note: 'Agreed the next visit.', customer_contacted: 'true', next_followup_days: 'custom', next_due_date: '2026-10-20', next_due_time: '14:30', followup_tag: selected });
+  const payload = JSON.parse(app.requests[0].body);
+  assert.deepEqual(payload.followup_tags, selected);
+  assert.equal(payload.followup_tag, 'Hot');
 });
 
 test('rescheduling and adding notes submit the intended workflow payload and close after saving', async () => {
   const app = screen();
   app.state.followupDetail = { data: { ...reminder('followup', '2026-10-18'), customer_id: 'customer' } };
   app.state.drawer = 'followup';
-  const reschedule = { note: 'Customer agreed to a call.', customer_contacted: 'true', next_followup_days: 'custom', next_due_date: '2026-10-20', next_due_time: '14:30', followup_tag: 'Follow-up Needed' };
+  const reschedule = { note: 'Customer agreed to a call.', customer_contacted: 'true', next_followup_days: 'custom', next_due_date: '2026-10-20', next_due_time: '14:30', followup_tag: 'Follow-up' };
   const button = await app.submit('followup-module-reschedule-form', reschedule);
   assert.equal(button.disabled, false);
   assert.equal(app.requests[0].endpoint, '/api/follow-ups/followup/notes');
   assert.equal(app.requests[0].method, 'POST');
-  assert.deepEqual(JSON.parse(app.requests[0].body), reschedule);
+  assert.deepEqual(JSON.parse(app.requests[0].body), { ...reschedule, followup_tags: [reschedule.followup_tag] });
   assert.equal(app.state.drawer, null);
   const note = { note: 'Internal preparation.', customer_contacted: 'false', next_followup_days: 'none' };
   await app.submit('followup-module-note-form', note);

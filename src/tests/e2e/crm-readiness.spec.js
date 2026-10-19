@@ -37,8 +37,6 @@ async function startNeonApiServer(t) {
     if (attempt === 79) throw new Error(`Neon API server did not start. Output: ${output}`);
   }
 
-  assert.match(output, /connected to Neon PostgreSQL/i, `API did not confirm Neon connection. Output: ${output}`);
-
   async function request(route, options = {}) {
     let response;
     try {
@@ -51,6 +49,12 @@ async function startNeonApiServer(t) {
     try { body = text ? JSON.parse(text) : {}; } catch { body = {}; }
     return { response, body, text };
   }
+
+  // Loading the app shell proves liveness only. The first API request now
+  // initializes Neon without making pages/assets depend on its availability.
+  const readiness = await request('/api/auth/me');
+  assert.equal(readiness.response.status, 401, `Neon API is not ready: ${readiness.text}`);
+  assert.match(output, /connected to Neon PostgreSQL/i, `API did not confirm Neon connection. Output: ${output}`);
 
   async function login(identifier, password = PASSWORD) {
     const result = await request('/api/auth/login', {

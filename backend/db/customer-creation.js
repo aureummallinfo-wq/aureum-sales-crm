@@ -1,15 +1,16 @@
+const statusTags = require('../../frontend/shared/crm-status-tags');
 const crypto = require('node:crypto');
 const { activitySummary } = require('../followup-workflow');
 
 // One statement keeps customer creation, the optional reminder, and history atomic.
 async function insertLeadCustomer(sql, { workspace, lead, leadId, actor, actorId, teamId, plan }) {
-  const { profile, note, schedule, tag } = plan;
+  const { profile, note, schedule, tag, tags } = plan;
   const type = schedule ? 'Follow-up scheduled' : 'Customer profile created';
   const description = schedule ? note : `Customer profile created from ${lead.full_name}`;
   const summary = activitySummary(type, description, actor);
   const metadata = { ...lead, ...profile, ...summary, lead_id: lead.id,
-    ...(schedule ? { next_follow_up_at: schedule.due_at, followup_tag: tag } : {}) };
-  const reminderMetadata = { ...summary, due_date: schedule?.due_date, due_time: schedule?.due_time, followup_tag: tag, source: 'customer-creation' };
+    ...(schedule ? { next_follow_up_at: schedule.due_at, followup_tag: tag, followup_tags: tags } : {}) };
+  const reminderMetadata = { ...summary, due_date: schedule?.due_date, due_time: schedule?.due_time, followup_tag: tag, followup_tags: tags, source: 'customer-creation' };
   const rows = await sql.query(`WITH permitted_lead AS (
       SELECT * FROM crm.leads WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL
         AND ($3='super_admin' OR ($3='sales_manager' AND assigned_team_id=$4::uuid)
@@ -58,9 +59,7 @@ async function insertLeadCustomer(sql, { workspace, lead, leadId, actor, actorId
     ), touch_lead AS (
       UPDATE crm.leads SET next_follow_up_at=coalesce($14::timestamptz,next_follow_up_at),
         metadata=metadata || $19::jsonb || CASE WHEN $20::text IS NULL THEN '{}'::jsonb
-          ELSE jsonb_build_object('tags',
-            (CASE WHEN jsonb_typeof(metadata->'tags')='array' THEN metadata->'tags' ELSE '[]'::jsonb END)
-            || CASE WHEN coalesce(metadata->'tags','[]'::jsonb) ? $20::text THEN '[]'::jsonb ELSE jsonb_build_array($20::text) END) END,
+          ELSE jsonb_build_object('tags',coalesce(($12::jsonb)->'tags','[]'::jsonb)) END,
         updated_at=now() WHERE id IN (SELECT lead_id FROM new_customer)
     ), audit AS (
       INSERT INTO crm.audit_events (workspace_id,actor_user_id,action,entity_type,entity_id,after_data)
@@ -72,7 +71,7 @@ async function insertLeadCustomer(sql, { workspace, lead, leadId, actor, actorId
     ) SELECT legacy_id AS customer_id,(SELECT legacy_id FROM reminder) AS follow_up_id FROM new_customer`,
   [workspace, leadId, actor.role, teamId, actorId, `customer_${crypto.randomUUID()}`, profile.full_name, profile.phone,
     profile.whatsapp_number || null, profile.email || null,
-    ['Closed Won', 'Hot', 'Follow-up'].includes(lead.status) ? lead.status : 'Active', JSON.stringify(metadata),
+    statusTags.normalize(lead.status), JSON.stringify(metadata),
     `followup_${crypto.randomUUID()}`, schedule?.due_at || null, lead.priority || 'Medium', note,
     JSON.stringify(reminderMetadata), `Customer profile created from ${lead.full_name}`, JSON.stringify(summary), tag || null]);
   return rows[0] || null;

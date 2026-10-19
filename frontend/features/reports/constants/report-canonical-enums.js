@@ -1,9 +1,9 @@
 window.AureumReportEnums = Object.freeze({
-  leadStatuses: ['New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'No Response', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'Not Interested', 'Invalid'],
-  customerStatuses: ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested', 'Not Interested', 'Closed Won'],
+  leadStatuses: ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"],
+  customerStatuses: ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"],
   followUpStatuses: ['Pending', 'Contacted', 'Completed', 'Overdue', 'Missed', 'Rescheduled', 'Cancelled'],
-  conversionStages: ['New', 'Contacted', 'Qualified', 'Follow-up', 'Negotiation', 'Booking', 'Closed Won'],
+  conversionStages: ["New","Contacted","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won"],
   leadSources: ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'],
-  contactedLeadStatuses: ['Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'Not Interested'],
-  activeCustomerStatuses: ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested']
+  contactedLeadStatuses: ["Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","Not Interested"],
+  activeCustomerStatuses: ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","No Response"]
 });

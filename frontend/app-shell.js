@@ -53,7 +53,9 @@ async function apiFetch(path, options = {}) {
   const { cacheTtl = 0, force = false, ...requestOptions } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
   const cacheable = method === 'GET' && Number(cacheTtl) > 0;
-  const key = cacheable ? apiCacheKey(path, requestOptions) : '';
+  const mutation = !['GET', 'HEAD'].includes(method) && typeof requestOptions.body === 'string';
+  const key = cacheable ? apiCacheKey(path, requestOptions) : mutation ? `${apiCacheKey(path, requestOptions)}:${requestOptions.body}` : '';
+  if (mutation && API_INFLIGHT.has(key)) return API_INFLIGHT.get(key);
   if (cacheable && !force) {
     const cached = API_CACHE.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.body;
@@ -63,7 +65,7 @@ async function apiFetch(path, options = {}) {
   const request = (async () => {
     const controller = requestOptions.signal ? null : new AbortController();
     const timeoutId = controller ? window.setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS) : null;
-    let response;
+    let response, body;
     try {
       response = await fetch(apiUrl(path), {
         credentials: 'include',
@@ -71,13 +73,24 @@ async function apiFetch(path, options = {}) {
         headers: { 'Content-Type': 'application/json', ...(requestOptions.headers || {}), ...(state.authUser ? { 'X-Aureum-Portal-Scope': portalUserScope(state.authUser) } : {}) },
         ...(controller ? { signal: controller.signal } : {})
       });
+      try {
+        body = await response.json();
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Invalid response');
+      }
+      catch (error) {
+        if (controller?.signal.aborted || error?.name === 'AbortError') throw error;
+        body = {};
+        if (response.ok) throw new Error('The server returned an unreadable response. Please refresh this screen.');
+      }
     } catch (error) {
-      if (timeoutId) window.clearTimeout(timeoutId);
-      if (error?.name === 'AbortError') throw new Error('The request timed out. Please try again.');
+      if (controller?.signal.aborted || error?.name === 'AbortError') {
+        const failure = new Error(mutation ? 'The save could not be confirmed. Refresh the record before trying again.' : 'The request timed out. Please try again.');
+        failure.code = mutation ? 'SAVE_UNCONFIRMED' : 'REQUEST_TIMEOUT';
+        throw failure;
+      }
+      if (mutation) { const failure = new Error('The save could not be confirmed. Refresh the record before trying again.'); failure.code = 'SAVE_UNCONFIRMED'; throw failure; }
       throw error;
-    }
-    if (timeoutId) window.clearTimeout(timeoutId);
-    const body = await response.json().catch(() => ({}));
+    } finally { if (timeoutId) window.clearTimeout(timeoutId); }
     // A response from a previous account must never repopulate the current portal.
     if (sessionKey !== portalSessionKey()) throw new Error('The signed-in account changed. Please retry.');
     if ((response.status === 401 || body.code === 'PORTAL_SESSION_CHANGED') && state?.authUser && state.screen !== 'login') {
@@ -89,17 +102,69 @@ async function apiFetch(path, options = {}) {
       window.history.replaceState({}, '', '/');
       if (typeof render === 'function') render();
     }
-    if (!response.ok) throw new Error(body.error || 'Request failed');
+    if (!response.ok) {
+      const error = new Error(body.error || (response.status >= 500 ? 'The service is temporarily unavailable. Please try again.' : 'Request failed'));
+      error.status = response.status;
+      error.code = body.code || '';
+      error.retryAfter = Number(response.headers?.get('retry-after') || body.retryAfter || 0);
+      error.requestId = response.headers?.get('x-request-id') || body.requestId || '';
+      throw error;
+    }
     if (cacheable) API_CACHE.set(key, { expiresAt: Date.now() + Number(cacheTtl), body });
     if (method !== 'GET' && method !== 'HEAD') {
       apiInvalidateCache();
       window.invalidateDashboardCache?.();
     }
+    window.AureumSidebarBadges?.observeResponse(path, method, body);
     return body;
   })();
-  if (cacheable) API_INFLIGHT.set(key, request);
-  try { return await request; } finally { if (cacheable && API_INFLIGHT.get(key) === request) API_INFLIGHT.delete(key); }
+  if (cacheable || mutation) API_INFLIGHT.set(key, request);
+  try { return await request; } finally { if ((cacheable || mutation) && API_INFLIGHT.get(key) === request) API_INFLIGHT.delete(key); }
 }
+
+function recoveryEscape(value) { return String(value || '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
+function renderPortalStartupError() {
+  return `<div class="loading-screen"><section class="card empty-state" role="alert"><h1>CRM temporarily unavailable</h1><p>${recoveryEscape(state.startupError)}</p><button type="button" class="btn btn-gold" data-retry-portal>Try again</button></section></div>`;
+}
+function renderPortalContent() {
+  // Evaluate only the active screen. A dashboard rendering error must not
+  // execute again when a user opens a healthy screen such as Customers.
+  try {
+    switch (state.screen) {
+      case 'leads': return renderLeads(false);
+      case 'my-leads': return renderLeads(true);
+      case 'add-lead': return renderAddLead();
+      case 'customers': return renderCustomers();
+      case 'follow-ups': return renderFollowups();
+      case 'tasks': return renderTasks();
+      case 'team-chat': return renderChat();
+      case 'reports': return renderReports();
+      case 'agents': return typeof renderUsers === 'function' ? renderUsers() : renderAgents();
+      case 'my-account': return renderMyAccount();
+      case 'change-password': return renderChangePassword();
+      case 'settings': return renderSettings();
+      default: return renderDashboard();
+    }
+  } catch (error) {
+    console.error('CRM screen rendering failed:', state.screen, error.name);
+    return '<section class="card empty-state" role="alert"><h2>This screen could not be displayed</h2><p>Try refreshing its data, or open another section from the sidebar.</p><button type="button" class="btn btn-secondary" data-retry-screen>Retry this screen</button></section>';
+  }
+}
+function renderProtectedDrawer(renderer) {
+  try { return renderer(); }
+  catch (error) {
+    console.error('CRM drawer rendering failed:', state.drawer, error.name);
+    return '<div class="drawer-backdrop" data-recovery-close-drawer></div><aside class="drawer" role="alert"><div class="drawer-header"><h2>This record could not be displayed</h2><button type="button" class="drawer-close" aria-label="Close record" data-recovery-close-drawer>×</button></div><div class="drawer-section">Close this record and try opening it again.</div></aside>';
+  }
+}
+document.addEventListener?.('click', event => {
+  const button = event.target?.closest?.('[data-retry-portal], [data-retry-screen], [data-recovery-close-drawer]');
+  if (!button) return;
+  event.preventDefault();
+  if (button.hasAttribute('data-retry-portal')) { window.aureumRetryPortal?.(); return; }
+  if (button.hasAttribute('data-recovery-close-drawer')) { state.drawer = null; render(); return; }
+  navigate(state.screen);
+});
 
 
 const leadRows = [
@@ -129,6 +194,7 @@ const state = {
   leadDetail: null,
   customers: { loading: false, error: '', items: [] },
   followups: { loading: false, error: '', items: [] },
+  sidebarCounts: {},
   tasks: { loading: false, error: '', items: [], users: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '' }, formOpen: false, editing: null },
   followupTab: 'all',
   followupDateFilter: 'all',
@@ -164,6 +230,7 @@ function clearPortalData() {
     webhooks: { loading: false, error: '', connections: [], logs: [], failed: [], selected: null, panel: null, oneTimeSecret: '' },
     globalSearch: { q: '', loading: false, results: null, error: '' },
     notificationsData: [], notificationsUnread: 0, notificationOpen: false,
+    sidebarCounts: {},
     leadDetail: null, customerDetail: null, customerId: null, followupDetail: null, followupPrefill: null,
     agentDetail: null, reportAgentDetail: null, chatActive: null, chatGroupDraft: null,
     drawer: null, drawerName: '', userMenu: false, toast: '',
@@ -178,6 +245,7 @@ Object.defineProperty(state, 'authUser', {
   set(user) {
     if (portalUserScope(portalAuthUser) !== portalUserScope(user)) {
       portalSessionRevision += 1;
+      window.AureumSidebarBadges?.reset();
       API_CACHE.clear();
       API_INFLIGHT.clear();
       window.invalidateDashboardCache?.();
@@ -250,16 +318,122 @@ function canAccess(screen) {
 
 function openFollowupCount() {
   const items = Array.isArray(state.followups?.items) ? state.followups.items : [];
-  return items.filter(item => !['completed', 'cancelled'].includes(String(item.status || '').trim().toLowerCase())).length;
+  return items.filter(isOpenSidebarItem).length;
 }
 
-function layout(content) {
-  const nav = navByRole[state.role].map(([id, label, ico]) => {
-    const count = id === 'follow-ups' ? openFollowupCount() : 0;
-    const badge = id === 'follow-ups' && count > 0 ? `<span class="nav-badge" aria-label="${count} open follow-ups">${count > 99 ? '99+' : count}</span>` : '';
-    const accessibleLabel = id === 'follow-ups' && count > 0 ? `${label}, ${count} open follow-ups` : label;
-    return `<button class="nav-item ${state.screen === id ? 'active' : ''}" data-screen="${id}" aria-label="${accessibleLabel}" title="${accessibleLabel}">${icon(ico)}<span>${label}</span>${badge}</button>`;
+const sidebarBadgeDescriptions = { leads: 'new leads', 'my-leads': 'new leads', 'follow-ups': 'open follow-ups', tasks: 'unfinished tasks', 'team-chat': 'unread messages' };
+let sidebarBadgeSession = '';
+let sidebarBadgeTimer = null;
+let sidebarBadgeRefreshTimer = null;
+let sidebarBadgeLoading = null;
+let sidebarBadgeRefreshPending = false;
+
+function isOpenSidebarItem(item) {
+  return !item.completed_at && !['completed', 'cancelled'].includes(String(item.lifecycle_status || item.status || '').trim().toLowerCase());
+}
+
+function sidebarBadgeCount(id) {
+  const count = state.sidebarCounts[id] ?? (id === 'follow-ups' ? openFollowupCount() : id === 'team-chat' ? state.chat?.unread?.total : 0);
+  return Math.max(0, Math.floor(Number(count) || 0));
+}
+
+function sidebarNavigationLabel(id, label) {
+  const count = sidebarBadgeCount(id);
+  const description = count === 1 ? sidebarBadgeDescriptions[id]?.replace(/s$/, '') : sidebarBadgeDescriptions[id];
+  return count ? `${label}, ${count} ${description}` : label;
+}
+
+function renderSidebarNavigation() {
+  ensureSidebarBadges();
+  return navByRole[state.role].map(([id, label, ico]) => {
+    const count = sidebarBadgeCount(id);
+    const accessibleLabel = sidebarNavigationLabel(id, label);
+    const badge = sidebarBadgeDescriptions[id] ? `<span class="nav-badge" aria-hidden="true"${count ? '' : ' hidden'}>${count > 99 ? '99+' : count}</span>` : '';
+    return `<button class="nav-item ${state.screen === id ? 'active' : ''}" data-screen="${id}" aria-label="${accessibleLabel}" title="${accessibleLabel}">${icon(ico)}<span class="nav-label">${label}</span>${badge}</button>`;
   }).join('');
+}
+
+// Background counts update only navigation, preserving focus and unsaved forms.
+function updateSidebarBadges() {
+  const labels = new Map(navByRole[state.role] || []);
+  document.querySelectorAll('.nav-list .nav-item[data-screen]').forEach(button => {
+    const id = button.dataset.screen;
+    const badge = button.querySelector('.nav-badge');
+    if (!badge) return;
+    const count = sidebarBadgeCount(id);
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.hidden = !count;
+    const label = sidebarNavigationLabel(id, labels.get(id));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  });
+}
+
+function resetSidebarBadges() {
+  window.clearInterval(sidebarBadgeTimer);
+  window.clearTimeout(sidebarBadgeRefreshTimer);
+  sidebarBadgeSession = '';
+  sidebarBadgeTimer = sidebarBadgeRefreshTimer = sidebarBadgeLoading = null;
+  sidebarBadgeRefreshPending = false;
+}
+
+function ensureSidebarBadges() {
+  if (!state.authUser || !state.ready || state.authUser.must_change_password || state.screen === 'login') return;
+  const session = portalSessionKey();
+  if (sidebarBadgeSession === session) return;
+  resetSidebarBadges();
+  sidebarBadgeSession = session;
+  queueSidebarBadgeRefresh(false);
+  sidebarBadgeTimer = window.setInterval(() => {
+    if (!document.hidden) refreshSidebarCounts();
+  }, 30000);
+}
+
+function queueSidebarBadgeRefresh(force = true) {
+  if (!state.authUser || !sidebarBadgeSession) return;
+  if (sidebarBadgeLoading) { sidebarBadgeRefreshPending = true; return; }
+  window.clearTimeout(sidebarBadgeRefreshTimer);
+  sidebarBadgeRefreshTimer = window.setTimeout(() => refreshSidebarCounts(force), 150);
+}
+
+async function refreshSidebarCounts(force = false) {
+  if (!state.authUser || sidebarBadgeSession !== portalSessionKey()) return;
+  if (sidebarBadgeLoading) return sidebarBadgeLoading;
+  const session = sidebarBadgeSession;
+  const endpoints = ['/api/leads/my', state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups', '/api/tasks', '/api/chat/unread-counts'];
+  if (canAccess('leads')) endpoints.push('/api/leads');
+  const loading = Promise.allSettled(endpoints.map(endpoint => apiFetch(endpoint, { cacheTtl: 15000, force })));
+  sidebarBadgeLoading = loading;
+  await loading;
+  if (session !== sidebarBadgeSession || loading !== sidebarBadgeLoading) return;
+  sidebarBadgeLoading = null;
+  if (sidebarBadgeRefreshPending) {
+    sidebarBadgeRefreshPending = false;
+    queueSidebarBadgeRefresh();
+  }
+}
+
+function observeSidebarResponse(path, method, body) {
+  if (!state.authUser) return;
+  const routes = { '/api/leads': 'leads', '/api/leads/my': 'my-leads', '/api/follow-ups': 'follow-ups', '/api/follow-ups/my': 'follow-ups', '/api/tasks': 'tasks', '/api/chat/unread-counts': 'team-chat' };
+  const id = routes[path];
+  // Filtered lists must never replace the full navigation count.
+  if (method === 'GET' && id) {
+    if (id === 'team-chat') state.sidebarCounts[id] = Number(body.data?.total) || 0;
+    else if (Array.isArray(body.data)) state.sidebarCounts[id] = body.data.filter(item => id === 'leads' || id === 'my-leads' ? String(item.status).trim().toLowerCase() === 'new' : isOpenSidebarItem(item)).length;
+    updateSidebarBadges();
+  }
+  const marksChatRead = method === 'GET' && /\/api\/chat\/.*[?&]markRead=1(?:&|$)/.test(path);
+  if (marksChatRead) apiInvalidateCache('/api/chat/unread-counts');
+  if ((method !== 'GET' && method !== 'HEAD' && /^\/api\/(?:leads|customers|follow-ups|tasks|chat)(?:\/|\?|$)/.test(path)) || marksChatRead) queueSidebarBadgeRefresh();
+}
+
+window.AureumSidebarBadges = { observeResponse: observeSidebarResponse, reset: resetSidebarBadges };
+window.addEventListener('focus', () => { if (!document.hidden) { ensureSidebarBadges(); queueSidebarBadgeRefresh(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { ensureSidebarBadges(); queueSidebarBadgeRefresh(); } });
+
+function layout(content) {
+  const nav = renderSidebarNavigation();
   const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${state.authUser.full_name}</div><div class="user-menu-role">${roleLabels[state.role]} · ${state.authUser.email}</div><button class="btn btn-secondary btn-sm" data-logout>Log out</button></div>` : '';
   return `<div class="app-shell"><aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input placeholder="Search CRM" aria-label="Search CRM" /></div><button class="icon-btn" aria-label="Notifications">${icons.bell}</button><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${state.toast}</div>` : ''}</div>`;
 }
@@ -315,7 +489,7 @@ function renderLeadDrawer() {
   if (detail.error) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Protected lead</div><h2>Access denied</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state"><strong>${detail.error}</strong></div></aside>`;
   const lead = detail.data;
   const customerId = customerIdForLead(lead.id);
-  return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Lead profile</div><h2>${lead.full_name}</h2><p class="page-subtitle">${badge(lead.status)} · ${lead.agent}</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="header-actions"><button class="btn btn-gold btn-sm" data-lead-toast="Call opened">${icons.phone} Call</button><button class="btn btn-secondary btn-sm" data-lead-toast="WhatsApp opened">${icons.whatsapp} WhatsApp</button>${customerId ? `<button class="btn btn-secondary btn-sm" data-lead-customer="${customerId}">Open customer</button>` : ''}</div></div><div class="drawer-section"><div class="detail-grid"><div><div class="detail-label">Phone</div><div class="detail-value">${lead.phone}</div></div><div><div class="detail-label">WhatsApp</div><div class="detail-value">${lead.whatsapp_number}</div></div><div><div class="detail-label">Email</div><div class="detail-value">${lead.email || '—'}</div></div><div><div class="detail-label">City / area</div><div class="detail-value">${lead.city} · ${lead.area}</div></div><div><div class="detail-label">Interested in</div><div class="detail-value">${lead.interest}</div></div><div><div class="detail-label">Budget</div><div class="detail-value">${lead.budget || '—'}</div></div></div></div><form id="lead-status-form" class="drawer-section"><div class="form-field"><label>Update lead status</label><select name="status">${['New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Visit Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'Not Interested', 'Invalid'].map(status => `<option ${status === lead.status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><button class="btn btn-gold" type="submit">Save status</button></form><form id="lead-note-form" class="drawer-section"><div class="form-field"><label>Add note</label><textarea name="note" rows="3" required placeholder="Capture the next useful detail…"></textarea></div><button class="btn btn-secondary" type="submit">Save note</button></form><div class="drawer-section"><h3>Activity history</h3><div class="timeline" style="margin-top:15px">${(detail.activity || []).map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${item.activity_type}</div><div class="timeline-copy">${item.description}</div><div class="timeline-time">${item.created_at}</div></div></div>`).join('') || '<div class="empty-state">No activity recorded yet.</div>'}</div></div></aside>`;
+  return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Lead profile</div><h2>${lead.full_name}</h2><p class="page-subtitle">${badge(lead.status)} · ${lead.agent}</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="header-actions"><button class="btn btn-gold btn-sm" data-lead-toast="Call opened">${icons.phone} Call</button><button class="btn btn-secondary btn-sm" data-lead-toast="WhatsApp opened">${icons.whatsapp} WhatsApp</button>${customerId ? `<button class="btn btn-secondary btn-sm" data-lead-customer="${customerId}">Open customer</button>` : ''}</div></div><div class="drawer-section"><div class="detail-grid"><div><div class="detail-label">Phone</div><div class="detail-value">${lead.phone}</div></div><div><div class="detail-label">WhatsApp</div><div class="detail-value">${lead.whatsapp_number}</div></div><div><div class="detail-label">Email</div><div class="detail-value">${lead.email || '—'}</div></div><div><div class="detail-label">City / area</div><div class="detail-value">${lead.city} · ${lead.area}</div></div><div><div class="detail-label">Interested in</div><div class="detail-value">${lead.interest}</div></div><div><div class="detail-label">Budget</div><div class="detail-value">${lead.budget || '—'}</div></div></div></div><form id="lead-status-form" class="drawer-section"><div class="form-field"><label>Update lead status</label><select name="status">${["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"].map(status => `<option ${status === lead.status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><button class="btn btn-gold" type="submit">Save status</button></form><form id="lead-note-form" class="drawer-section"><div class="form-field"><label>Add note</label><textarea name="note" rows="3" required placeholder="Capture the next useful detail…"></textarea></div><button class="btn btn-secondary" type="submit">Save note</button></form><div class="drawer-section"><h3>Activity history</h3><div class="timeline" style="margin-top:15px">${(detail.activity || []).map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${item.activity_type}</div><div class="timeline-copy">${item.description}</div><div class="timeline-time">${item.created_at}</div></div></div>`).join('') || '<div class="empty-state">No activity recorded yet.</div>'}</div></div></aside>`;
 }
 
 async function openLead(id) {
@@ -386,7 +560,7 @@ function renderCustomers() {
   const followCount = items.filter(item => item.status === 'Follow-up').length;
   const closedCount = items.filter(item => ['Closed Won', 'Closed'].includes(item.status)).length;
   const customerContent = state.customers.loading ? '<div class="empty-state"><strong>Loading customer registry</strong>Syncing your permitted customer profiles…</div>' : state.customers.error ? `<div class="empty-state"><strong>Unable to load customers</strong>${state.customers.error}<br/><button class="btn btn-secondary btn-sm" data-reload-customers>Retry</button></div>` : customerTable(items);
-  return pageHeader('Client relationships', 'Customers', 'Search, understand, and move every assigned customer relationship forward.', '<button class="btn btn-secondary">Export customer list</button><button class="btn btn-gold" data-screen="add-lead">+ Add customer</button>') + `<section class="grid grid-4">${kpi('Total customers', String(items.length || (state.role === 'SALES_AGENT' ? 26 : 684)), state.role === 'SALES_AGENT' ? 'Assigned to me' : 'Permitted scope')} ${kpi('Active customers', String(items.filter(item => ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested'].includes(item.status)).length || 12), '+9%')} ${kpi('Hot / booking', String(hotCount || 3), 'High intent')} ${kpi('Follow-ups due', String(followCount || 4), 'Needs attention', 'down')}</section><section class="card table-card" style="margin-top:18px"><div class="tabs">${['All Customers', 'Active', 'Hot', 'Cold', 'Follow-up', 'Interested', 'Not Interested', 'Closed Won'].map((tab, i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-customer-tab-filter="${tab}">${tab}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input data-customer-search placeholder="Search by name, phone, WhatsApp, or email" /></div><select class="select" data-customer-status><option value="">All statuses</option><option>Active</option><option>Hot</option><option>Follow-up</option><option>Cold</option><option>Follow-up</option><option>Interested</option><option>Not Interested</option><option>Closed Won</option></select><select class="select"><option>All interests</option><option>1 Bed Apartment</option><option>Commercial Shop</option><option>Corporate Office</option></select>${state.role !== 'SALES_AGENT' ? '<select class="select"><option>All advisors</option><option>Ali Raza</option><option>Sales Manager</option></select>' : ''}<button class="btn btn-secondary btn-sm" data-reload-customers>Reset filters</button></div>${customerContent}</section>`;
+  return pageHeader('Client relationships', 'Customers', 'Search, understand, and move every assigned customer relationship forward.', '<button class="btn btn-secondary">Export customer list</button><button class="btn btn-gold" data-screen="add-lead">+ Add customer</button>') + `<section class="grid grid-4">${kpi('Total customers', String(items.length || (state.role === 'SALES_AGENT' ? 26 : 684)), state.role === 'SALES_AGENT' ? 'Assigned to me' : 'Permitted scope')} ${kpi('Active customers', String(items.filter(item => ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested'].includes(item.status)).length || 12), '+9%')} ${kpi('Hot / booking', String(hotCount || 3), 'High intent')} ${kpi('Follow-ups due', String(followCount || 4), 'Needs attention', 'down')}</section><section class="card table-card" style="margin-top:18px"><div class="tabs">${["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"].map((tab, i) => `<button class="tab ${i === 0 ? 'active' : ''}" data-customer-tab-filter="${tab}">${tab}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input data-customer-search placeholder="Search by name, phone, WhatsApp, or email" /></div><select class="select" data-customer-status><option value="">All statuses</option><option>Active</option><option>Hot</option><option>Follow-up</option><option>Cold</option><option>Follow-up</option><option>Interested</option><option>Not Interested</option><option>Closed Won</option></select><select class="select"><option>All interests</option><option>1 Bed Apartment</option><option>Commercial Shop</option><option>Corporate Office</option></select>${state.role !== 'SALES_AGENT' ? '<select class="select"><option>All advisors</option><option>Ali Raza</option><option>Sales Manager</option></select>' : ''}<button class="btn btn-secondary btn-sm" data-reload-customers>Reset filters</button></div>${customerContent}</section>`;
 }
 
 function renderCustomerDrawer() {
@@ -411,19 +585,11 @@ function renderLogin() {
 
 function render() {
   if (!state.ready) { app.innerHTML = '<div class="loading-screen"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div>Loading Aureum CRM…</div></div>'; return; }
+  if (state.startupError) { app.innerHTML = renderPortalStartupError(); return; }
   if (!state.authUser || state.screen === 'login') { app.innerHTML = renderLogin(); bind(); return; }
   if (state.screen !== 'unauthorized' && !canAccess(state.screen)) { state.deniedPath = state.screen; state.screen = 'unauthorized'; }
   if (state.screen === 'unauthorized') { app.innerHTML = layout(renderAccessDenied()); bind(); return; }
-  let content = renderDashboard();
-  if (state.screen === 'leads') content = renderLeads(false);
-  if (state.screen === 'my-leads') content = renderLeads(true);
-  if (state.screen === 'add-lead') content = renderAddLead();
-  if (state.screen === 'customers') content = renderCustomers();
-  if (state.screen === 'follow-ups') content = renderFollowups();
-  if (state.screen === 'team-chat') content = renderChat();
-  if (state.screen === 'reports') content = renderReports();
-  if (state.screen === 'agents') content = renderAgents();
-  if (state.screen === 'settings') content = renderSettings();
+  const content = renderPortalContent();
   app.innerHTML = layout(content);
   bind();
 }
@@ -492,7 +658,7 @@ function renderFollowups() {
   const upcoming = all.filter(item => ['Pending', 'Rescheduled'].includes(item.status) && !followupDateMatches(item, 'overdue')).length;
   const dateButtons = [['all', 'All dates'], ['today', 'Today'], ['tomorrow', 'Tomorrow'], ['week', 'This week'], ['month', 'This month'], ['overdue', 'Overdue']];
   const error = state.followups.error ? `<div class="empty-state"><strong>Unable to load follow-ups</strong>${state.followups.error}<br/><button class="btn btn-secondary btn-sm" data-reload-followups>Retry</button></div>` : '';
-  return pageHeader('Daily rhythm', 'Follow-ups', 'Protect the next conversation with a clear owner, due time, priority, and outcome.', '<button class="btn btn-secondary" data-toast="Calendar view is ready for the next release">Calendar view</button><button class="btn btn-gold" data-create-followup>+ Schedule follow-up</button>') + `<section class="grid grid-4">${kpi('Today', String(today), 'Due now', today ? 'down' : 'up')} ${kpi('Overdue', String(overdue), overdue ? 'Action required' : 'Clear', overdue ? 'down' : 'up')} ${kpi('Upcoming', String(upcoming), 'Pending touchpoints')} ${kpi('Completed', String(completed), '+14%')} </section><section class="grid grid-2" style="margin-top:18px">${kpi('Missed', String(missed), missed ? 'Needs recovery' : 'None', missed ? 'down' : 'up')} ${kpi('Total follow-ups', String(all.length), state.role === 'SALES_AGENT' ? 'Assigned to me' : 'Permitted scope')}</section><section class="card table-card" style="margin-top:18px"><div class="tabs">${dateButtons.map(([id, label]) => `<button class="tab ${state.followupDateFilter === id ? 'active' : ''}" data-followup-date="${id}">${label}</button>`).join('')}</div><div class="tabs">${followupStatuses.map(status => `<button class="tab ${state.followupTab === status.toLowerCase() ? 'active' : ''}" data-followup-status="${status.toLowerCase()}">${status}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input data-followup-search placeholder="Search customer, phone, advisor, or note" /></div><select class="select" data-followup-type><option value="">All types</option>${followupTypes.map(type => `<option>${type}</option>`).join('')}</select><select class="select" data-followup-priority><option value="">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select><button class="btn btn-secondary btn-sm" data-reload-followups>Refresh</button></div>${state.followups.loading ? '<div class="empty-state"><strong>Loading follow-up rhythm</strong>Syncing the permitted schedule…</div>' : error || followupTable(visible)}</section>`;
+  return pageHeader('Daily rhythm', 'Follow-ups', 'Protect the next conversation with a clear owner, due time, priority, and outcome.', '<button class="btn btn-secondary" data-toast="Calendar view is ready for the next release">Calendar view</button><button class="btn btn-gold" data-create-followup>+ New Customer Follow-up</button>') + `<section class="grid grid-4">${kpi('Today', String(today), 'Due now', today ? 'down' : 'up')} ${kpi('Overdue', String(overdue), overdue ? 'Action required' : 'Clear', overdue ? 'down' : 'up')} ${kpi('Upcoming', String(upcoming), 'Pending touchpoints')} ${kpi('Completed', String(completed), '+14%')} </section><section class="grid grid-2" style="margin-top:18px">${kpi('Missed', String(missed), missed ? 'Needs recovery' : 'None', missed ? 'down' : 'up')} ${kpi('Total follow-ups', String(all.length), state.role === 'SALES_AGENT' ? 'Assigned to me' : 'Permitted scope')}</section><section class="card table-card" style="margin-top:18px"><div class="tabs">${dateButtons.map(([id, label]) => `<button class="tab ${state.followupDateFilter === id ? 'active' : ''}" data-followup-date="${id}">${label}</button>`).join('')}</div><div class="tabs">${followupStatuses.map(status => `<button class="tab ${state.followupTab === status.toLowerCase() ? 'active' : ''}" data-followup-status="${status.toLowerCase()}">${status}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input data-followup-search placeholder="Search customer, phone, advisor, or note" /></div><select class="select" data-followup-type><option value="">All types</option>${followupTypes.map(type => `<option>${type}</option>`).join('')}</select><select class="select" data-followup-priority><option value="">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select><button class="btn btn-secondary btn-sm" data-reload-followups>Refresh</button></div>${state.followups.loading ? '<div class="empty-state"><strong>Loading follow-up rhythm</strong>Syncing the permitted schedule…</div>' : error || followupTable(visible)}</section>`;
 }
 
 function followupCustomerOptions() {
@@ -501,7 +667,7 @@ function followupCustomerOptions() {
 }
 
 function renderFollowupDrawer() {
-  if (state.drawer === 'create-followup') return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">New commitment</div><h2>Schedule follow-up</h2><p class="page-subtitle">Create a dated next action for a permitted customer.</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><form id="create-followup-form"><div class="drawer-section"><div class="form-field"><label>Customer</label><select name="customer_id" required>${followupCustomerOptions()}</select></div><div class="form-grid"><div class="form-field"><label>Type</label><select name="follow_up_type">${followupTypes.map(type => `<option>${type}</option>`).join('')}</select></div><div class="form-field"><label>Priority</label><select name="priority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div class="form-field"><label>Due date</label><input name="due_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" required value="10:00" /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?"></textarea></div></div></div><div class="drawer-section"><button class="btn btn-gold" type="submit">Schedule follow-up</button></div></form></aside>`;
+  if (state.drawer === 'create-followup') return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">New commitment</div><h2>New Customer Follow-up</h2><p class="page-subtitle">Create a dated next action for a permitted customer.</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><form id="create-followup-form"><div class="drawer-section"><div class="form-field"><label>Customer</label><select name="customer_id" required>${followupCustomerOptions()}</select></div><div class="form-grid"><div class="form-field"><label>Type</label><select name="follow_up_type">${followupTypes.map(type => `<option>${type}</option>`).join('')}</select></div><div class="form-field"><label>Priority</label><select name="priority"><option>High</option><option selected>Medium</option><option>Low</option></select></div><div class="form-field"><label>Due date</label><input name="due_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" required value="10:00" /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?"></textarea></div></div></div><div class="drawer-section"><button class="btn btn-gold" type="submit">Schedule follow-up</button></div></form></aside>`;
   const detail = state.followupDetail;
   if (!detail) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Follow-up detail</div><h2>Loading…</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state">Loading the permitted follow-up…</div></aside>`;
   if (detail.error) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Protected follow-up</div><h2>Access denied</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state"><strong>${detail.error}</strong></div></aside>`;
@@ -640,7 +806,7 @@ function renderLeads(my = false) {
   const q = state.leadFilters.q.toLowerCase();
   const items = all.filter(item => (!state.leadFilters.status || item.status === state.leadFilters.status) && (!state.leadFilters.source || item.source === state.leadFilters.source) && (!q || [item.full_name, item.phone, item.email, item.city].some(value => String(value || '').toLowerCase().includes(q))));
   const title = my ? 'My leads' : 'All leads';
-  const statusTabs = ['All', 'New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Follow-up', 'Visit Scheduled', 'Negotiation', 'Booking', 'Closed Won'];
+  const statusTabs = ['All', ...["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"]];
   const action = !my && state.role !== 'SALES_AGENT' ? '<button class="btn btn-gold" data-screen="add-lead">+ Add new lead</button>' : '';
   const content = state.leads.loading ? '<div class="empty-state"><strong>Loading lead registry</strong>Syncing permitted leads…</div>' : state.leads.error ? `<div class="empty-state"><strong>Unable to load leads</strong>${state.leads.error}<button class="btn btn-secondary btn-sm" data-reload-leads>Retry</button></div>` : liveLeadTable(items, my);
   return pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', title, my ? 'Keep every assigned relationship moving with clear next actions.' : 'Manage inquiries, ownership, lead status, and next actions.', `<button class="btn btn-secondary" data-reload-leads>Refresh</button>${action}`) + `<section class="grid grid-4">${kpi('Visible leads', String(all.length), my ? 'Assigned scope' : 'Permitted scope')} ${kpi('Hot leads', String(all.filter(item => item.status === 'Hot').length), 'High intent')} ${kpi('Follow-up', String(all.filter(item => item.status === 'Follow-up').length), 'Needs action', 'down')} ${kpi('Closed won', String(all.filter(item => item.status === 'Closed Won').length), 'Conversion')}</section><section class="card table-card" style="margin-top:18px"><div class="tabs">${statusTabs.map(status => `<button class="tab ${state.leadFilters.status === (status === 'All' ? '' : status) ? 'active' : ''}" data-lead-status="${status === 'All' ? '' : status}">${status}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input data-lead-search value="${state.leadFilters.q}" placeholder="Search name, phone, email, or city" /></div><select class="select" data-lead-source><option value="">All sources</option>${['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'].map(source => `<option ${state.leadFilters.source === source ? 'selected' : ''}>${source}</option>`).join('')}</select><button class="btn btn-secondary btn-sm" data-clear-lead-filters>Reset filters</button></div>${content}</section>`;

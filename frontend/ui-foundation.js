@@ -71,7 +71,8 @@
       select.dataset.tagDropdownReady = 'true';
       const dropdown = document.createElement('details');
       dropdown.className = 'tag-dropdown';
-      const label = select.closest('.form-field')?.querySelector('label')?.textContent?.trim() || 'Tags';
+      const labelElement = select.labels?.[0] || select.closest('.form-field')?.querySelector('label');
+      const label = [...(labelElement?.childNodes || [])].filter(node => node.nodeType === 3).map(node => node.textContent).join(' ').trim() || 'Status tags';
       dropdown.innerHTML = `<summary aria-label="${escape(label)}"><span data-tag-summary></span><span aria-hidden="true">⌄</span></summary><div class="tag-dropdown-options" role="group" aria-label="${escape(label)} options">${[...select.options].map(option => `<label class="tag-dropdown-option"><input type="checkbox" value="${escape(option.value)}" ${option.selected ? 'checked' : ''} /><span>${escape(option.textContent)}</span></label>`).join('')}</div>`;
       select.hidden = true;
       select.after(dropdown);

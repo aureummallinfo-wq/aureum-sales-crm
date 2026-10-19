@@ -4,4 +4,4 @@ window.AureumLeadConstants.propertyTypes = ['1 Bed Apartment', '2 Bed Apartment'
 window.AureumLeadConstants.purposes = ['End use', 'Investment', 'Business', 'Rental', 'Other'];
 window.AureumLeadConstants.timelines = ['Within 30 days', '1–3 months', '3–6 months', 'Exploring', 'Not decided'];
 window.AureumLeadConstants.priorities = ['Low', 'Medium', 'High', 'VIP'];
-window.AureumLeadConstants.tags = ['High Intent', 'VIP', 'Investor', 'Family Buyer', 'Retail VIP', 'Follow-up Needed'];
+window.AureumLeadConstants.tags = window.AureumCRMStatusTags?.values || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];

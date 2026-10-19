@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { activitySummary } = require('../followup-workflow');
+const statusTags = require('../../frontend/shared/crm-status-tags');
 
 function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
   async function recordActivity(workspace, actor, { leadId = null, customerId = null, type, description, metadata = {} }) {
@@ -49,12 +50,12 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
     const teamId = await resolveTeamId(workspace, actor.team_id);
     const noteId = crypto.randomUUID();
     const type = plan.contacted ? 'Customer contacted' : 'Note added';
-    const summary = { ...activitySummary(type, note, actor), ...(plan.tag ? { followup_tag: plan.tag } : {}) };
+    const summary = { ...activitySummary(type, note, actor), ...(plan.tag ? { followup_tag: plan.tag, followup_tags: plan.tags } : {}) };
     const schedule = plan.schedule;
-    // Append the selected existing CRM tag without replacing the customer's other tags.
+    // Replace the previous status tag while retaining unrelated historical labels.
     const tagMetadata = `CASE WHEN $17::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('tags',
-      (CASE WHEN jsonb_typeof(metadata->'tags')='array' THEN metadata->'tags' ELSE '[]'::jsonb END)
-      || CASE WHEN coalesce(metadata->'tags','[]'::jsonb) ? $17::text THEN '[]'::jsonb ELSE jsonb_build_array($17::text) END) END`;
+      coalesce((SELECT jsonb_agg(value) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(metadata->'tags')='array' THEN metadata->'tags' ELSE '[]'::jsonb END)
+        WHERE NOT ($19::jsonb ? (value #>> '{}'))),'[]'::jsonb) || $18::jsonb) END`;
     const result = await sql.query(`WITH context AS (
         SELECT l.id AS lead_id,c.id AS customer_id,
           coalesce(c.assigned_agent_id,l.assigned_agent_id,$4::uuid) AS agent_id,
@@ -139,7 +140,8 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
           last_contacted_at=CASE WHEN $8 THEN now() ELSE last_contacted_at END,updated_at=now()
         WHERE id IN (SELECT lead_id FROM context)
       ), touch_customer AS (
-        UPDATE crm.customers SET metadata=metadata || $12::jsonb || ${tagMetadata} || CASE WHEN $8 THEN jsonb_build_object('last_contacted_at',now()) ELSE '{}'::jsonb END,updated_at=now()
+        UPDATE crm.customers SET metadata=metadata || $12::jsonb || ${tagMetadata} || CASE WHEN $8 THEN jsonb_build_object('last_contacted_at',now()) ELSE '{}'::jsonb END,
+          updated_at=now()
         WHERE id IN (SELECT customer_id FROM context)
       ), audit AS (
         INSERT INTO crm.audit_events (workspace_id,actor_user_id,action,entity_type,entity_id,after_data)
@@ -157,7 +159,7 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         coalesce((SELECT legacy_id FROM next_followup),(SELECT legacy_id FROM candidate)) AS next_follow_up_id,
         (SELECT count(*)::integer FROM changed) AS affected_followups`,
     [workspace,leadId,customerId,actorId,teamId,actor.role,note,plan.contacted,schedule?.due_at || null,schedule?.due_date || null,schedule?.due_time || null,
-      JSON.stringify(summary),followUpId,noteId,`followup_${crypto.randomUUID()}`,type,plan.tag || null]);
+      JSON.stringify(summary),followUpId,noteId,`followup_${crypto.randomUUID()}`,type,plan.tag || null,JSON.stringify(plan.tags || []),JSON.stringify(statusTags.values)]);
     await refreshNextAction(workspace, leadId, customerId);
     return { ...result[0], user_id: actor.id, user_name: actor.full_name, customer_contacted: plan.contacted };
   }

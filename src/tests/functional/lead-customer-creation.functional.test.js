@@ -6,7 +6,7 @@ const { PGlite } = require('@electric-sql/pglite');
 const { createNeonRepository } = require('../../../backend/db/neon-repository');
 const { startApiServer } = require('../helpers/api-test-server');
 
-const schedule = { schedule_followup: true, note: 'Discuss the payment plan next week.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up Needed' };
+const schedule = { schedule_followup: true, note: 'Discuss the payment plan next week.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up' };
 
 test('lead drawer customer creation API validates, preserves ownership, and prevents duplicates', async t => {
   const api = await startApiServer(t);
@@ -41,7 +41,7 @@ test('lead drawer customer creation API validates, preserves ownership, and prev
   assert.equal(profile.data.lead_id, lead.id);
   assert.equal(profile.data.assigned_agent_id, lead.assigned_agent_id);
   assert.equal(profile.data.last_contacted_at, lead.last_contacted_at);
-  assert.deepEqual(profile.data.tags, ['Investor', 'Follow-up Needed']);
+  assert.deepEqual(profile.data.tags, ['Investor', 'Follow-up']);
   assert.equal(profile.notes[0].note, schedule.note);
   const followups = (await request('/api/follow-ups/my')).body.data.filter(item => item.customer_id === profile.data.id);
   assert.equal(followups.length, 1);
@@ -89,7 +89,7 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   assert.equal(customer.city, 'Lahore');
   assert.equal(customer.last_contacted_at, null);
   assert.equal(customer.assigned_agent_id, 'agent');
-  assert.deepEqual(customer.tags, ['Investor', 'Follow-up Needed']);
+  assert.deepEqual(customer.tags, ['Investor', 'Follow-up']);
   const lead = await repository.getLead(workspace.id, 'lead');
   assert.equal(lead.customer_id, customer.id);
   assert.equal(lead.last_contacted_at, null);

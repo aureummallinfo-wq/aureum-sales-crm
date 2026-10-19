@@ -1,10 +1,12 @@
 const dates = require('../frontend/features/follow-ups/utils/followup-overdue-utils');
+const statusTags = require('../frontend/shared/crm-status-tags');
 
 function notePlan(input = {}, now = new Date()) {
   const contacted = input.customer_contacted === true || input.customer_contacted === 'true';
-  const tag = input.followup_tag == null ? '' : String(input.followup_tag).trim();
-  if (tag && (typeof input.followup_tag !== 'string' || tag.length > 40 || /[<>\x00-\x1f]/.test(tag))) throw new Error('Choose a valid follow-up tag.');
-  const details = { contacted, ...(tag ? { tag } : {}) };
+  const rawTags = input.followup_tags ?? input.followup_tag;
+  const tags = [...new Set((Array.isArray(rawTags) ? rawTags : rawTags == null || rawTags === '' ? [] : [rawTags]))];
+  if (tags.some(tag => !statusTags.isValid(tag))) throw new Error('Choose valid CRM status tags.');
+  const details = { contacted, ...(tags.length ? { tag: tags[0], tags } : {}) };
   const choice = String(input.next_followup_days ?? '2');
   if (choice === 'none') return { ...details, schedule: null };
   if (choice === 'custom') {

@@ -48,9 +48,9 @@ export interface LeadSourceData { source: LeadSource; count: number; percentage:
 export type FollowUpStatus = 'Pending' | 'Completed' | 'Overdue' | 'Missed' | 'Rescheduled' | 'Cancelled';
 export interface FollowUpPerformanceData { status: FollowUpStatus; count: number; percentage?: number; }
 export interface AgentPerformanceData { agentId: string; agentName: string; teamName?: string; assignedLeads: number; contactedLeads: number; completedFollowUps: number; overdueFollowUps: number; closedDeals: number; conversionRate: number; }
-export type ConversionStage = 'New' | 'Contacted' | 'Qualified' | 'Follow-up' | 'Negotiation' | 'Booking' | 'Closed Won';
+export type ConversionStage = "New" | "Contacted" | "Follow-up" | "Visit Scheduled" | "Visit Completed" | "Negotiation" | "Closed Won";
 export interface ConversionOverviewData { stage: ConversionStage; count: number; percentage?: number; }
-export type LeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Hot' | 'Warm' | 'Cold' | 'Follow-up' | 'No Response' | 'Visit Scheduled' | 'Visit Completed' | 'Meeting Scheduled' | 'Negotiation' | 'Booking' | 'Closed Won' | 'Closed Lost' | 'Not Interested' | 'Invalid';
+export type LeadStatus = "New" | "Contacted" | "Hot" | "Cold" | "Follow-up" | "Visit Scheduled" | "Visit Completed" | "Negotiation" | "Closed Won" | "No Response" | "Not Interested" | "Invalid";
 export interface RecentLead { id: string; leadName: string; phone?: string; source: LeadSource; interestedIn: string; assignedAgent?: string; status: LeadStatus; createdAt: string; }
 export type FollowUpType = 'Call' | 'WhatsApp' | 'Email' | 'Payment Plan Follow-up' | 'Booking Follow-up' | 'Site Visit Reminder' | 'General Follow-up';
 export interface TodayFollowUp { id: string; customerId: string; customerName: string; phone?: string; followUpType: FollowUpType; assignedAgent?: string; dueTime: string; status: FollowUpStatus; priority: 'High' | 'Medium' | 'Low'; }

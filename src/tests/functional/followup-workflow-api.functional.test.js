@@ -34,7 +34,7 @@ test('rescheduling saves date, time and tag; adding a note preserves the commitm
   assert.equal(firstNote.body.data.due_date, row.due_date);
   assert.equal(firstNote.body.data.due_time, row.due_time);
 
-  const payload = { note: 'Customer agreed to the next call.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-06-21', next_due_time: '14:35', followup_tag: 'Follow-up Needed' };
+  const payload = { note: 'Customer agreed to the next call.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-06-21', next_due_time: '14:35', followup_tag: 'Follow-up' };
   const saved = await request(`/api/follow-ups/${row.id}/notes`, 'POST', payload);
   assert.equal(saved.response.status, 201);
   assert.equal(saved.body.data.status, 'Contacted');

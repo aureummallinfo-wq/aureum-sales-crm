@@ -8,7 +8,7 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function startApiServer(t) {
+async function startApiServer(t, { env = {} } = {}) {
   // Ask the OS for a free port rather than occasionally choosing a blocked port such as 5060.
   const reservation = net.createServer();
   await new Promise((resolve,reject) => { reservation.once('error',reject); reservation.listen(0,'127.0.0.1',resolve); });
@@ -18,7 +18,7 @@ async function startApiServer(t) {
   let output = '';
   const server = spawn(process.execPath, ['backend/crm-api-server.js'], {
     cwd: ROOT,
-    env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: '', AUREUM_PERSISTENCE: '0', PORT: String(port) },
+    env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: '', AUREUM_PERSISTENCE: '0', PORT: String(port), ...env },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

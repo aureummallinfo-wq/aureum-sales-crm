@@ -44,7 +44,7 @@ test('contact pipeline persists one reminder, note history, and latest activity 
   });
   await t.test('follow-up tag edits and list reads keep the agreed schedule and response',async()=>{
     const before=await repository.getFollowUp(workspace.id,'followup');
-    await repository.updateLead(workspace.id,'lead',actor,{tags:['Follow-up Needed']});
+    await repository.updateLead(workspace.id,'lead',actor,{tags:['Follow-up']});
     await repository.listFollowUps({workspaceId:workspace.id,user:actor});
     await repository.listFollowUps({workspaceId:workspace.id,user:actor});
     await repository.updateLead(workspace.id,'lead',actor,{tags:[]});
@@ -94,7 +94,7 @@ test('contact pipeline persists one reminder, note history, and latest activity 
   });
   await t.test('rescheduling saves the tag on the reminder, customer and lead without replacing tags', async () => {
     const before = await repository.getCustomer(workspace.id, 'customer');
-    const input = { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-07-22', next_due_time: '16:40', followup_tag: 'Follow-up Needed' };
+    const input = { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-07-22', next_due_time: '16:40', followup_tag: 'Follow-up' };
     const saved = await repository.addFollowUpNote(workspace.id, 'followup', actor, 'Customer agreed to a tagged contact.', input);
     assert.equal(saved.status, 'Contacted');
     assert.equal(saved.followup_tag, input.followup_tag);
@@ -105,6 +105,17 @@ test('contact pipeline persists one reminder, note history, and latest activity 
     assert.ok((await repository.getLead(workspace.id, 'lead')).tags.includes(input.followup_tag));
     await repository.addFollowUpNote(workspace.id, 'followup', actor, 'Repeated scheduling keeps tags unique.', input);
     assert.equal((await repository.getCustomer(workspace.id, 'customer')).tags.filter(tag => tag === input.followup_tag).length, 1);
+  });
+  await t.test('several status tags persist together on the reminder and both linked profiles', async () => {
+    const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
+    await repository.addFollowUpNote(workspace.id, 'followup', actor, 'Visit agreed with a hot prospect.', { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-07-23', next_due_time: '16:40', followup_tags: selected });
+    assert.deepEqual((await repository.getFollowUp(workspace.id, 'followup')).followup_tags, selected);
+    const customer = await repository.getCustomer(workspace.id, 'customer');
+    const lead = await repository.getLead(workspace.id, 'lead');
+    for (const tag of selected) { assert.ok(customer.tags.includes(tag)); assert.ok(lead.tags.includes(tag)); }
+    await repository.updateCustomer(workspace.id, 'customer', actor, { tags: ['Cold', 'No Response'] });
+    assert.deepEqual((await repository.getLead(workspace.id, 'lead')).tags, ['Cold', 'No Response']);
+    assert.deepEqual((await repository.getFollowUp(workspace.id, 'followup')).followup_tags, ['Cold', 'No Response']);
   });
   await t.test('Add note records follow-up history without changing status, schedule or last contacted', async () => {
     const before = await repository.getFollowUp(workspace.id, 'followup');
@@ -128,15 +139,15 @@ test('contact pipeline persists one reminder, note history, and latest activity 
   await t.test('a customer with no reminder gets their first tagged follow-up', async () => {
     const [newLead] = await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,assigned_agent_id,assigned_team_id) VALUES ($1,'new-lead','New Customer',$2,$3) RETURNING id", [workspace.id, user.id, team.id]);
     await sql.query("INSERT INTO crm.customers (workspace_id,legacy_id,lead_id,full_name,assigned_agent_id,assigned_team_id) VALUES ($1,'new-customer',$2,'New Customer',$3,$4)", [workspace.id, newLead.id, user.id, team.id]);
-    const note = await repository.addCustomerNote(workspace.id, 'new-customer', actor, 'First contact agreed.', { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-08-23', next_due_time: '11:25', followup_tag: 'Follow-up Needed' });
+    const note = await repository.addCustomerNote(workspace.id, 'new-customer', actor, 'First contact agreed.', { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-08-23', next_due_time: '11:25', followup_tag: 'Follow-up' });
     assert.ok(note.next_follow_up_id);
     const rows = await repository.listFollowUps({ workspaceId: workspace.id, user: actor, customerId: 'new-customer' });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].status, 'Contacted');
-    assert.equal(rows[0].followup_tag, 'Follow-up Needed');
+    assert.equal(rows[0].followup_tag, 'Follow-up');
     assert.equal(rows[0].due_date, '2099-08-23');
     assert.equal(rows[0].due_time, '11:25');
-    assert.ok((await repository.getCustomer(workspace.id, 'new-customer')).tags.includes('Follow-up Needed'));
+    assert.ok((await repository.getCustomer(workspace.id, 'new-customer')).tags.includes('Follow-up'));
   });
 });
 

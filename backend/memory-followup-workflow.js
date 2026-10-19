@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const dates = require('../frontend/features/follow-ups/utils/followup-overdue-utils');
 const { notePlan, activitySummary, uniqueFollowUps } = require('./followup-workflow');
+const statusTags = require('../frontend/shared/crm-status-tags');
 
 function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, notifications, customerNotes, addLeadActivity, addCustomerActivity, addFollowUpActivity, canViewFollowUp }) {
   function touch(leadId, customerId, userId, type, description) {
@@ -41,7 +42,7 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
     }
     Object.assign(item, { due_date:input.due_date, due_time:input.due_time, follow_up_type:input.follow_up_type || input.type || item.follow_up_type || 'General Follow-up',
       priority:input.priority || item.priority || 'Medium', notes:input.notes ?? input.note ?? item.notes ?? '', updated_at:now });
-    if (input.followup_tag) item.followup_tag = input.followup_tag;
+    if (input.followup_tag) { item.followup_tag = input.followup_tag; item.followup_tags = input.followup_tags || [input.followup_tag]; }
     for (const duplicate of related) if (duplicate !== item && !['Completed','Cancelled'].includes(duplicate.status)) {
       duplicate.status = 'Cancelled'; duplicate.consolidated_into = item.id;
       addFollowUpActivity(duplicate,user.id,'Follow-up combined','Combined into the customer follow-up.');
@@ -79,7 +80,8 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
     if (plan.tag) {
       for (const record of [lead, customer, target].filter(Boolean)) {
         record.followup_tag = plan.tag;
-        if (record !== target) record.tags = [...new Set([...(Array.isArray(record.tags) ? record.tags : []), plan.tag])];
+        record.followup_tags = plan.tags;
+        if (record !== target) record.tags = statusTags.withStatus(record.tags, plan.tags);
       }
     }
     if (plan.contacted) {

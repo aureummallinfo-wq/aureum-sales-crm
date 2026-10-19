@@ -20,6 +20,8 @@ dist/
 build/
 node_modules/
 /backend/.data/
+/output/
+/tmp/
 
 # Local-only junction retained by the original workspace
 DOC/

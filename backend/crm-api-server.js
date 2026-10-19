@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
-const { neon } = require('@neondatabase/serverless');
+const { neon, neonConfig } = require('@neondatabase/serverless');
+const { databaseContext, positiveInteger, createDatabaseFetch, isDatabaseUnavailable, clientAddress, hashKey, createMemoryRateStore, createNeonRateStore, ratePolicy } = require('./request-protection');
 const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeText } = require('./security-utils');
 const { syncCrmSnapshot } = require('./db/neon-state-sync');
 const { createNeonRepository } = require('./db/neon-repository');
@@ -13,13 +14,23 @@ const followUpDates = require('../frontend/features/follow-ups/utils/followup-ov
 const { notePlan, displayStatus, uniqueFollowUps, isCompletedFollowUp } = require('./followup-workflow');
 const { createMemoryFollowUpWorkflow } = require('./memory-followup-workflow');
 const { customerCreationPlan } = require('./customer-creation');
+const statusTags = require('../frontend/shared/crm-status-tags');
 const { createMemoryTaskRepository } = require('./memory-task-repository');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
+const API_DEADLINE_MS = positiveInteger(process.env.AUREUM_API_DEADLINE_MS, 18000, 55000);
+const DATABASE_TIMEOUT_MS = Math.min(API_DEADLINE_MS, positiveInteger(process.env.AUREUM_DATABASE_TIMEOUT_MS, 10000, 30000));
 const NEON_DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-const NEON_SQL = NEON_DATABASE_URL ? neon(NEON_DATABASE_URL) : null;
+if (NEON_DATABASE_URL && neonConfig) neonConfig.fetchFunction = createDatabaseFetch(neonConfig.fetchFunction || globalThis.fetch, DATABASE_TIMEOUT_MS);
+let neonConnectionError;
+const NEON_SQL = (() => { try { return NEON_DATABASE_URL ? neon(NEON_DATABASE_URL) : null; } catch (error) { neonConnectionError = error; return null; } })();
 const NEON_REPOSITORY = NEON_SQL ? createNeonRepository(NEON_SQL) : null;
+const LOCAL_REQUEST_BUDGETS = createMemoryRateStore();
+const REQUEST_BUDGETS = NEON_SQL ? createNeonRateStore(NEON_SQL, { onCleanupError: error => console.error('CRM rate-limit cleanup failed:', error.code || error.name) }) : createMemoryRateStore();
+const RATE_LIMITS = Object.fromEntries(['login', 'read', 'write', 'bulk', 'webhook'].map(name => [name, positiveInteger(process.env[`AUREUM_RATE_${name.toUpperCase()}_PER_MINUTE`], { login: 30, read: 300, write: 60, bulk: 10, webhook: 120 }[name], 100000)]));
+const MAX_ACTIVE_API_REQUESTS = positiveInteger(process.env.AUREUM_MAX_ACTIVE_REQUESTS, 40, 1000);
+let activeApiRequests = 0;
 let NEON_WORKSPACE_ID = null;
 let RELATIONAL_API = null;
 const NEON_STATE_ID = 'default';
@@ -38,7 +49,6 @@ const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIG
 const loginAttempts = new Map();
 const revokedSessions = new Map();
 const tasks = [];
-const webhookRateLimits = new Map();
 const webhookConnections = [];
 const webhookLogs = [];
 const failedWebhookLeads = [];
@@ -154,7 +164,7 @@ let customers = leads.slice(0, 5).map((lead, index) => ({
   purpose: lead.purpose,
   buying_timeline: lead.buying_timeline,
   financing_required: lead.financing_required,
-  customer_status: index === 0 ? 'Hot' : index === 1 ? 'Active' : index === 2 ? 'Follow-up' : index === 3 ? 'Interested' : 'Active',
+  customer_status: statusTags.normalize(lead.status),
   lead_source: lead.lead_source,
   tags: lead.tags,
   assigned_agent_id: lead.assigned_agent_id,
@@ -191,7 +201,7 @@ function publicUser(user) {
 }
 
 function userTeamName(teamId) { return teamId === 'team_a' || teamId === 'team_b' ? 'Sales Team A' : teams.find(team => team.id === teamId)?.name || ''; }
-function userScopedTo(actor, target) { return Boolean(actor && target && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && target.role === 'sales_agent' && target.team_id === actor.team_id))); }
+function userScopedTo(actor, target) { return Boolean(actor && target && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && actor.team_id && target.role === 'sales_agent' && target.team_id === actor.team_id))); }
 const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
 const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
 function userActivityStatus(user, now = Date.now()) {
@@ -211,7 +221,7 @@ function userManagementView(actor, target) {
   return { ...safe, fullName: target.full_name, avatarUrl: target.avatar_url, roleLabel: USER_ROLE_LABELS[target.role] || target.role, teamId: target.team_id || undefined, teamName: userTeamName(target.team_id) || target.team_name || '', status: USER_STATUS_LABELS[target.status] || target.status, inviteStatus: target.invite_status || 'Not Sent', activityStatus: userActivityStatus(target), mustChangePassword: Boolean(target.must_change_password), hasTemporaryPassword: Boolean(target.has_temporary_password), temporaryPasswordExpiresAt: target.temporary_password_expires_at, accessEmailSentAt: target.access_email_sent_at, inviteAcceptedAt: target.invite_accepted_at, lastLoginAt: target.last_login_at, lastActivityAt: target.last_activity_at, createdBy: target.created_by || 'usr_001', createdByName: target.created_by_name || 'Malik Raza', createdAt: target.created_at, updatedAt: target.updated_at, canManage: userScopedTo(actor, target), canDelete: actor?.role === 'super_admin' && target.role !== 'super_admin' && target.id !== actor.id, canMessage: canMessageUser(actor, target), reportPath: `/reports?agentId=${encodeURIComponent(target.id)}` };
 }
 function userManagementTeams(actor) { return teams.filter(team => actor.role === 'super_admin' || team.id === actor.team_id).map(team => ({ id: team.id, name: team.name, description: team.description, managerId: team.manager_id, managerName: users.find(user => user.id === team.manager_id)?.full_name || '', memberCount: users.filter(user => user.team_id === team.id).length })); }
-function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(4).toString('hex').toUpperCase()}!9`; }
+function generateTemporaryPassword() { return `Aureum${crypto.randomBytes(Math.max(8, Math.ceil((Number(systemSettings.security?.minimum_password_length) || 8) / 2))).toString('hex')}!9`; }
 function temporaryPasswordExpiry() { return new Date(Date.now() + (Number(systemSettings.security?.temporary_password_expiry_hours) || 72) * 60 * 60 * 1000).toISOString(); }
 function passwordPolicySatisfied(password) { const policy = systemSettings.security || {}; const value = String(password || ''); return value.length >= Math.max(8, Number(policy.minimum_password_length) || 8) && (!policy.require_uppercase || /[A-Z]/.test(value)) && (!policy.require_lowercase || /[a-z]/.test(value)) && (!policy.require_number || /[0-9]/.test(value)) && (!policy.require_special_character || /[^A-Za-z0-9]/.test(value)); }
 function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
@@ -256,7 +266,7 @@ function ensureCustomerForLead(user, lead) {
     purpose: lead.purpose,
     buying_timeline: lead.buying_timeline,
     financing_required: Boolean(lead.financing_required),
-    customer_status: lead.status === 'Closed Won' ? 'Closed Won' : 'Active',
+    customer_status: statusTags.normalize(lead.status),
     lead_source: lead.lead_source,
     tags: [...(lead.tags || [])],
     assigned_agent_id: lead.assigned_agent_id || user.id,
@@ -278,7 +288,7 @@ function ensureCustomerForLead(user, lead) {
 
 function syncTaggedLeadFollowUp(user, lead) {
   if (!lead) return;
-  const tagged = (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up needed');
+  const tagged = (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up' || String(tag).trim().toLowerCase() === 'follow-up needed');
   const existing = followUps.find(item => item.lead_id === lead.id && !item.consolidated_into);
   if (!tagged) return;
   const customer = ensureCustomerForLead(user, lead);
@@ -289,8 +299,8 @@ function syncTaggedLeadFollowUp(user, lead) {
   let dueTime = '10:00';
   if (clock) { let hour = Number(clock[1]); if (clock[3]?.toUpperCase() === 'PM' && hour < 12) hour += 12; if (clock[3]?.toUpperCase() === 'AM' && hour === 12) hour = 0; dueTime = `${String(hour).padStart(2, '0')}:${clock[2]}`; }
   const now = new Date().toISOString();
-  const item = { id: `followup_tag_${lead.id}`, customer_id: customer.id, lead_id: lead.id, created_by: user.id, follow_up_type: 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: lead.priority || 'Medium', status: 'Pending', notes: 'Created automatically from the Follow-up Needed tag.', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: lead.status, last_activity: lead.last_contacted_at || 'Not contacted', metadata: { source: 'follow-up-tag' }, created_at: now, updated_at: now };
-  followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up Needed tag.`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
+  const item = { id: `followup_tag_${lead.id}`, customer_id: customer.id, lead_id: lead.id, created_by: user.id, follow_up_type: 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: lead.priority || 'Medium', status: 'Pending', notes: 'Created automatically from the Follow-up status tag.', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: lead.status, last_activity: lead.last_contacted_at || 'Not contacted', metadata: { source: 'follow-up-tag' }, created_at: now, updated_at: now };
+  followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up status tag.`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
 }
 
 function canViewCustomer(user, customer) { return canViewOwnedRecord(user, customer); }
@@ -326,7 +336,7 @@ function refreshFollowUpStatuses() {
 
 function followUpView(item) {
   const related=NEON_REPOSITORY ? {} : customers.find(record=>record.id===item.customer_id) || leads.find(record=>record.id===item.lead_id) || {};
-  return { ...item, lifecycle_status:item.lifecycle_status || item.status, status:displayStatus(item), last_activity:related.last_activity_description || item.last_activity_description || '', last_activity_description:related.last_activity_description || item.last_activity_description || '', last_activity_at:related.last_activity_at || item.last_activity_at || item.updated_at, last_activity_by:related.last_activity_by || item.last_activity_by || '', due_at: `${item.due_date} · ${item.due_time}`, type: item.follow_up_type, customer: item.customer_name, phone: item.customer_phone, agent: item.assigned_agent };
+  return { ...item, followup_tags: Array.isArray(related.tags) ? related.tags.filter(statusTags.isValid) : item.followup_tags || (item.followup_tag ? [item.followup_tag] : []), lead_status: statusTags.normalize(related.customer_status || related.status || item.lead_status), lifecycle_status:item.lifecycle_status || item.status, status:displayStatus(item), last_activity:related.last_activity_description || item.last_activity_description || '', last_activity_description:related.last_activity_description || item.last_activity_description || '', last_activity_at:related.last_activity_at || item.last_activity_at || item.updated_at, last_activity_by:related.last_activity_by || item.last_activity_by || '', due_at: `${item.due_date} · ${item.due_time}`, type: item.follow_up_type, customer: item.customer_name, phone: item.customer_phone, agent: item.assigned_agent };
 }
 
 function findFollowUp(id) { return followUps.find(item => item.id === id); }
@@ -364,7 +374,7 @@ function dashboardBudgetMillions(value) {
 }
 
 function dashboardBookingVolume(visibleLeads) {
-  const total = visibleLeads.filter(item => ['Booking', 'Closed Won'].includes(item.status)).reduce((sum, item) => sum + dashboardBudgetMillions(item.budget), 0);
+  const total = visibleLeads.filter(item => ['Negotiation', 'Closed Won'].includes(item.status)).reduce((sum, item) => sum + dashboardBudgetMillions(item.budget), 0);
   return `PKR ${Number(total.toFixed(1))}M`;
 }
 
@@ -446,7 +456,7 @@ function dashboardForUser(user, searchParams = new URLSearchParams()) {
   const assignedAgentId = searchParams.get('assignedAgentId') || '';
   const recentLeads = [...visibleLeads].filter(item => !assignedAgentId || item.assigned_agent_id === assignedAgentId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8).map(item => ({ id: item.id, name: item.full_name, initials: item.initials, phone: item.phone, source: item.lead_source, interest: item.interested_in, assignedAgentId: item.assigned_agent_id, agent: item.assigned_agent, status: item.status, created: item.created_at }));
   const base = dashboardByRole[user.role] || dashboardByRole.sales_agent;
-  const summary = { totalLeads, newLeads: visibleLeads.filter(item => item.status === 'New').length, hotLeads: visibleLeads.filter(item => ['Hot', 'Booking'].includes(item.status)).length, followUpsDue: pending, overdueFollowUps: overdue, activeCustomers: visibleCustomers.filter(item => !['Closed Won', 'Closed Lost', 'Not Interested'].includes(item.customer_status)).length, closedDeals: closed, conversionRate: totalLeads ? Number(((closed / totalLeads) * 100).toFixed(1)) : 0, bookingVolume: dashboardBookingVolume(visibleLeads) };
+  const summary = { totalLeads, newLeads: visibleLeads.filter(item => item.status === 'New').length, hotLeads: visibleLeads.filter(item => ['Hot', 'Negotiation'].includes(item.status)).length, followUpsDue: pending, overdueFollowUps: overdue, activeCustomers: visibleCustomers.filter(item => !['Closed Won', 'Not Interested', 'Invalid'].includes(item.customer_status)).length, closedDeals: closed, conversionRate: totalLeads ? Number(((closed / totalLeads) * 100).toFixed(1)) : 0, bookingVolume: dashboardBookingVolume(visibleLeads) };
   return { ...base, scopeLabel: user.role === 'super_admin' ? 'Company-wide data' : user.role === 'sales_manager' ? `${userTeamName(user.team_id)} · Team data` : 'My data only', summary, leadInflow: dashboardLeadInflow(visibleLeads, bounds), leadSources, conversionOverview, agentPerformance: user.role === 'sales_agent' ? null : dashboardAgentPerformance(user, bounds), todayFollowUps, recentLeads, followUpPerformance: [{ name: 'Completed', value: completed }, { name: 'Pending', value: pending }, { name: 'Overdue', value: overdue }, { name: 'Missed', value: visibleFollowUps.filter(item => item.status === 'Missed').length }, { name: 'Rescheduled', value: visibleFollowUps.filter(item => item.status === 'Rescheduled').length }], dateRange: bounds.dateRange, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, startDate: bounds.startDate, endDate: bounds.endDate } };
 }
 
@@ -577,9 +587,9 @@ function applyStoredState(saved) {
   replaceArray(chatChannels, saved.chatChannels);
   replaceMap(userInvites, saved.userInvites);
   replaceMap(userAuditLogs, saved.userAuditLogs);
-  if (Array.isArray(saved.leads)) leads = saved.leads;
+  if (Array.isArray(saved.leads)) leads = saved.leads.map(lead => ({ ...lead, status: statusTags.normalize(lead.status) }));
   replaceMap(leadActivities, saved.leadActivities);
-  if (Array.isArray(saved.customers)) customers = saved.customers.map(customer => ({ ...customer, customer_status: ({ Warm: 'Active', 'Booking Interested': 'Interested', 'Closed Lost': 'Not Interested' }[customer.customer_status] || customer.customer_status || 'Active') }));
+  if (Array.isArray(saved.customers)) customers = saved.customers.map(customer => ({ ...customer, customer_status: statusTags.normalize(customer.customer_status) }));
   replaceMap(customerActivities, saved.customerActivities);
   replaceMap(customerNotes, saved.customerNotes);
   replaceMap(customerFollowUps, saved.customerFollowUps);
@@ -599,8 +609,8 @@ function applyStoredState(saved) {
     });
   }
   replaceMap(accountPreferences, saved.accountPreferences);
-  replaceArray(leadStatuses, saved.leadStatuses);
-  replaceArray(leadTags, saved.leadTags);
+  // leadStatuses uses the shared CRM status tags.
+  // leadTags uses the shared CRM status tags.
   replaceArray(leadSources, saved.leadSources);
   replaceMap(notificationSettings, saved.notificationSettings);
   replaceMap(notifications, saved.notifications);
@@ -643,11 +653,9 @@ const accountPreferences = new Map(users.map(user => [user.id, {
   appearance: { theme: 'light', compact_mode: false, sidebar_collapsed: false },
   display: { language: 'English', timezone: 'Asia/Karachi', date_format: 'DD MMM YYYY', time_format: '12-hour' }
 }]));
-const leadStatuses = [
-  ['New', '#8d7658'], ['Contacted', '#6d8c9b'], ['Qualified', '#6d8c9b'], ['Hot', '#b36b55'], ['Warm', '#b6904f'], ['Cold', '#9e9a92'], ['Follow-up', '#b6904f'], ['No Response', '#9e9a92'], ['Visit Scheduled', '#6d8c9b'], ['Visit Completed', '#6d8c9b'], ['Meeting Scheduled', '#6d8c9b'], ['Negotiation', '#8a6c9c'], ['Booking', '#b6904f'], ['Closed Won', '#5d9670'], ['Closed Lost', '#a84c45'], ['Not Interested', '#9e9a92'], ['Invalid', '#a84c45']
-].map((item, index) => ({ id: `status_${String(index + 1).padStart(3, '0')}`, name: item[0], slug: item[0].toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: item[1], sort_order: index + 1, is_active: true, is_default: item[0] === 'New', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
-const customerStatuses = [['Active', '#5d9670'], ['Hot', '#b36b55'], ['Cold', '#9e9a92'], ['Follow-up', '#b6904f'], ['Interested', '#b6904f'], ['Not Interested', '#9e9a92'], ['Closed Won', '#5d9670']].map((item, index) => ({ id: `customer_status_${String(index + 1).padStart(3, '0')}`, name: item[0], slug: item[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), color: item[1], sort_order: index + 1, is_active: true, is_default: true, created_at: '2026-10-18T00:00:00.000Z', updated_at: '2026-10-18T00:00:00.000Z' }));
-const leadTags = ['VIP', 'Investor', 'Urgent', 'Family Buyer', 'Commercial Interest', 'High Budget', 'Payment Plan Required', 'Follow-up Needed', 'Repeat Customer'].map((name, index) => ({ id: `tag_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: index % 2 ? '#b6904f' : '#8d7658', tag_type: 'lead', is_active: true, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
+const leadStatuses = statusTags.values.map(name => [name, statusTags.colors[name]]).map((item, index) => ({ id: `status_${String(index + 1).padStart(3, '0')}`, name: item[0], slug: item[0].toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: item[1], sort_order: index + 1, is_active: true, is_default: item[0] === 'New', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
+const customerStatuses = statusTags.values.map(name => [name, statusTags.colors[name]]).map((item, index) => ({ id: `customer_status_${String(index + 1).padStart(3, '0')}`, name: item[0], slug: item[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), color: item[1], sort_order: index + 1, is_active: true, is_default: true, created_at: '2026-10-18T00:00:00.000Z', updated_at: '2026-10-18T00:00:00.000Z' }));
+const leadTags = statusTags.values.map((name, index) => ({ id: `tag_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: index % 2 ? '#b6904f' : '#8d7658', tag_type: 'lead', is_active: true, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const leadSources = ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'].map((name, index) => ({ id: `source_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), is_active: true, is_default: name === 'Manual Entry', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const notificationDefinitions = [
   ['new_lead_assigned', 'New lead assigned'], ['follow_up_due', 'Follow-up due'], ['follow_up_overdue', 'Follow-up overdue'], ['follow_up_completed', 'Follow-up completed'], ['lead_status_changed', 'Lead status changed'], ['customer_note_added', 'Customer note added'], ['team_chat_message', 'New team chat message'], ['user_added', 'User added'], ['deal_closed_won', 'Deal closed won'], ['deal_closed_lost', 'Deal closed lost']
@@ -710,12 +718,12 @@ function findWebhookDuplicate(fields) {
   return leads.find(lead => matches(lead, 'external_lead_id', fields.externalLeadId) || matches(lead, 'idempotency_key', fields.idempotencyKey) || matches(lead, 'payload_hash', fields.payloadHash) || matches(lead, 'phone', fields.phone) || matches(lead, 'whatsapp_number', fields.whatsapp) || matches(lead, 'email', fields.email));
 }
 function createWebhookLog(connection, status, result, fields, errorMessage = '', lead = null, actorId = 'system') {
-  const entry = { id: `whlog_${crypto.randomUUID().slice(0, 12)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', source: connection?.default_lead_source || fields?.sourcePlatform || 'Webhook', platform: connection?.source_platform || fields?.sourcePlatform || 'custom', received_at: new Date().toISOString(), lead_id: lead?.id || null, lead_name: lead?.full_name || fields?.fullName || null, lead_phone: lead?.phone || fields?.phone || null, lead_email: lead?.email || fields?.email || null, status, result: safeText(result, 240), error_message: safeText(errorMessage, 500), external_lead_id: fields?.externalLeadId || null, source_form_name: fields?.sourceFormName || null, payload_preview: safePayloadPreview(fields?.raw || {}), attempt_number: 1, last_attempt_at: new Date().toISOString(), retry_status: status === 'Failed' ? 'eligible' : 'not_required', actor_id: actorId };
+  const entry = { id: `whlog_${crypto.randomUUID().slice(0, 10)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', source: connection?.default_lead_source || fields?.sourcePlatform || 'Webhook', platform: connection?.source_platform || fields?.sourcePlatform || 'custom', received_at: new Date().toISOString(), lead_id: lead?.id || null, lead_name: lead?.full_name || fields?.fullName || null, lead_phone: lead?.phone || fields?.phone || null, lead_email: lead?.email || fields?.email || null, status, result: safeText(result, 240), error_message: safeText(errorMessage, 500), external_lead_id: fields?.externalLeadId || null, source_form_name: fields?.sourceFormName || null, payload_preview: safePayloadPreview(fields?.raw || {}), attempt_number: 1, last_attempt_at: new Date().toISOString(), retry_status: status === 'Failed' ? 'eligible' : 'not_required', actor_id: actorId };
   webhookLogs.unshift(entry);
   if (connection) { connection.last_received_at = entry.received_at; if (status === 'Failed') connection.failed_attempts = (connection.failed_attempts || 0) + 1; if (status === 'Unauthorized') connection.unauthorized_attempts = (connection.unauthorized_attempts || 0) + 1; if (status === 'Success' || status === 'Duplicate') connection.failed_attempts = 0; connection.updated_at = entry.received_at; }
   return entry;
 }
-function saveFailedWebhook(connection, payload, fields, reason) { const item = { id: `failed_wh_${crypto.randomUUID().slice(0, 12)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', received_at: new Date().toISOString(), reason: safeText(reason, 500), normalized_preview: { fullName: fields?.fullName || '', phone: fields?.phone || '', email: fields?.email || '', source: connection?.default_lead_source || 'Webhook' }, payload_preview: safePayloadPreview(payload), payload: payload && typeof payload === 'object' ? JSON.parse(JSON.stringify(payload)) : {}, converted: false, converted_lead_id: null }; failedWebhookLeads.unshift(item); return item; }
+function saveFailedWebhook(connection, payload, fields, reason) { const item = { id: `failed_wh_${crypto.randomUUID().slice(0, 10)}`, connection_id: connection?.id || null, connection_name: connection?.connection_name || 'Unknown connection', received_at: new Date().toISOString(), reason: safeText(reason, 500), normalized_preview: { fullName: fields?.fullName || '', phone: fields?.phone || '', email: fields?.email || '', source: connection?.default_lead_source || 'Webhook' }, payload_preview: safePayloadPreview(payload), payload: payload && typeof payload === 'object' ? JSON.parse(JSON.stringify(payload)) : {}, converted: false, converted_lead_id: null }; failedWebhookLeads.unshift(item); return item; }
 function ingestWebhookLead(connection, payload, options = {}) {
   const fields = webhookPayloadFields(connection, payload);
   if (!fields.fullName && !fields.phone && !fields.email) { const failed = saveFailedWebhook(connection, payload, fields, 'Payload must include a name, phone, or email.'); createWebhookLog(connection, 'Rejected', 'Payload missing contact identity', fields, 'Missing contact identity', null, options.actorId); return { ok: false, statusCode: 422, error: 'Payload does not contain a usable lead identity.', fields, failed }; }
@@ -723,7 +731,7 @@ function ingestWebhookLead(connection, payload, options = {}) {
   if (duplicate) { if (!options.dryRun) addLeadActivity(duplicate.id, options.actorId || 'system', 'Duplicate webhook received', `Duplicate inbound lead matched existing record ${duplicate.id}.`, { connection_id: connection.id, external_lead_id: fields.externalLeadId || undefined }); createWebhookLog(connection, 'Duplicate', 'Matched existing lead; no duplicate created', fields, '', duplicate, options.actorId); return { ok: true, duplicate: true, lead: leadView(duplicate), fields }; }
   if (options.dryRun) return { ok: true, duplicate: false, fields, preview: { full_name: fields.fullName || 'Inbound lead', phone: fields.phone, email: fields.email, source: connection.default_lead_source, status: connection.default_lead_status, tags: connection.default_tags } };
   const assigned = connection.auto_assign_lead ? users.find(item => item.id === connection.default_assigned_agent && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)) : null;
-  const tags = [...new Set([...(connection.default_tags || []), 'Imported Lead', 'Webhook Lead', connection.source_platform === 'meta' ? 'Meta Lead' : ''].filter(Boolean))].slice(0, 10);
+  const tags = [...new Set([...(connection.default_tags || []), 'Imported Lead', 'Webhook Lead', connection.source_platform === 'meta' ? 'Meta Lead' : ''].filter(Boolean))].slice(0, 12);
   const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fields.fullName || 'Inbound lead', initials: (fields.fullName || 'Inbound lead').split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone: fields.phone || fields.whatsapp || '', whatsapp_number: fields.whatsapp || fields.phone || '', email: fields.email, city: fields.city, area: fields.area, interested_in: fields.interestedIn || 'Not specified', property_type: fields.propertyType || 'Not specified', budget: fields.budget || 'Not specified', preferred_location: '', purpose: fields.purpose || 'Not specified', buying_timeline: fields.buyingTimeline || 'Not specified', financing_required: false, lead_source: connection.default_lead_source || 'Webhook', status: connection.default_lead_status || 'New', priority: 'Medium', tags, assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || null, created_by: 'system', last_contacted_at: 'Not contacted', next_follow_up_at: 'Not scheduled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), is_imported: true, imported_from: connection.source_platform, webhook_connection_id: connection.id, external_lead_id: fields.externalLeadId || null, idempotency_key: fields.idempotencyKey || null, payload_hash: fields.payloadHash, source_platform: fields.sourcePlatform, source_form_id: fields.formId || null, source_form_name: fields.sourceFormName || null, campaign_name: fields.campaignName || null, webhook_received_at: new Date().toISOString(), duplicate_checked: true };
   leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, options.actorId || 'system', 'Webhook lead created', `Lead imported from ${connection.connection_name}.`, { connection_id: connection.id, source_form_name: fields.sourceFormName || undefined }); persistState(); createWebhookLog(connection, 'Success', 'Lead created from webhook payload', fields, '', lead, options.actorId); return { ok: true, duplicate: false, lead: leadView(lead), fields };
 }
@@ -770,7 +778,7 @@ function reportRowsFor(user) {
     const completed = agentFollowUps.filter(item => isCompletedFollowUp(item)).length;
     const conversion = agentLeads.length ? Number(((closed / agentLeads.length) * 100).toFixed(1)) : 0;
     const performance = conversion >= 20 && overdue <= 1 ? 'Excellent' : conversion >= 12 && overdue <= 2 ? 'Good' : conversion > 0 ? 'Average' : 'Needs Attention';
-    return { id: agent.id, name: agent.full_name, initials: agent.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), email: agent.email, phone: agent.phone, role: agent.role, team: agent.team_id || 'Unassigned', status: agent.status, assignedLeads: agentLeads.length, activeLeads: agentLeads.filter(lead => !['Closed Won', 'Closed Lost', 'Not Interested'].includes(lead.status)).length, contactedLeads: contacted, hotLeads: agentLeads.filter(lead => ['Hot', 'Booking'].includes(lead.status)).length, followUpsCompleted: completed, followUpsDue: agentFollowUps.filter(item => ['Pending', 'Rescheduled', 'Contacted'].includes(item.status) && !item.completed_at).length, overdueFollowUps: overdue, closedDeals: closed, lostLeads: agentLeads.filter(lead => ['Closed Lost', 'Lost'].includes(lead.status)).length, conversionRate: `${conversion}%`, performance, lastActivity: agent.last_login_at || 'Today' };
+    return { id: agent.id, name: agent.full_name, initials: agent.full_name.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), email: agent.email, phone: agent.phone, role: agent.role, team: agent.team_id || 'Unassigned', status: agent.status, assignedLeads: agentLeads.length, activeLeads: agentLeads.filter(lead => !['Closed Won', 'Not Interested', 'Invalid'].includes(lead.status)).length, contactedLeads: contacted, hotLeads: agentLeads.filter(lead => ['Hot', 'Negotiation'].includes(lead.status)).length, followUpsCompleted: completed, followUpsDue: agentFollowUps.filter(item => ['Pending', 'Rescheduled', 'Contacted'].includes(item.status) && !item.completed_at).length, overdueFollowUps: overdue, closedDeals: closed, lostLeads: agentLeads.filter(lead => ['Not Interested', 'Invalid'].includes(lead.status)).length, conversionRate: `${conversion}%`, performance, lastActivity: agent.last_login_at || 'Today' };
   });
 }
 
@@ -778,12 +786,12 @@ function agentInScope(actor, target) { return Boolean(actor && target && ['super
 function agentView(actor, target) { const row = reportRowsFor(actor).find(item => item.id === target.id) || {}; return { ...publicUser(target), ...row }; }
 
 const REPORT_TIMEZONE = 'Asia/Karachi';
-const REPORT_LEAD_STATUSES = ['New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'No Response', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'Not Interested', 'Invalid'];
-const REPORT_CUSTOMER_STATUSES = ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested', 'Not Interested', 'Closed Won'];
+const REPORT_LEAD_STATUSES = statusTags.values;
+const REPORT_CUSTOMER_STATUSES = statusTags.values;
 const REPORT_FOLLOWUP_STATUSES = ['Pending', 'Contacted', 'Completed', 'Overdue', 'Missed', 'Rescheduled', 'Cancelled'];
-const REPORT_CONTACTED_STATUSES = ['Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'Not Interested'];
-const REPORT_ACTIVE_CUSTOMER_STATUSES = ['Active', 'Hot', 'Cold', 'Follow-up', 'Interested'];
-const REPORT_CONVERSION_STAGES = ['New', 'Contacted', 'Qualified', 'Follow-up', 'Negotiation', 'Booking', 'Closed Won'];
+const REPORT_CONTACTED_STATUSES = statusTags.values.filter(status => !['New', 'No Response', 'Invalid'].includes(status));
+const REPORT_ACTIVE_CUSTOMER_STATUSES = ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","No Response"];
+const REPORT_CONVERSION_STAGES = ["New","Contacted","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won"];
 function reportRound(value) { return Number(Number(value || 0).toFixed(1)); }
 function reportDateParts(value = new Date()) { const parts = new Intl.DateTimeFormat('en-US', { timeZone: REPORT_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(value); return Object.fromEntries(parts.filter(item => item.type !== 'literal').map(item => [item.type, item.value])); }
 function reportCalendarDate(value = new Date()) { const parts = reportDateParts(value); return `${parts.year}-${parts.month}-${parts.day}`; }
@@ -796,14 +804,15 @@ function reportAgentRow(user, agent, bounds, params = {}) {
   const leadStatus = params.leadStatus && params.leadStatus !== 'all' ? params.leadStatus : '';
   const leadSource = params.leadSource && params.leadSource !== 'all' ? params.leadSource : '';
   const followUpStatus = params.followUpStatus && params.followUpStatus !== 'all' ? params.followUpStatus : '';
-  const agentLeads = leads.filter(item => item.assigned_agent_id === agent.id && reportInRange(item.created_at || item.updated_at, bounds) && (!leadStatus || item.status === leadStatus) && (!leadSource || item.lead_source === leadSource)); const agentCustomers = customers.filter(item => item.assigned_agent_id === agent.id && reportInRange(item.created_at || item.updated_at, bounds)); const agentFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => item.assigned_agent_id === agent.id && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds) && (!followUpStatus || item.status === followUpStatus)); const closed = agentLeads.filter(item => item.status === 'Closed Won').length; const contacted = agentLeads.filter(item => Boolean(item.last_contacted_at && item.last_contacted_at !== 'Not contacted') || REPORT_CONTACTED_STATUSES.includes(item.status)).length; return { agentId: agent.id, agentName: agent.full_name, agentRole: agent.role === 'sales_manager' ? 'Sales Manager' : 'Sales Agent', teamId: agent.team_id || undefined, teamName: agent.team_id === 'team_a' || agent.team_id === 'team_b' ? 'Sales Team A' : 'Leadership', status: agent.status === 'active' ? 'Active' : 'Inactive', assignedLeads: agentLeads.length, contactedLeads: contacted, hotLeads: agentLeads.filter(item => item.status === 'Hot').length, warmLeads: agentLeads.filter(item => item.status === 'Warm').length, coldLeads: agentLeads.filter(item => item.status === 'Cold').length, followUpsAssigned: agentFollowUps.length, followUpsCompleted: agentFollowUps.filter(item => isCompletedFollowUp(item)).length, overdueFollowUps: agentFollowUps.filter(item => item.status === 'Overdue').length, missedFollowUps: agentFollowUps.filter(item => item.status === 'Missed').length, totalCustomers: agentCustomers.length, activeCustomers: agentCustomers.filter(item => REPORT_ACTIVE_CUSTOMER_STATUSES.includes(item.customer_status)).length, bookingInterestedCustomers: agentCustomers.filter(item => item.customer_status === 'Interested').length, closedDeals: closed, lostLeads: agentLeads.filter(item => item.status === 'Closed Lost').length, conversionRate: agentLeads.length ? reportRound((closed / agentLeads.length) * 100) : 0, lastActivityAt: agent.updated_at || agent.created_at || new Date().toISOString() };
+  const agentLeads = leads.filter(item => item.assigned_agent_id === agent.id && reportInRange(item.created_at || item.updated_at, bounds) && (!leadStatus || item.status === leadStatus) && (!leadSource || item.lead_source === leadSource)); const agentCustomers = customers.filter(item => item.assigned_agent_id === agent.id && reportInRange(item.created_at || item.updated_at, bounds)); const agentFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => item.assigned_agent_id === agent.id && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds) && (!followUpStatus || item.status === followUpStatus)); const closed = agentLeads.filter(item => item.status === 'Closed Won').length; const contacted = agentLeads.filter(item => Boolean(item.last_contacted_at && item.last_contacted_at !== 'Not contacted') || REPORT_CONTACTED_STATUSES.includes(item.status)).length; return { agentId: agent.id, agentName: agent.full_name, agentRole: agent.role === 'sales_manager' ? 'Sales Manager' : 'Sales Agent', teamId: agent.team_id || undefined, teamName: agent.team_id === 'team_a' || agent.team_id === 'team_b' ? 'Sales Team A' : 'Leadership', status: agent.status === 'active' ? 'Active' : 'Inactive', assignedLeads: agentLeads.length, contactedLeads: contacted, hotLeads: agentLeads.filter(item => item.status === 'Hot').length, warmLeads: agentLeads.filter(item => item.status === 'Contacted').length, coldLeads: agentLeads.filter(item => item.status === 'Cold').length, followUpsAssigned: agentFollowUps.length, followUpsCompleted: agentFollowUps.filter(item => isCompletedFollowUp(item)).length, overdueFollowUps: agentFollowUps.filter(item => item.status === 'Overdue').length, missedFollowUps: agentFollowUps.filter(item => item.status === 'Missed').length, totalCustomers: agentCustomers.length, activeCustomers: agentCustomers.filter(item => REPORT_ACTIVE_CUSTOMER_STATUSES.includes(item.customer_status)).length, bookingInterestedCustomers: agentCustomers.filter(item => item.customer_status === 'Hot').length, closedDeals: closed, lostLeads: agentLeads.filter(item => item.status === 'Not Interested').length, conversionRate: agentLeads.length ? reportRound((closed / agentLeads.length) * 100) : 0, lastActivityAt: agent.updated_at || agent.created_at || new Date().toISOString() };
 }
 function reportResponseFor(user, searchParams = new URLSearchParams()) {
-  refreshFollowUpStatuses(); const params = Object.fromEntries(searchParams.entries()); const bounds = reportDateBounds(params); const scopedAgents = reportScopedAgents(user, params); const agentIds = new Set(scopedAgents.map(item => item.id)); const visibleLeads = leads.filter(item => canViewLead(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(item.created_at || item.updated_at, bounds)); const visibleCustomers = customers.filter(item => canViewCustomer(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(item.created_at || item.updated_at, bounds)); const visibleFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => canViewFollowUp(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds)); const rows = scopedAgents.map(agent => reportAgentRow(user, agent, bounds)); const total = key => rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0); const closedWon = visibleLeads.filter(item => item.status === 'Closed Won').length; const leadSummary = { totalLeads: visibleLeads.length, newLeads: visibleLeads.filter(item => item.status === 'New').length, contactedLeads: visibleLeads.filter(item => Boolean(item.last_contacted_at && item.last_contacted_at !== 'Not contacted') || REPORT_CONTACTED_STATUSES.includes(item.status)).length, hotLeads: visibleLeads.filter(item => item.status === 'Hot').length, warmLeads: visibleLeads.filter(item => item.status === 'Warm').length, coldLeads: visibleLeads.filter(item => item.status === 'Cold').length, closedWon, closedLost: visibleLeads.filter(item => item.status === 'Closed Lost').length, conversionRate: visibleLeads.length ? reportRound((closedWon / visibleLeads.length) * 100) : 0 }; const customerSummary = { totalCustomers: visibleCustomers.length, activeCustomers: visibleCustomers.filter(item => REPORT_ACTIVE_CUSTOMER_STATUSES.includes(item.customer_status)).length, hotCustomers: visibleCustomers.filter(item => item.customer_status === 'Hot').length, bookingInterestedCustomers: visibleCustomers.filter(item => item.customer_status === 'Interested').length, closedCustomers: visibleCustomers.filter(item => item.customer_status === 'Closed Won').length, lostCustomers: visibleCustomers.filter(item => item.customer_status === 'Closed Lost').length }; const followUpSummary = { totalFollowUps: visibleFollowUps.length, todaysFollowUps: visibleFollowUps.filter(item => item.due_date === reportCalendarDate()).length, completedFollowUps: visibleFollowUps.filter(item => isCompletedFollowUp(item)).length, overdueFollowUps: visibleFollowUps.filter(item => item.status === 'Overdue').length, missedFollowUps: visibleFollowUps.filter(item => item.status === 'Missed').length, rescheduledFollowUps: visibleFollowUps.filter(item => item.status === 'Rescheduled').length, completionRate: visibleFollowUps.length ? reportRound((visibleFollowUps.filter(item => isCompletedFollowUp(item)).length / visibleFollowUps.length) * 100) : 0 }; const summary = { totalAgents: rows.length, assignedLeads: total('assignedLeads'), contactedLeads: total('contactedLeads'), hotLeads: total('hotLeads'), followUpsCompleted: total('followUpsCompleted'), overdueFollowUps: total('overdueFollowUps'), closedDeals: total('closedDeals'), lostLeads: total('lostLeads'), conversionRate: total('assignedLeads') ? reportRound((total('closedDeals') / total('assignedLeads')) * 100) : 0 }; const chart = (items, value) => items.map(item => ({ label: item, value: visibleLeads.filter(lead => value(lead) === item).length })); const conversionOverview = REPORT_CONVERSION_STAGES.map(stage => ({ stage, count: visibleLeads.filter(item => item.status === stage).length, percentage: visibleLeads.length ? reportRound((visibleLeads.filter(item => item.status === stage).length / visibleLeads.length) * 100) : 0 })); return { role: user.role, scope: user.role === 'super_admin' ? 'company' : 'team', dateRange: bounds.dateRange, summary, agentReports: rows, leadReport: leadSummary, customerReport: customerSummary, followUpReport: followUpSummary, charts: { conversionOverview, leadSourcePerformance: chart([...new Set(visibleLeads.map(item => item.lead_source))], item => item.lead_source), followUpStatusPerformance: REPORT_FOLLOWUP_STATUSES.map(status => ({ label: status, value: visibleFollowUps.filter(item => item.status === status).length })), agentConversionPerformance: rows.map(row => ({ label: row.agentName, value: row.conversionRate })) }, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, currency: 'PKR' }, filters: { teams: [...new Set(scopedAgents.map(item => item.teamId).filter(Boolean))], agents: scopedAgents.map(item => ({ id: item.id, name: item.full_name, teamId: item.team_id })) } };
+  refreshFollowUpStatuses(); const params = Object.fromEntries(searchParams.entries()); const bounds = reportDateBounds(params); const scopedAgents = reportScopedAgents(user, params); const agentIds = new Set(scopedAgents.map(item => item.id)); const visibleLeads = leads.filter(item => canViewLead(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(item.created_at || item.updated_at, bounds)); const visibleCustomers = customers.filter(item => canViewCustomer(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(item.created_at || item.updated_at, bounds)); const visibleFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => canViewFollowUp(user, item) && agentIds.has(item.assigned_agent_id) && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds)); const rows = scopedAgents.map(agent => reportAgentRow(user, agent, bounds)); const total = key => rows.reduce((sum, row) => sum + (Number(row[key]) || 0), 0); const closedWon = visibleLeads.filter(item => item.status === 'Closed Won').length; const leadSummary = { totalLeads: visibleLeads.length, newLeads: visibleLeads.filter(item => item.status === 'New').length, contactedLeads: visibleLeads.filter(item => Boolean(item.last_contacted_at && item.last_contacted_at !== 'Not contacted') || REPORT_CONTACTED_STATUSES.includes(item.status)).length, hotLeads: visibleLeads.filter(item => item.status === 'Hot').length, warmLeads: visibleLeads.filter(item => item.status === 'Contacted').length, coldLeads: visibleLeads.filter(item => item.status === 'Cold').length, closedWon, closedLost: visibleLeads.filter(item => item.status === 'Not Interested').length, conversionRate: visibleLeads.length ? reportRound((closedWon / visibleLeads.length) * 100) : 0 }; const customerSummary = { totalCustomers: visibleCustomers.length, activeCustomers: visibleCustomers.filter(item => REPORT_ACTIVE_CUSTOMER_STATUSES.includes(item.customer_status)).length, hotCustomers: visibleCustomers.filter(item => item.customer_status === 'Hot').length, bookingInterestedCustomers: visibleCustomers.filter(item => item.customer_status === 'Hot').length, closedCustomers: visibleCustomers.filter(item => item.customer_status === 'Closed Won').length, lostCustomers: visibleCustomers.filter(item => item.customer_status === 'Not Interested').length }; const followUpSummary = { totalFollowUps: visibleFollowUps.length, todaysFollowUps: visibleFollowUps.filter(item => item.due_date === reportCalendarDate()).length, completedFollowUps: visibleFollowUps.filter(item => isCompletedFollowUp(item)).length, overdueFollowUps: visibleFollowUps.filter(item => item.status === 'Overdue').length, missedFollowUps: visibleFollowUps.filter(item => item.status === 'Missed').length, rescheduledFollowUps: visibleFollowUps.filter(item => item.status === 'Rescheduled').length, completionRate: visibleFollowUps.length ? reportRound((visibleFollowUps.filter(item => isCompletedFollowUp(item)).length / visibleFollowUps.length) * 100) : 0 }; const summary = { totalAgents: rows.length, assignedLeads: total('assignedLeads'), contactedLeads: total('contactedLeads'), hotLeads: total('hotLeads'), followUpsCompleted: total('followUpsCompleted'), overdueFollowUps: total('overdueFollowUps'), closedDeals: total('closedDeals'), lostLeads: total('lostLeads'), conversionRate: total('assignedLeads') ? reportRound((total('closedDeals') / total('assignedLeads')) * 100) : 0 }; const chart = (items, value) => items.map(item => ({ label: item, value: visibleLeads.filter(lead => value(lead) === item).length })); const conversionOverview = REPORT_CONVERSION_STAGES.map(stage => ({ stage, count: visibleLeads.filter(item => item.status === stage).length, percentage: visibleLeads.length ? reportRound((visibleLeads.filter(item => item.status === stage).length / visibleLeads.length) * 100) : 0 })); return { role: user.role, scope: user.role === 'super_admin' ? 'company' : 'team', dateRange: bounds.dateRange, summary, agentReports: rows, leadReport: leadSummary, customerReport: customerSummary, followUpReport: followUpSummary, charts: { conversionOverview, leadSourcePerformance: chart([...new Set(visibleLeads.map(item => item.lead_source))], item => item.lead_source), followUpStatusPerformance: REPORT_FOLLOWUP_STATUSES.map(status => ({ label: status, value: visibleFollowUps.filter(item => item.status === status).length })), agentConversionPerformance: rows.map(row => ({ label: row.agentName, value: row.conversionRate })) }, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, currency: 'PKR' }, filters: { teams: [...new Set(scopedAgents.map(item => item.teamId).filter(Boolean))], agents: scopedAgents.map(item => ({ id: item.id, name: item.full_name, teamId: item.team_id })) } };
 }
 function reportAgentDetailFor(user, agentId, searchParams) { const response = reportResponseFor(user, new URLSearchParams([...searchParams.entries(), ['agentId', agentId]])); const agent = response.agentReports.find(item => item.agentId === agentId); if (!agent) return null; const leadRows = leads.filter(item => item.assigned_agent_id === agentId && reportInRange(item.created_at || item.updated_at, reportDateBounds(Object.fromEntries(searchParams.entries())))).map(item => ({ leadId: item.id, leadName: item.full_name, phone: item.phone, interestedIn: item.interested_in, leadSource: item.lead_source, status: item.status, createdAt: item.created_at, lastContactedAt: item.last_contacted_at, nextFollowUpAt: item.next_follow_up_at })); const customerRows = customers.filter(item => item.assigned_agent_id === agentId).map(item => ({ customerId: item.id, customerName: item.full_name, phone: item.phone, interestedIn: item.interested_in, customerStatus: item.customer_status, budget: item.budget, lastActivityAt: item.updated_at, nextFollowUpAt: item.next_follow_up_at })); const followUpRows = uniqueFollowUps(followUps.map(followUpView)).filter(item => item.assigned_agent_id === agentId).map(item => ({ followUpId: item.id, customerName: item.customer_name, followUpType: item.follow_up_type, dueDate: item.due_date, dueTime: item.due_time, priority: item.priority, status: item.status, completedAt: item.completed_at })); const activity = (userActivities.get(agentId) || []).map(item => ({ id: item.id, agentId, activityType: 'status_changed', description: item.description, createdAt: item.created_at })); return { agent, overview: { assignedLeads: agent.assignedLeads, contactedLeads: agent.contactedLeads, hotLeads: agent.hotLeads, followUpsCompleted: agent.followUpsCompleted, overdueFollowUps: agent.overdueFollowUps, customersHandled: agent.totalCustomers, closedDeals: agent.closedDeals, lostLeads: agent.lostLeads, conversionRate: agent.conversionRate }, leads: leadRows, customers: customerRows, followUps: followUpRows, activity }; }
 
 function json(res, status, payload, headers = {}) {
+  if (res.writableEnded) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...corsHeaders(res.__aureumRequest), ...headers });
   res.end(JSON.stringify(payload));
 }
@@ -869,7 +878,7 @@ function currentUser(req) {
   const token = parseCookies(req).aureum_session;
   const session = token ? sessionFromToken(token) : null;
   if (!session) return null;
-  return users.find(user => user.id === session.userId) || null;
+  return users.find(user => user.id === session.userId && (!user.password_reset_at || session.expiresAt - SESSION_TTL >= user.password_reset_at)) || null;
 }
 
 function isAllowedFrontendOrigin(origin) {
@@ -879,7 +888,7 @@ function isAllowedFrontendOrigin(origin) {
 function corsHeaders(req) {
   const origin = String(req?.headers?.origin || '');
   if (!origin || !isAllowedFrontendOrigin(origin)) return {};
-  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' };
+  return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Expose-Headers': 'Retry-After, X-Request-Id', Vary: 'Origin' };
 }
 
 function requireAuth(req, res) {
@@ -898,20 +907,44 @@ function requireRole(req, res, allowedRoles) {
 }
 
 function readBody(req) {
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    req.on('data', chunk => { raw += chunk; if (raw.length > 100_000) req.destroy(); });
-    req.on('end', () => { try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error('Invalid JSON')); } });
-    req.on('error', reject);
-  });
+  return readBodyLimited(req);
 }
 function readBodyLimited(req, limit = 100_000) {
   return new Promise((resolve, reject) => {
-    let raw = ''; let tooLarge = false;
-    req.on('data', chunk => { raw += chunk; if (raw.length > limit) tooLarge = true; });
-    req.on('end', () => { if (tooLarge) { const error = new Error('Payload too large'); error.code = 'PAYLOAD_TOO_LARGE'; reject(error); return; } try { resolve(raw ? JSON.parse(raw) : {}); } catch { const error = new Error('Invalid JSON'); error.code = 'INVALID_JSON'; reject(error); } });
-    req.on('error', reject);
+    let chunks = []; let size = 0; let settled = false;
+    const signal = databaseContext.getStore()?.signal;
+    const abort = () => { const error = new Error('Request body timed out'); error.code = 'REQUEST_BODY_TIMEOUT'; finish(error); };
+    const finish = (error, value) => { if (settled) return; settled = true; clearTimeout(timer); signal?.removeEventListener('abort', abort); chunks = []; error ? reject(error) : resolve(value); };
+    const timer = setTimeout(() => { const error = new Error('Request body timed out'); error.code = 'REQUEST_BODY_TIMEOUT'; finish(error); }, API_DEADLINE_MS);
+    if (signal?.aborted) { abort(); return; }
+    signal?.addEventListener('abort', abort, { once: true });
+    req.on('data', chunk => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > limit) { const error = new Error('Payload too large'); error.code = 'PAYLOAD_TOO_LARGE'; finish(error); return; }
+      chunks.push(buffer);
+    });
+    req.on('end', () => { if (settled) return; try { const raw = Buffer.concat(chunks).toString('utf8'); finish(null, raw ? JSON.parse(raw) : {}); } catch { const error = new Error('Invalid JSON'); error.code = 'INVALID_JSON'; finish(error); } });
+    req.on('error', finish);
+    req.on('aborted', () => { const error = new Error('Request body interrupted'); error.code = 'INVALID_JSON'; finish(error); });
   });
+}
+
+async function enforceRequestBudget(req, res, url, user) {
+  const policy = ratePolicy(req, url.pathname, user, RATE_LIMITS);
+  const identity = policy.identity === 'user' ? user.id : clientAddress(req, process.env.VERCEL === '1');
+  let budget;
+  try {
+    budget = await REQUEST_BUDGETS.consume(hashKey([NEON_WORKSPACE_LEGACY_ID, policy.name, identity]), policy.limit);
+  } catch (error) {
+    console.error('CRM shared request budget failed:', { code: error.code || error.name, requestId: req.__aureumRequestId });
+    json(res, 503, { error: 'The service is temporarily unavailable. Please try again shortly.', code: 'REQUEST_PROTECTION_UNAVAILABLE' }, { 'Retry-After': '5' });
+    return false;
+  }
+  if (budget.allowed) return true;
+  json(res, 429, { error: 'Too many requests. Please wait before trying again.', code: 'RATE_LIMITED', retryAfter: budget.retryAfter }, { 'Retry-After': String(budget.retryAfter) });
+  return false;
 }
 
 function staticFile(res, pathname) {
@@ -946,22 +979,33 @@ async function handle(req, res) {
     return;
   }
   if (!url.pathname.startsWith('/api/')) { staticFile(res, url.pathname); return; }
+  if (url.pathname === '/api/health/live' && req.method === 'GET') { json(res, 200, { status: 'ok' }); return; }
+  const localBudget = await LOCAL_REQUEST_BUDGETS.consume(hashKey(['ingress', clientAddress(req, process.env.VERCEL === '1')]), 3000);
+  if (!localBudget.allowed) { json(res, 429, { error: 'Too many requests. Please wait before trying again.', code: 'RATE_LIMITED' }, { 'Retry-After': String(localBudget.retryAfter) }); return; }
+  // Pages and assets must stay available while Neon is unavailable. Only API
+  // requests depend on database initialization, including session validation.
+  try {
+    await ensureDatabaseReady();
+  } catch {
+    const retryAfter = Math.max(1, Math.ceil((databaseRetryAt - Date.now()) / 1000));
+    json(res, 503, { error: 'The database is temporarily unavailable. Please try again shortly.', code: 'DATABASE_UNAVAILABLE' }, { 'Retry-After': String(retryAfter) });
+    return;
+  }
   const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
   if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
     if (!isAllowedFrontendOrigin(req.headers.origin)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
   }
 
   if (isPublicWebhook) {
+    if (!await enforceRequestBudget(req, res, url, null)) return;
     const connectionId = url.pathname.split('/').pop();
     if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
-      try { const payload = await readBodyLimited(req, 100_000); const result = await NEON_REPOSITORY.ingestWebhookLead(NEON_WORKSPACE_ID, connectionId, String(req.headers['x-aureum-webhook-secret'] || ''), payload); if (result.ok) { json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead?.id || null, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } else json(res, result.status || 400, { error: result.error }); } catch (error) { json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, { error: error.code === 'PAYLOAD_TOO_LARGE' ? 'Webhook payload is too large.' : 'Webhook payload is invalid.' }); }
+      try { const payload = await readBodyLimited(req, 100_000); const result = await NEON_REPOSITORY.ingestWebhookLead(NEON_WORKSPACE_ID, connectionId, String(req.headers['x-aureum-webhook-secret'] || ''), payload); if (result.ok) { json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead?.id || null, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } else json(res, result.status || 400, { error: result.error }); } catch (error) { if (!['PAYLOAD_TOO_LARGE', 'INVALID_JSON'].includes(error.code)) throw error; json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, { error: error.code === 'PAYLOAD_TOO_LARGE' ? 'Webhook payload is too large.' : 'Webhook payload is invalid.' }); }
       req.__aureumRelationalHandled = true;
       return;
     }
-    const connection = webhookConnectionById(connectionId); const ip = req.socket.remoteAddress || 'unknown';
+    const connection = webhookConnectionById(connectionId);
     if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; }
-    const rateKey = `${connectionId}:${ip}`; const now = Date.now(); const rate = webhookRateLimits.get(rateKey) || { count: 0, startedAt: now }; if (now - rate.startedAt > 60_000) { rate.count = 0; rate.startedAt = now; } rate.count += 1; webhookRateLimits.set(rateKey, rate);
-    if (rate.count > 60) { connection.unauthorized_attempts = (connection.unauthorized_attempts || 0) + 1; createWebhookLog(connection, 'Unauthorized', 'Webhook rate limit exceeded', null, 'Rate limit exceeded'); json(res, 429, { error: 'Webhook temporarily rate limited.' }); return; }
     const suppliedSecret = String(req.headers['x-aureum-webhook-secret'] || '');
     if (connection.status !== 'Active') { createWebhookLog(connection, 'Rejected', 'Inactive connection rejected request', null, 'Connection inactive'); json(res, 403, { error: 'Webhook connection is inactive.' }); return; }
     if (!webhookTokenMatches(connection, suppliedSecret)) { createWebhookLog(connection, 'Unauthorized', 'Webhook authentication failed', null, 'Invalid webhook secret'); json(res, 401, { error: 'Webhook authentication failed.' }); return; }
@@ -972,6 +1016,13 @@ async function handle(req, res) {
   if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
     const token = parseCookies(req).aureum_session;
     req.__aureumUser = token ? await NEON_REPOSITORY.findSession(token, NEON_WORKSPACE_ID) : null;
+  }
+
+  if (!await enforceRequestBudget(req, res, url, currentUser(req))) return;
+  if (url.pathname === '/api/health/ready' && req.method === 'GET') {
+    if (NEON_SQL) await NEON_SQL.query('SELECT 1 AS ready');
+    json(res, 200, { status: 'ready', database: NEON_SQL ? 'connected' : 'local' });
+    return;
   }
 
   // Cookies are shared between tabs. Reject a tab whose displayed account no
@@ -1002,6 +1053,9 @@ async function handle(req, res) {
         }
         const supplied = passwordHash(String(body.password || ''));
         const valid = user && crypto.timingSafeEqual(Buffer.from(supplied, 'hex'), Buffer.from(user.password_hash, 'hex'));
+        if (user?.has_temporary_password && user.temporary_password_expires_at && new Date(user.temporary_password_expires_at).getTime() <= Date.now()) {
+          json(res, 401, { error: 'Temporary password has expired. Please request new access.' }); return;
+        }
         if (!valid || user.status !== 'active') {
           const failure = user ? await NEON_REPOSITORY.recordLoginFailure(user.db_id) : null;
           await NEON_REPOSITORY.recordLogin({ userId: user?.db_id, email: user?.email || identifier, eventType: 'login_failed', ipAddress: ip, userAgent: req.headers['user-agent'], metadata: { failedAttempts: failure?.failed_login_attempts || null, lockedUntil: failure?.locked_until || null } });
@@ -1037,7 +1091,7 @@ async function handle(req, res) {
       if (currentPreferences) { delete currentPreferences.presence_status; accountPreferences.set(user.id, currentPreferences); }
       user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
       json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
-    } catch (error) { json(res, 400, { error: error.message }); }
+    } catch (error) { if (NEON_SQL || error.code) throw error; json(res, 400, { error: error.message }); }
     return;
   }
 
@@ -1243,12 +1297,31 @@ async function handle(req, res) {
   const managedUserMatch = url.pathname.match(/^\/api\/users\/([^/]+)(?:\/(status|send-access-email|resend-access-email|reset-password|change-password|audit-log))?$/);
   if (managedUserMatch) {
     const actor = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === managedUserMatch[1]); const action = managedUserMatch[2];
+    if (!actor) return;
     if (!target) { json(res, 404, { error: 'User not found.' }); return; }
     if (!userScopedTo(actor, target)) { json(res, 403, { error: 'You do not have permission to manage this user.' }); return; }
     if (req.method === 'GET' && action === 'audit-log') { json(res, 200, { data: (userAuditLogs.get(target.id) || []).map(userAuditView).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }); return; }
     if (req.method === 'GET' && !action) { json(res, 200, userDetailPayload(actor, target)); return; }
     if (req.method === 'POST' && action === 'change-password') { const body = await readBody(req); const next = String(body.newPassword || body.new_password || ''); const confirm = String(body.confirmPassword || body.confirm_password || ''); if (target.id === actor.id) { json(res, 400, { error: 'Use My Account to change your own password.' }); return; } if (!passwordPolicySatisfied(next)) { json(res, 422, { error: 'Password does not meet the configured password policy.' }); return; } if (next !== confirm) { json(res, 400, { error: 'Passwords do not match.' }); return; } target.password_hash = passwordHash(next); target.must_change_password = false; target.has_temporary_password = false; target.temporary_password_expires_at = undefined; target.status = 'active'; target.updated_at = new Date().toISOString(); loginAttempts.delete(`user:${target.id}`); addUserAudit(target.id, actor.id, 'password_changed_by_admin', `Password changed by ${actor.full_name}.`); json(res, 200, { success: true, message: 'Password changed successfully.', user: userManagementView(actor, target) }); return; }
-    if (req.method === 'POST' && ['send-access-email', 'resend-access-email', 'reset-password'].includes(action)) { json(res, 200, { user: userManagementView(actor, target), email: sendUserAccessEmail(actor, target, action === 'reset-password' ? 'password_reset' : 'access_email_sent') }); return; }
+    if (req.method === 'POST' && action === 'reset-password') {
+      if (target.id === actor.id) { json(res, 400, { error: 'Use My Account to change your own password.' }); return; }
+      if (target.status !== 'active') { json(res, 409, { error: 'Activate this user before resetting their password.' }); return; }
+      const temporaryPassword = generateTemporaryPassword();
+      const expiresAt = temporaryPasswordExpiry();
+      target.password_hash = passwordHash(temporaryPassword);
+      target.password_reset_at = Date.now();
+      target.must_change_password = true;
+      target.has_temporary_password = true;
+      target.temporary_password_expires_at = expiresAt;
+      target.invite_status = 'Pending';
+      target.updated_at = new Date().toISOString();
+      loginAttempts.delete(`user:${target.id}`);
+      userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, status: 'pending', expiresAt });
+      addUserAudit(target.id, actor.id, 'password_reset', `Temporary password issued by ${actor.full_name} for secure manual sharing.`);
+      json(res, 200, { success: true, message: 'Temporary password created. Share it securely with the user.', user: userManagementView(actor, target), credentials: { userId: target.id, email: target.email, temporaryPassword, expiresAt } });
+      return;
+    }
+    if (req.method === 'POST' && ['send-access-email', 'resend-access-email'].includes(action)) { const email = sendUserAccessEmail(actor, target); json(res, 200, { user: userManagementView(actor, target), email }); return; }
     if (req.method === 'PATCH' && action === 'status') { const body = await readBody(req); const nextStatus = normalizeUserStatus(body.status); target.status = nextStatus; target.updated_at = new Date().toISOString(); addUserAudit(target.id, actor.id, 'status_changed', `${target.full_name} status changed to ${USER_STATUS_LABELS[nextStatus]}.`); json(res, 200, { user: userManagementView(actor, target) }); return; }
     if (req.method === 'PATCH' && !action) { const body = await readBody(req); const previousRole = target.role; const previousTeam = target.team_id; const nextRole = body.role || target.role; const nextTeam = body.teamId || body.team_id || target.team_id; if (!canCreateManagedUser(actor, nextRole) || !canManageTeam(actor, nextTeam)) { json(res, 403, { error: 'You do not have permission to apply these user changes.' }); return; } ['fullName', 'full_name', 'phone'].forEach(field => { if (body[field] !== undefined) target[field === 'fullName' ? 'full_name' : field] = String(body[field] || '').trim(); }); target.role = nextRole; target.team_id = nextTeam || null; if (body.status !== undefined) target.status = normalizeUserStatus(body.status); target.updated_at = new Date().toISOString(); if (previousRole !== target.role) addUserAudit(target.id, actor.id, 'role_changed', `${target.full_name} role changed to ${USER_ROLE_LABELS[target.role]}.`); if (previousTeam !== target.team_id) addUserAudit(target.id, actor.id, 'team_changed', `${target.full_name} team assignment changed.`); addUserAudit(target.id, actor.id, 'user_updated', `${target.full_name} profile was updated.`); json(res, 200, { user: userManagementView(actor, target) }); return; }
     json(res, 405, { error: 'Method not allowed.' }); return;
@@ -1311,9 +1384,9 @@ async function handle(req, res) {
     let reminder = null;
     if (plan.schedule) {
       const now = new Date().toISOString();
-      reminder = memoryFollowUpWorkflow().schedule(user,customer,{ ...plan.schedule,notes:plan.note,priority:lead.priority || 'Medium',followup_tag:plan.tag }).item;
+      reminder = memoryFollowUpWorkflow().schedule(user,customer,{ ...plan.schedule,notes:plan.note,priority:lead.priority || 'Medium',followup_tag:plan.tag,followup_tags:plan.tags }).item;
       customerNotes.set(customer.id, [{ id: crypto.randomUUID(), note: plan.note, user_id: user.id, user_name: user.full_name, created_at: now }]);
-      lead.tags = [...new Set([...(lead.tags || []), plan.tag])];
+      lead.tags = statusTags.withStatus(lead.tags, plan.tags);
       memoryFollowUpWorkflow().refresh(lead.id, customer.id);
     }
     persistState();
@@ -1333,7 +1406,8 @@ async function handle(req, res) {
     const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'lead_source', 'priority', 'next_follow_up_at'];
     editable.forEach(field => { if (body[field] !== undefined) lead[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
     if (body.financing_required !== undefined) lead.financing_required = Boolean(body.financing_required);
-    if (body.tags) lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : lead.tags;
+    if (body.status !== undefined) { const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.customer_status = body.status; }
+    if (body.tags) lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 12) : lead.tags; const linkedForTags = customers.find(item => item.lead_id === lead.id); if (linkedForTags && body.tags) linkedForTags.tags = [...lead.tags];
     lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, body.tags !== undefined ? 'Tags updated' : 'Lead updated', body.tags !== undefined ? `Tags: ${lead.tags.join(', ') || 'None'}` : 'Lead details updated'); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 200, { data: leadView(lead) }); return;
   }
 
@@ -1349,7 +1423,7 @@ async function handle(req, res) {
         const assigned = users.find(item => item.id === requestedAssignedAgentId && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id));
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
         if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
-        const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
+        const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 12) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
         leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
       } catch (error) { json(res, 400, { error: error.message }); }
     }
@@ -1375,13 +1449,13 @@ async function handle(req, res) {
       lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, 'Lead assigned', `Lead assigned to ${assigned.full_name}`); persistState(); json(res, 200, { data: leadView(lead) }); return;
     }
     if (req.method === 'PATCH' && action === 'status') {
-      const body = await readBody(req); const nextStatus = body.status || lead.status; if (!leadStatuses.some(item => item.name === nextStatus && item.is_active !== false)) { json(res, 422, { error: 'Invalid lead status.' }); return; } const oldStatus = lead.status; lead.status = nextStatus; lead.priority = ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : lead.priority; lead.updated_at = new Date().toISOString().slice(0, 10); if (oldStatus !== lead.status) addLeadActivity(lead.id, user.id, 'Status changed', `${oldStatus} → ${lead.status}`); persistState(); json(res, 200, { data: leadView(lead) }); return;
+      const body = await readBody(req); const nextStatus = body.status || lead.status; if (!leadStatuses.some(item => item.name === nextStatus && item.is_active !== false)) { json(res, 422, { error: 'Invalid lead status.' }); return; } const oldStatus = lead.status; lead.status = nextStatus; const linkedCustomer = customers.find(item => item.lead_id === lead.id); if (linkedCustomer) linkedCustomer.customer_status = nextStatus; lead.priority = ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : lead.priority; lead.updated_at = new Date().toISOString().slice(0, 10); if (oldStatus !== lead.status) addLeadActivity(lead.id, user.id, 'Status changed', `${oldStatus} → ${lead.status}`); persistState(); json(res, 200, { data: leadView(lead) }); return;
     }
     if (req.method === 'POST' && action === 'notes') {
       const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) { json(res, 400, { error: 'Note is required' }); return; } let saved;try { saved=memoryFollowUpWorkflow().saveNote(user,{leadId:lead.id,note,input:body}); } catch(error) { json(res,422,{error:error.message});return; } persistState(); json(res, 201, { data: saved.entry }); return;
     }
     if (req.method === 'POST' && action === 'tags') {
-      const body = await readBody(req); if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); persistState(); json(res, 201, { data: leadView(lead) }); return;
+      const body = await readBody(req); if (Array.isArray(body.tags)) lead.tags = [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0,12); else if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.tags = [...lead.tags]; addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); persistState(); json(res, 201, { data: leadView(lead) }); return;
     }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
@@ -1420,12 +1494,14 @@ async function handle(req, res) {
     if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
     const body = await readBody(req);
+    if (body.customer_status !== undefined && !statusTags.isValid(body.customer_status)) { json(res,422,{error:'Invalid customer status.'}); return; }
     if (body.email !== undefined && body.email && !validateEmail(String(body.email))) { json(res, 422, { error: 'Enter a valid email address.' }); return; }
     if (body.phone !== undefined && !validatePhone(String(body.phone))) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
     const textFields = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'preferred_contact_method', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline'];
     textFields.forEach(field => { if (body[field] !== undefined) customer[field] = safeText(body[field], field === 'full_name' ? 120 : 240); });
     if (body.financing_required !== undefined) customer.financing_required = Boolean(body.financing_required);
-    if (Array.isArray(body.tags)) customer.tags = body.tags.map(tag => safeText(tag, 60)).filter(Boolean).slice(0, 20);
+    if (body.customer_status !== undefined) { customer.customer_status = body.customer_status; const linked = findLead(customer.lead_id); if (linked) linked.status = body.customer_status; }
+    if (Array.isArray(body.tags)) { customer.tags = body.tags.map(tag => safeText(tag, 60)).filter(Boolean).slice(0, 12); const linked = findLead(customer.lead_id); if (linked) linked.tags = [...customer.tags]; }
     customer.updated_at = new Date().toISOString();
     addCustomerActivity(customer.id,user.id,body.tags !== undefined ? 'Tags updated' : 'Customer updated',body.tags !== undefined ? `Tags: ${customer.tags.join(', ') || 'None'}` : 'Customer profile details were updated.');
     json(res, 200, { data: customerView(customer) }); return;
@@ -1436,7 +1512,7 @@ async function handle(req, res) {
     const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerStatusMatch[1]);
     if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
-    const body = await readBody(req); const allowedStatuses = customerStatuses.filter(item => item.is_active !== false).map(item => item.name); if (body.status && !allowedStatuses.includes(body.status)) { json(res, 400, { error: 'Invalid customer status' }); return; } const previous = customer.customer_status; customer.customer_status = body.status || previous; addCustomerActivity(customer.id, user.id, 'Status changed', `${previous} → ${customer.customer_status}`); json(res, 200, { data: customerView(customer) }); return;
+    const body = await readBody(req); const allowedStatuses = customerStatuses.filter(item => item.is_active !== false).map(item => item.name); if (body.status && (!statusTags.isValid(body.status) || !allowedStatuses.includes(body.status))) { json(res, 400, { error: 'Invalid customer status' }); return; } const previous = customer.customer_status; customer.customer_status = body.status || previous; const linkedLead = findLead(customer.lead_id); if (linkedLead) linkedLead.status = customer.customer_status; addCustomerActivity(customer.id, user.id, 'Status changed', `${previous} → ${customer.customer_status}`); json(res, 200, { data: customerView(customer) }); return;
   }
 
   const customerActionMatch = url.pathname.match(/^\/api\/customers\/([^/]+)\/(notes|timeline|follow-ups)$/);
@@ -1638,8 +1714,8 @@ async function handle(req, res) {
     if (req.method === 'POST' && url.pathname === '/api/settings/webhooks') {
       const body = await readBody(req); const connectionName = safeText(body.connectionName || body.connection_name, 120); const sourceType = safeText(body.sourceType || body.source_type, 60); const sourcePlatform = safeText(body.sourcePlatform || body.source_platform, 40);
       if (!connectionName || !WEBHOOK_SOURCE_TYPES.includes(sourceType) || !WEBHOOK_PLATFORMS.includes(sourcePlatform)) { json(res, 422, { error: 'Connection name, source type, and platform are required.' }); return; }
-      const assignedAgent = users.find(item => item.id === (body.defaultAssignedAgent || body.default_assigned_agent) && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)); const now = new Date().toISOString(); const id = `wh_${crypto.randomUUID().slice(0, 12)}`; const secret = webhookSecret();
-      const created = { id, connection_name: connectionName, source_type: sourceType, source_platform: sourcePlatform, webhook_url: `/api/webhooks/leads/${id}`, secret_hash: webhookHash(secret), secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: safeText(body.defaultLeadSource || body.default_lead_source || (sourcePlatform === 'meta' ? 'Meta Lead Ads' : 'Webhook'), 80), default_lead_status: WEBHOOK_STATUSES.includes(body.defaultLeadStatus) ? body.defaultLeadStatus : safeText(body.defaultLeadStatus || body.default_lead_status || 'New', 80), default_tags: (Array.isArray(body.defaultTags || body.default_tags) ? (body.defaultTags || body.default_tags) : ['Imported Lead', 'Webhook Lead']).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10), default_assigned_team: safeText(body.defaultAssignedTeam || body.default_assigned_team, 80) || null, default_assigned_agent: assignedAgent?.id || null, auto_assign_lead: Boolean(body.autoAssignLead || body.auto_assign_lead) && Boolean(assignedAgent), duplicate_check_rule: WEBHOOK_DUPLICATE_RULES.includes(body.duplicateCheckRule || body.duplicate_check_rule) ? (body.duplicateCheckRule || body.duplicate_check_rule) : 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: user.id, created_at: now, updated_at: now };
+      const assignedAgent = users.find(item => item.id === (body.defaultAssignedAgent || body.default_assigned_agent) && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)); const now = new Date().toISOString(); const id = `wh_${crypto.randomUUID().slice(0, 10)}`; const secret = webhookSecret();
+      const created = { id, connection_name: connectionName, source_type: sourceType, source_platform: sourcePlatform, webhook_url: `/api/webhooks/leads/${id}`, secret_hash: webhookHash(secret), secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: safeText(body.defaultLeadSource || body.default_lead_source || (sourcePlatform === 'meta' ? 'Meta Lead Ads' : 'Webhook'), 80), default_lead_status: WEBHOOK_STATUSES.includes(body.defaultLeadStatus) ? body.defaultLeadStatus : safeText(body.defaultLeadStatus || body.default_lead_status || 'New', 80), default_tags: (Array.isArray(body.defaultTags || body.default_tags) ? (body.defaultTags || body.default_tags) : ['Imported Lead', 'Webhook Lead']).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 12), default_assigned_team: safeText(body.defaultAssignedTeam || body.default_assigned_team, 80) || null, default_assigned_agent: assignedAgent?.id || null, auto_assign_lead: Boolean(body.autoAssignLead || body.auto_assign_lead) && Boolean(assignedAgent), duplicate_check_rule: WEBHOOK_DUPLICATE_RULES.includes(body.duplicateCheckRule || body.duplicate_check_rule) ? (body.duplicateCheckRule || body.duplicate_check_rule) : 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: user.id, created_at: now, updated_at: now };
       webhookConnections.unshift(created); addActivityLog(user.id, 'settings', id, 'webhook_connection_created', `${connectionName} webhook connection was created.`); json(res, 201, { data: webhookConnectionView(created), secretToken: secret, message: 'Copy this secret now. It will not be shown again.' }); return;
     }
     const failedPath = url.pathname === '/api/settings/webhooks/failed-leads';
@@ -1658,7 +1734,7 @@ async function handle(req, res) {
       if (action === 'regenerate-secret') { if (req.method !== 'POST') { json(res, 405, { error: 'Method not allowed.' }); return; } const secret = webhookSecret(); connection.secret_hash = webhookHash(secret); connection.secret_token_masked = '••••••••'; connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_secret_regenerated', `${connection.connection_name} secret was regenerated.`); json(res, 200, { data: webhookConnectionView(connection), secretToken: secret, message: 'Copy this secret now. The previous secret is invalid.' }); return; }
       if (action === 'test' || action === 'test-payload') { if (req.method !== 'POST') { json(res, 405, { error: 'Method not allowed.' }); return; } const body = await readBody(req); if (action === 'test') { connection.status = 'Active'; createWebhookLog(connection, 'Success', 'Connection test passed', { raw: { source: 'connection_test', platform: connection.source_platform } }, '', null, user.id); json(res, 200, { data: { success: true, message: 'Connection test passed. The connection is active.' } }); return; } const result = ingestWebhookLead(connection, body.payload || body, { dryRun: true, actorId: user.id }); if (!result.ok) { json(res, 422, { error: result.error, preview: result.fields }); return; } json(res, 200, { data: { normalizedLead: result.preview, duplicate: Boolean(result.duplicate), existingLead: result.duplicate ? result.lead : null } }); return; }
     }
-    if (detailMatch && req.method === 'PATCH') { const connection = webhookConnectionById(detailMatch[1]); if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; } const body = await readBody(req); const nextName = safeText(body.connectionName || body.connection_name, 120); if (nextName) connection.connection_name = nextName; if (body.status !== undefined && WEBHOOK_STATUSES.includes(body.status)) connection.status = body.status; if (body.defaultLeadSource || body.default_lead_source) connection.default_lead_source = safeText(body.defaultLeadSource || body.default_lead_source, 80); if (body.defaultLeadStatus || body.default_lead_status) connection.default_lead_status = safeText(body.defaultLeadStatus || body.default_lead_status, 80); if (Array.isArray(body.defaultTags || body.default_tags)) connection.default_tags = (body.defaultTags || body.default_tags).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10); connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_connection_updated', `${connection.connection_name} webhook connection was updated.`); json(res, 200, { data: webhookConnectionView(connection) }); return; }
+    if (detailMatch && req.method === 'PATCH') { const connection = webhookConnectionById(detailMatch[1]); if (!connection) { json(res, 404, { error: 'Webhook connection not found.' }); return; } const body = await readBody(req); const nextName = safeText(body.connectionName || body.connection_name, 120); if (nextName) connection.connection_name = nextName; if (body.status !== undefined && WEBHOOK_STATUSES.includes(body.status)) connection.status = body.status; if (body.defaultLeadSource || body.default_lead_source) connection.default_lead_source = safeText(body.defaultLeadSource || body.default_lead_source, 80); if (body.defaultLeadStatus || body.default_lead_status) connection.default_lead_status = safeText(body.defaultLeadStatus || body.default_lead_status, 80); if (Array.isArray(body.defaultTags || body.default_tags)) connection.default_tags = (body.defaultTags || body.default_tags).map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 12); connection.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', connection.id, 'webhook_connection_updated', `${connection.connection_name} webhook connection was updated.`); json(res, 200, { data: webhookConnectionView(connection) }); return; }
     json(res, 404, { error: 'Webhook route not found.' }); return;
   }
 
@@ -1704,7 +1780,7 @@ async function handle(req, res) {
     if (collectionMatch && req.method === 'GET') { const collection = collectionMatch[1] === 'lead-statuses' ? leadStatuses : collectionMatch[1] === 'customer-statuses' ? customerStatuses : collectionMatch[1] === 'lead-tags' ? leadTags : leadSources; json(res, 200, { data: collection }); return; }
     if (collectionMatch && req.method === 'POST') {
       const body = await readBody(req); if (!String(body.name || '').trim()) { json(res, 422, { error: 'Name is required' }); return; }
-      const collection = collectionMatch[1] === 'lead-statuses' ? leadStatuses : collectionMatch[1] === 'customer-statuses' ? customerStatuses : collectionMatch[1] === 'lead-tags' ? leadTags : leadSources; const name = String(body.name).trim(); if (collection.some(item => item.name.toLowerCase() === name.toLowerCase())) { json(res, 409, { error: 'That name already exists' }); return; }
+      const collection = collectionMatch[1] === 'lead-statuses' ? leadStatuses : collectionMatch[1] === 'customer-statuses' ? customerStatuses : collectionMatch[1] === 'lead-tags' ? leadTags : leadSources; const name = String(body.name).trim(); if (collectionMatch[1] !== 'lead-sources' && !statusTags.isValid(name)) { json(res,422,{error:'Choose one of the 12 CRM status tags.'}); return; } if (collection.some(item => item.name.toLowerCase() === name.toLowerCase())) { json(res, 409, { error: 'That name already exists' }); return; }
       const prefix = collectionMatch[1] === 'lead-statuses' || collectionMatch[1] === 'customer-statuses' ? 'status' : collectionMatch[1] === 'lead-tags' ? 'tag' : 'source'; const created = { id: `${prefix}_${crypto.randomUUID().slice(0, 8)}`, name, slug: settingSlug(name), color: body.color || '#8d7658', is_active: true, is_default: false, sort_order: collection.length + 1, tag_type: collectionMatch[1] === 'lead-tags' ? 'lead' : undefined, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; collection.push(created); addActivityLog(user.id, 'settings', prefix, 'Configuration added', `${name} was added to ${collectionMatch[1]}.`); json(res, 201, { data: created }); return;
     }
     const entityMatch = url.pathname.match(/^\/api\/settings\/(lead-statuses|customer-statuses|lead-tags|lead-sources)\/([^/]+)(?:\/(status))?$/);
@@ -1713,7 +1789,7 @@ async function handle(req, res) {
       if (req.method !== 'PATCH') { json(res, 405, { error: 'Method not allowed' }); return; }
       const body = await readBody(req);
       if (entityMatch[3] === 'status') item.is_active = body.is_active !== undefined ? Boolean(body.is_active) : item.is_active;
-      else { if (body.name !== undefined && !String(body.name).trim()) { json(res, 422, { error: 'Name is required' }); return; } const previousName = item.name; if (body.name !== undefined) { item.name = String(body.name).trim(); item.slug = settingSlug(item.name); if (type === 'lead-statuses') leads.forEach(lead => { if (lead.status === previousName) lead.status = item.name; }); if (type === 'lead-sources') leads.forEach(lead => { if (lead.lead_source === previousName) lead.lead_source = item.name; }); if (type === 'customer-statuses') customers.forEach(customer => { if (customer.customer_status === previousName) customer.customer_status = item.name; }); } if (body.color !== undefined) item.color = body.color; if (body.sort_order !== undefined) item.sort_order = Number(body.sort_order); }
+      else { if (body.name !== undefined && !String(body.name).trim()) { json(res, 422, { error: 'Name is required' }); return; } if (type !== 'lead-sources' && body.name !== undefined && !statusTags.isValid(String(body.name).trim())) { json(res,422,{error:'Choose one of the 12 CRM status tags.'}); return; } const previousName = item.name; if (body.name !== undefined) { item.name = String(body.name).trim(); item.slug = settingSlug(item.name); if (type === 'lead-statuses') leads.forEach(lead => { if (lead.status === previousName) lead.status = item.name; }); if (type === 'lead-sources') leads.forEach(lead => { if (lead.lead_source === previousName) lead.lead_source = item.name; }); if (type === 'customer-statuses') customers.forEach(customer => { if (customer.customer_status === previousName) customer.customer_status = item.name; }); } if (body.color !== undefined) item.color = body.color; if (body.sort_order !== undefined) item.sort_order = Number(body.sort_order); }
       item.updated_at = new Date().toISOString(); addActivityLog(user.id, 'settings', item.id, 'Configuration updated', `${item.name} configuration was updated.`); json(res, 200, { data: item }); return;
     }
     if (req.method === 'GET' && url.pathname === '/api/settings/activities') { json(res, 200, { data: activityLogs.filter(item => item.entity_type === 'settings').slice(0, 100) }); return; }
@@ -1854,6 +1930,7 @@ async function handle(req, res) {
 }
 
 async function initializeDatabase() {
+  if (neonConnectionError) throw neonConnectionError;
   if (!NEON_SQL) {
     hydratePersistentState();
     return;
@@ -1864,7 +1941,7 @@ async function initializeDatabase() {
     ADD COLUMN IF NOT EXISTS locked_until timestamptz`);
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId(NEON_WORKSPACE_LEGACY_ID);
   if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
-  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE });
+  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword, temporaryPasswordExpiry, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE });
   // The normalized crm schema is authoritative whenever Neon is configured.
   // Do not hydrate the legacy compatibility snapshot here: doing so can load
   // stale users/records and overwrite newer relational data during a cold
@@ -1874,21 +1951,53 @@ async function initializeDatabase() {
   console.log('Aureum CRM connected to Neon PostgreSQL');
 }
 
-const databaseReady = initializeDatabase();
+const DATABASE_RETRY_DELAY_MS = 5000;
+let databaseReady;
+let databaseRetryAt = 0;
+
+function ensureDatabaseReady() {
+  if (databaseReady) return databaseReady;
+  if (Date.now() < databaseRetryAt) return Promise.reject(new Error('Database initialization is cooling down.'));
+  // Share one attempt across concurrent API requests. Do not cache a rejected
+  // promise for the lifetime of a warm Vercel instance.
+  databaseReady = initializeDatabase().catch(error => {
+    databaseReady = null;
+    neonSchemaPromise = null;
+    NEON_WORKSPACE_ID = null;
+    RELATIONAL_API = null;
+    databaseRetryAt = Date.now() + DATABASE_RETRY_DELAY_MS;
+    console.error('CRM database initialization failed:', { code: error.code || error.name, message: String(error.message || '').replace(/postgres(?:ql)?:\/\/[^\s)'"]+/gi, '[redacted database URL]').slice(0, 300) });
+    throw error;
+  });
+  return databaseReady;
+}
 
 function requestHandler(req, res) {
-  return databaseReady.then(() => handle(req, res)).then(result => {
-  if (NEON_SQL && !req.__aureumRelationalHandled && req.url.startsWith('/api/') && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+  req.__aureumRequestId = crypto.randomUUID();
+  res.__aureumRequest = req;
+  res.setHeader('X-Request-Id', req.__aureumRequestId);
+  const isApi = req.url.startsWith('/api/') && req.url.split('?')[0] !== '/api/health/live' && req.method !== 'OPTIONS';
+  if (isApi && activeApiRequests >= MAX_ACTIVE_API_REQUESTS) { json(res, 503, { error: 'The service is busy. Please try again shortly.', code: 'SERVER_BUSY' }, { 'Retry-After': '3' }); return Promise.resolve(); }
+  if (isApi) activeApiRequests++;
+  const run = () => handle(req, res);
+  return Promise.resolve().then(() => isApi ? databaseContext.run({ signal: AbortSignal.timeout(API_DEADLINE_MS) }, run) : run()).then(result => {
+  if (NEON_SQL && NEON_WORKSPACE_ID && res.statusCode >= 200 && res.statusCode < 300 && !req.__aureumRelationalHandled && req.url.startsWith('/api/') && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
     // The response is already written by the route. Queue the durable sync so
     // the next request cannot race a second full snapshot reconciliation.
     queueRelationalSync();
   }
   return result;
   }).catch(error => {
-  console.error(error);
+  console.error('CRM request failed:', { requestId: req.__aureumRequestId, code: error.code || error.name });
   if (res.headersSent) { res.end(); return; }
+  if (isDatabaseUnavailable(error)) {
+    const writing = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method);
+    json(res, 503, { error: writing ? 'The save could not be confirmed. Refresh the record before trying again.' : 'The database is temporarily unavailable. Please try again shortly.', code: writing ? 'SAVE_UNCONFIRMED' : 'DATABASE_UNAVAILABLE', requestId: req.__aureumRequestId }, { 'Retry-After': '5' });
+    return;
+  }
+  if (['PAYLOAD_TOO_LARGE', 'INVALID_JSON', 'REQUEST_BODY_TIMEOUT'].includes(error.code)) { json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : error.code === 'REQUEST_BODY_TIMEOUT' ? 408 : 400, { error: error.message, code: error.code }); return; }
   json(res, 500, { error: 'Something went wrong. Please try again.' });
-  });
+  }).finally(() => { if (isApi) activeApiRequests--; });
 }
 
 module.exports = { handle, requestHandler };

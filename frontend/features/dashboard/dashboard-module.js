@@ -4,7 +4,7 @@
 
 const dashboardMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dashboardStatuses = ['Pending', 'Completed', 'Overdue', 'Missed', 'Rescheduled'];
-const dashboardStages = ['New', 'Contacted', 'Qualified', 'Follow-up', 'Negotiation', 'Booking', 'Closed Won'];
+const dashboardStages = ["New","Contacted","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won"];
 const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
 const dashboardSummaryCache = new Map();
 let dashboardPresenceTimer = null;

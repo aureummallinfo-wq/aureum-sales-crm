@@ -18,14 +18,15 @@
   function noteFields() {
     return `<div class="form-field"><label>Note<textarea name="note" rows="4" maxlength="2000" required placeholder="Add a useful detail about this customer."></textarea></label></div><input type="hidden" name="customer_contacted" value="false" /><input type="hidden" name="next_followup_days" value="none" />`;
   }
-  function scheduleFields({ dueDate = '', dueTime = '10:00', minDate = '', tag = 'Follow-up Needed' } = {}) {
-    const tags = window.AureumCustomerConstants?.tags || window.AureumLeadConstants?.tags || ['Follow-up Needed'];
-    const selectedTag = tags.includes(tag) ? tag : 'Follow-up Needed';
+  function scheduleFields({ dueDate = '', dueTime = '10:00', minDate = '', tag = 'Follow-up', selectedTags } = {}) {
+    const tags = window.AureumCRMStatusTags?.values || window.AureumCustomerConstants?.statuses || window.AureumLeadConstants?.statuses || ["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"];
+    const selected = (Array.isArray(selectedTags) ? selectedTags : [tag]).filter(value => tags.includes(value));
+    if (!selected.length) selected.push('Follow-up');
     return `<div class="form-field"><label>Call note / customer response<textarea name="note" rows="4" maxlength="2000" required placeholder="What did the customer say? What happens next?"></textarea></label></div>
       <input type="hidden" name="customer_contacted" value="true" /><input type="hidden" name="next_followup_days" value="custom" />
       <div class="form-grid"><div class="form-field"><label>Next contact date<input name="next_due_date" type="date" value="${escape(dueDate)}" min="${escape(minDate)}" required /></label></div>
       <div class="form-field"><label>Time (Pakistan)<input name="next_due_time" type="time" value="${escape(dueTime)}" required /></label></div></div>
-      <div class="form-field"><label>Follow-up tag<select name="followup_tag" required>${tags.map(value => `<option value="${escape(value)}" ${value === selectedTag ? 'selected' : ''}>${escape(value)}</option>`).join('')}</select></label></div>`;
+      <div class="form-field"><label>Status tags<select name="followup_tag" class="tag-multi-select" multiple size="6" required aria-describedby="followup-status-tags-help">${tags.map(value => `<option value="${escape(value)}" ${selected.includes(value) ? 'selected' : ''}>${escape(value)}</option>`).join('')}</select></label><small id="followup-status-tags-help" class="form-hint">Select one or more status tags.</small></div>`;
   }
   document.addEventListener('change', event => {
     if (!event.target.matches('[data-next-contact]')) return;

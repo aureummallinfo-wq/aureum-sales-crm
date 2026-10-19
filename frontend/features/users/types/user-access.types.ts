@@ -4,6 +4,8 @@ export interface AccessEmailPayload { userId: string; fullName: string; email: s
 export interface AccessEmailResult { success: boolean; status: AccessEmailStatus; message: string; sentAt?: string; }
 export interface SendAccessEmailInput { userId: string; includeTemporaryPassword: boolean; }
 export interface ResetPasswordInput { userId: string; sendAccessEmail: boolean; requirePasswordChangeOnFirstLogin: boolean; }
+export interface TemporaryAccessCredentials { userId: string; email: string; temporaryPassword: string; expiresAt: string; }
+export interface ResetPasswordResult { success: boolean; message: string; credentials: TemporaryAccessCredentials; }
 export interface ChangePasswordInput { currentPassword: string; newPassword: string; confirmPassword: string; }
 export interface ChangePasswordResult { success: boolean; message: string; mustChangePassword: boolean; }
 export interface PasswordPolicy { minLength: number; requireUppercase: boolean; requireLowercase: boolean; requireNumber: boolean; requireSpecialCharacter: boolean; }

@@ -60,7 +60,7 @@ function renderGlobalSearch() {
 }
 
 function layout9(content) {
-  const nav = navByRole[state.role].map(([id, label, ico]) => `<button class="nav-item ${state.screen === id ? 'active' : ''}" data-screen="${id}" aria-label="${label}" title="${label}">${icon(ico)}<span>${label}</span></button>`).join('');
+  const nav = renderSidebarNavigation();
   const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${AureumUI.escape(state.authUser.full_name)}</div><div class="user-menu-role">${roleLabels[state.role]} · ${AureumUI.escape(state.authUser.email)}</div><button class="btn btn-secondary btn-sm" data-logout>Log out</button></div>` : '';
   const notifications = [...new Map((state.notificationsData || []).map(item => [item.dedupe_key || `${item.event_type}|${item.related_entity_type}|${item.related_entity_id}|${item.title}|${item.message}`, item])).values()]; const unread = notifications.filter(item => !item.is_read).length;
   const filteredNotifications = notifications.filter(item => state.notificationFilter === 'follow-ups' ? ['follow_up_due', 'follow_up_overdue', 'follow_up_completed'].includes(item.event_type) : state.notificationFilter === 'unread' ? !item.is_read : true).slice(0, 8);

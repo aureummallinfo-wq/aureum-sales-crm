@@ -88,7 +88,7 @@ test('database concurrent schedules, contact notes, and customer conversion reus
   assert.equal((await repository.listCustomerNotes(workspace.id,contactCustomer.id)).length,2);
   const orphan = await newLead('orphan');
   const [old] = await sql.query("INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,status,notes) VALUES ($1,'lead-only-reminder',$2,$3,$4,'Call','2099-10-24','Pending','Existing lead reminder') RETURNING id",[workspace.id,orphan.id,user.id,team.id]);
-  const converted = await repository.createCustomerFromLead(workspace.id,'orphan',actor,{schedule_followup:true,note:'Follow up after conversion',next_due_date:'2099-10-25',next_due_time:'12:00',followup_tag:'Follow-up Needed'});
+  const converted = await repository.createCustomerFromLead(workspace.id,'orphan',actor,{schedule_followup:true,note:'Follow up after conversion',next_due_date:'2099-10-25',next_due_time:'12:00',followup_tag:'Follow-up'});
   assert.equal(converted.follow_up_id,'lead-only-reminder');
   const orphanRows = await sql.query('SELECT * FROM crm.follow_ups WHERE lead_id=$1',[orphan.id]);
   assert.equal(orphanRows.length,1);
