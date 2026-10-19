@@ -165,6 +165,29 @@ test('full follow-up table retains its fields and Actions dropdown offers only R
   assert.match(drawer, /value="Visit Scheduled"/);
 });
 
+test('follow-up drawer shows existing remarks, activity, and reschedule history', () => {
+  const app = screen();
+  app.state.followupDetail = {
+    data: {
+      ...reminder('customer-followup', '2026-10-18'),
+      customer_id: 'customer',
+      notes: 'Latest customer remark',
+      last_activity_by: 'Adnan Agent',
+      reschedule_history: [{ fromDate: '2026-10-18', fromTime: '10:00', toDate: '2026-10-21', toTime: '09:47', reason: 'Customer requested a later call.' }]
+    },
+    notes: [{ note: 'Previous agent note', user_name: 'Adnan Agent', created_at: '2026-10-18T08:00:00Z' }],
+    activity: [{ activity_type: 'Note added', description: 'Previous agent note', user_name: 'Adnan Agent', created_at: '2026-10-18T08:00:00Z' }]
+  };
+  app.state.drawer = 'followup';
+  const html = app.drawer();
+  assert.match(html, /Notes &amp; remarks|Notes & remarks/);
+  assert.match(html, /Previous agent note/);
+  assert.match(html, /Follow-up activity/);
+  assert.match(html, /Customer requested a later call\./);
+  assert.match(html, /Reschedule history/);
+  assert.match(html, /Moved to 2026-10-21 · 09:47/);
+});
+
 test('New Customer Follow-up selects a permitted customer and saves their note, date, time and tag', async () => {
   const app = screen();
   app.state.authUser = { id: 'agent' };
