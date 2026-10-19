@@ -12,6 +12,7 @@ const { spreadsheetToCsv } = require('./spreadsheet-parser');
 const followUpDates = require('../frontend/features/follow-ups/utils/followup-overdue-utils');
 const { notePlan, displayStatus, uniqueFollowUps, isCompletedFollowUp } = require('./followup-workflow');
 const { createMemoryFollowUpWorkflow } = require('./memory-followup-workflow');
+const { customerCreationPlan } = require('./customer-creation');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
@@ -217,7 +218,8 @@ function canViewLead(user, lead) {
 }
 
 function leadView(lead) {
-  return { ...lead, meta: `${lead.phone} · ${lead.city}`, interest: lead.interested_in, budget: lead.budget, source: lead.lead_source, agent: lead.assigned_agent || 'Unassigned', tag: lead.tags?.[0] || '', next: lead.next_follow_up_at, contacted: lead.last_contacted_at };
+  const customerId = NEON_SQL ? lead.customer_id : customers.find(item => item.lead_id === lead.id && item.assigned_agent_id === lead.assigned_agent_id && item.assigned_team_id === lead.assigned_team_id)?.id;
+  return { ...lead, customer_id: customerId || null, meta: `${lead.phone} · ${lead.city}`, interest: lead.interested_in, budget: lead.budget, source: lead.lead_source, agent: lead.assigned_agent || 'Unassigned', tag: lead.tags?.[0] || '', next: lead.next_follow_up_at, contacted: lead.last_contacted_at };
 }
 
 function addLeadActivity(leadId, userId, activityType, description, metadata = {}) {
@@ -1293,10 +1295,35 @@ async function handle(req, res) {
   const leadCustomerMatch = url.pathname.match(/^\/api\/leads\/([^/]+)\/customer$/);
   if (leadCustomerMatch && req.method === 'POST') {
     const user = requireAuth(req, res); const lead = findLead(leadCustomerMatch[1]);
+    if (!user) return;
     if (!lead) { json(res, 404, { error: 'Lead not found' }); return; }
     if (!canViewLead(user, lead)) { json(res, 403, { error: 'Access denied — lead is outside your ownership scope' }); return; }
+    const body = await readBody(req);
+    let plan;
+    try { plan = customerCreationPlan(body, lead); } catch (error) { json(res, 422, { error: error.message }); return; }
+    const existing = customers.find(item => item.lead_id === lead.id);
+    if (existing) {
+      if (!canViewCustomer(user, existing)) { json(res, 403, { error: 'Linked customer is outside your ownership scope' }); return; }
+      json(res, 200, { data: customerView(existing), created: false }); return;
+    }
     const customer = ensureCustomerForLead(user, lead);
-    json(res, 201, { data: customerView(customer), created: customer.created_at === customer.updated_at }); return;
+    // Creation inherits the lead's ownership; the caller cannot reassign it through this form.
+    Object.assign(customer, plan.profile, { assigned_agent_id: lead.assigned_agent_id, assigned_agent: lead.assigned_agent, assigned_team_id: lead.assigned_team_id });
+    let reminder = null;
+    if (plan.schedule) {
+      const now = new Date().toISOString();
+      reminder = { id: `followup_${crypto.randomUUID()}`, customer_id: customer.id, lead_id: lead.id,
+        assigned_agent_id: lead.assigned_agent_id, assigned_agent: lead.assigned_agent, assigned_team_id: lead.assigned_team_id,
+        created_by: user.id, follow_up_type: 'General Follow-up', ...plan.schedule, status: 'Pending', priority: lead.priority || 'Medium',
+        notes: plan.note, followup_tag: plan.tag, source: 'customer-creation', customer_name: customer.full_name, customer_phone: customer.phone, created_at: now, updated_at: now };
+      followUps.unshift(reminder);
+      customerNotes.set(customer.id, [{ id: crypto.randomUUID(), note: plan.note, user_id: user.id, user_name: user.full_name, created_at: now }]);
+      lead.tags = [...new Set([...(lead.tags || []), plan.tag])];
+      addFollowUpActivity(reminder, user.id, 'Follow-up scheduled', plan.note);
+      memoryFollowUpWorkflow().refresh(lead.id, customer.id);
+    }
+    persistState();
+    json(res, 201, { data: customerView(customer), created: true, follow_up_id: reminder?.id || null }); return;
   }
 
   if (req.method === 'PATCH' && leadMatch) {

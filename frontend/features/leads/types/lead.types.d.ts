@@ -6,6 +6,7 @@ export type PropertyInterest = '1 Bed Apartment' | '2 Bed Apartment' | 'Commerci
 
 export interface Lead {
   id: string;
+  customer_id?: string | null;
   full_name: string;
   phone: string;
   whatsapp_number?: string;

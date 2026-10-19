@@ -184,8 +184,11 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       const lead = await repository.getLead(workspaceId, leadCustomerMatch[1]);
       if (!lead) return json(res, 404, { error: 'Lead not found' });
       if (!canViewLead(user, lead)) return deny(res, 'Access denied — lead is outside your ownership scope');
-      const customer = await repository.convertLeadToCustomer(workspaceId, lead.id, user);
-      return json(res, 201, { data: customerView(customer), created: customer?.lead_id === lead.id });
+      const body = await readBody(req);
+      try {
+        const result = await repository.createCustomerFromLead(workspaceId, lead.id, user, body);
+        return json(res, result.created ? 201 : 200, { data: customerView(result.customer), created: result.created, follow_up_id: result.follow_up_id });
+      } catch (error) { return json(res, 422, { error: error.message }); }
     }
 
     if (req.method === 'PATCH' && leadMatch) {

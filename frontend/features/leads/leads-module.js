@@ -23,6 +23,7 @@
   const initials = lead => valueOf(lead, 'initials', String(valueOf(lead, 'full_name', 'Lead')).split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase());
   const titleCase = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   const currentLead = () => state.leadDetail?.data || null;
+  const linkedCustomerId = lead => lead.customer_id !== undefined ? lead.customer_id : window.AureumCustomerIntegrations?.getCustomerFromLeadId?.(lead.id)?.id;
   const canManage = () => ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role);
   const canCreateLead = () => ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'].includes(state.role);
   const isManager = () => ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role);
@@ -176,7 +177,7 @@
   function leadActionMenu(lead) {
     const id = escape(lead.id);
     const management = canManage() ? `<button data-leads-action="assign" data-lead-id="${id}">Assign / reassign</button>` : '';
-    return `<details class="lead-action-menu"><summary class="table-action" aria-label="Actions for ${escape(lead.full_name)}">Actions <span aria-hidden="true">⌄</span></summary><div class="lead-action-options"><button data-leads-open="${id}">Open details</button><button data-leads-action="edit" data-lead-id="${id}">Edit lead</button><button data-leads-action="call" data-lead-id="${id}">Call lead</button><button data-leads-action="whatsapp" data-lead-id="${id}">Open WhatsApp</button><button data-leads-action="status" data-lead-id="${id}">Update status</button>${management}<button data-leads-action="customer" data-lead-id="${id}">Open or create customer</button><button data-leads-action="follow-up" data-lead-id="${id}">Schedule follow-up</button></div></details>`;
+    return `<details class="lead-action-menu"><summary class="table-action" aria-label="Actions for ${escape(lead.full_name)}">Actions <span aria-hidden="true">⌄</span></summary><div class="lead-action-options"><button data-leads-open="${id}">Open details</button><button data-leads-action="edit" data-lead-id="${id}">Edit lead</button><button data-leads-action="call" data-lead-id="${id}">Call lead</button><button data-leads-action="whatsapp" data-lead-id="${id}">Open WhatsApp</button><button data-leads-action="status" data-lead-id="${id}">Update status</button>${management}<button data-leads-action="customer" data-lead-id="${id}">${linkedCustomerId(lead) ? 'Customer profile' : 'Create customer'}</button><button data-leads-action="follow-up" data-lead-id="${id}">Schedule follow-up</button></div></details>`;
   }
 
   function leadTableRows(items, my) {
@@ -233,6 +234,17 @@
 
   function detailItem(label, value) { return `<div><div class="detail-label">${escape(label)}</div><div class="detail-value">${escape(valueOf({ value }, 'value'))}</div></div>`; }
 
+  function renderCreateCustomerForm(lead) {
+    const schedule = Boolean(state.leadModule.creatingCustomer?.schedule);
+    const inheritedTags = normalizeTags(lead.tags);
+    const customerTags = [...new Set([...tags, ...inheritedTags])].map(tag => `<option value="${escape(tag)}" ${inheritedTags.includes(tag) ? 'selected' : ''}>${escape(tag)}</option>`).join('');
+    const field = (label, name, type = 'text') => `<div class="form-field"><label for="lead-customer-${name}">${escape(label)}</label><input id="lead-customer-${name}" name="${name}" type="${type}" value="${escape(lead[name] || (name === 'whatsapp_number' ? lead.phone : '') || '')}" ${['full_name', 'phone'].includes(name) ? 'required' : ''} /></div>`;
+    const dates = window.AureumFollowUpDateUtils;
+    const today = dates.todayInTimezone();
+    const tomorrow = dates.todayInTimezone(new Date(Date.now() + 86400000));
+    return `<form id="lead-module-customer-form" class="drawer-section" data-lead-id="${escape(lead.id)}"><div class="drawer-section-label">Create customer</div><p class="form-hint">Review the details copied from this lead. The customer stays linked to the same lead and advisor.</p><div class="form-grid">${field('Full name *', 'full_name')}${field('Phone *', 'phone')}${field('WhatsApp', 'whatsapp_number')}${field('Email', 'email', 'email')}${field('City', 'city')}${field('Area / locality', 'area')}${field('Interested in', 'interested_in')}${field('Property type', 'property_type')}${field('Budget', 'budget')}${field('Preferred location', 'preferred_location')}${field('Purpose', 'purpose')}${field('Buying timeline', 'buying_timeline')}<div class="form-field"><label for="lead-customer-contact">Preferred contact</label><select id="lead-customer-contact" name="preferred_contact_method">${selectOptions(['Phone call', 'WhatsApp', 'Email'], lead.preferred_contact_method || 'Phone call')}</select></div><div class="form-field"><label for="lead-customer-tags">Customer tags</label><select id="lead-customer-tags" name="tags" class="tag-multi-select" multiple size="4">${customerTags}</select></div></div><div class="lead-customer-followup"><label class="lead-customer-schedule-toggle"><input type="checkbox" name="schedule_followup" value="true" data-lead-customer-schedule ${schedule ? 'checked' : ''} /> Schedule a follow-up</label><p class="form-hint">Optionally plan the next conversation while creating this customer.</p><fieldset data-lead-customer-followup ${schedule ? '' : 'hidden disabled'}><legend>Follow-up details</legend><div class="form-field"><label for="lead-customer-note">Follow-up note *</label><textarea id="lead-customer-note" name="note" rows="3" maxlength="2000" required placeholder="What should happen in the next conversation?"></textarea></div><div class="form-grid"><div class="form-field"><label for="lead-customer-date">Follow-up date *</label><input id="lead-customer-date" name="next_due_date" type="date" value="${tomorrow}" min="${today}" required /></div><div class="form-field"><label for="lead-customer-time">Time (Pakistan) *</label><input id="lead-customer-time" name="next_due_time" type="time" value="10:00" required /></div></div><div class="form-field"><label for="lead-customer-followup-tag">Follow-up tag *</label><select id="lead-customer-followup-tag" name="followup_tag" required>${selectOptions(tags, 'Follow-up Needed')}</select></div></fieldset></div><p class="form-hint" data-lead-customer-error role="alert"></p><div class="drawer-action-row"><button class="btn btn-secondary" type="button" data-leads-action="cancel-customer" data-lead-id="${escape(lead.id)}">Cancel</button><button class="btn btn-gold" type="submit">${schedule ? 'Create customer & follow-up' : 'Create customer'}</button></div></form>`;
+  }
+
   function renderLeadEditForm(lead) {
     const field = (label, name, input, full = false) => `<div class="form-field ${full ? 'full' : ''}"><label for="lead-edit-${name}">${escape(label)}</label>${input.replace('<input ', `<input id="lead-edit-${name}" `).replace('<select ', `<select id="lead-edit-${name}" `).replace('<textarea ', `<textarea id="lead-edit-${name}" `)}</div>`;
     const editValue = key => escape(lead?.[key] ?? '');
@@ -254,11 +266,12 @@
     const tab = state.leadModule.drawerTab || 'overview';
     const statusForm = `<form id="lead-module-status-form" class="drawer-inline-form"><label>Status</label><div class="drawer-form-row"><select name="status">${selectOptions(allStatuses, lead.status)}</select><select name="priority">${selectOptions(priorities, lead.priority || 'Medium')}</select><button class="btn btn-gold btn-sm" type="submit">Save</button></div></form>`;
     const assignment = canManage() ? `<form id="lead-module-assign-form" class="drawer-inline-form"><label>Assigned agent</label><div class="drawer-form-row"><select name="assigned_agent_id">${agentOptions(lead.assigned_agent_id, false)}${lead.assigned_agent_id ? '' : '<option value="" selected>Keep current assignment</option>'}</select><button class="btn btn-secondary btn-sm" type="submit">Assign</button></div></form>` : '';
-    const overview = `<div class="drawer-section"><div class="detail-grid">${detailItem('Phone / WhatsApp', `${valueOf(lead, 'phone')} · ${valueOf(lead, 'whatsapp_number')}`)}${detailItem('Email', valueOf(lead, 'email'))}${detailItem('City / area', `${valueOf(lead, 'city')} · ${valueOf(lead, 'area')}`)}${detailItem('Interested in', valueOf(lead, 'interested_in'))}${detailItem('Budget', valueOf(lead, 'budget'))}${detailItem('Property type', valueOf(lead, 'property_type'))}${detailItem('Purpose', valueOf(lead, 'purpose'))}${detailItem('Buying timeline', valueOf(lead, 'buying_timeline'))}${detailItem('Next follow-up', valueOf(lead, 'next_follow_up_at'))}${detailItem('Last contacted', valueOf(lead, 'last_contacted_at'))}</div></div><div class="drawer-section"><div class="lead-drawer-tags">${formatTags(lead)}</div>${statusForm}${assignment}</div><div class="drawer-section"><div class="drawer-action-row"><button class="btn btn-gold btn-sm" data-leads-action="edit" data-lead-id="${escape(lead.id)}">Edit lead</button><button class="btn btn-secondary btn-sm" data-leads-action="call" data-lead-id="${escape(lead.id)}">Call</button><button class="btn btn-secondary btn-sm" data-leads-action="whatsapp" data-lead-id="${escape(lead.id)}">WhatsApp</button><button class="btn btn-secondary btn-sm" data-leads-action="customer" data-lead-id="${escape(lead.id)}">Customer profile</button><button class="btn btn-secondary btn-sm" data-leads-action="follow-up" data-lead-id="${escape(lead.id)}">Schedule follow-up</button></div></div>`;
+    const overview = `<div class="drawer-section"><div class="detail-grid">${detailItem('Phone / WhatsApp', `${valueOf(lead, 'phone')} · ${valueOf(lead, 'whatsapp_number')}`)}${detailItem('Email', valueOf(lead, 'email'))}${detailItem('City / area', `${valueOf(lead, 'city')} · ${valueOf(lead, 'area')}`)}${detailItem('Interested in', valueOf(lead, 'interested_in'))}${detailItem('Budget', valueOf(lead, 'budget'))}${detailItem('Property type', valueOf(lead, 'property_type'))}${detailItem('Purpose', valueOf(lead, 'purpose'))}${detailItem('Buying timeline', valueOf(lead, 'buying_timeline'))}${detailItem('Next follow-up', valueOf(lead, 'next_follow_up_at'))}${detailItem('Last contacted', valueOf(lead, 'last_contacted_at'))}</div></div><div class="drawer-section"><div class="lead-drawer-tags">${formatTags(lead)}</div>${statusForm}${assignment}</div><div class="drawer-section"><div class="drawer-action-row"><button class="btn btn-gold btn-sm" data-leads-action="edit" data-lead-id="${escape(lead.id)}">Edit lead</button><button class="btn btn-secondary btn-sm" data-leads-action="call" data-lead-id="${escape(lead.id)}">Call</button><button class="btn btn-secondary btn-sm" data-leads-action="whatsapp" data-lead-id="${escape(lead.id)}">WhatsApp</button><button class="btn btn-secondary btn-sm" data-leads-action="customer" data-lead-id="${escape(lead.id)}">${linkedCustomerId(lead) ? 'Customer profile' : 'Create customer'}</button><button class="btn btn-secondary btn-sm" data-leads-action="follow-up" data-lead-id="${escape(lead.id)}">Schedule follow-up</button></div></div>`;
     const notesView = `<div class="drawer-section"><form id="lead-module-note-form">${window.AureumFollowUpNoteUI.fields()}<button class="btn btn-gold btn-sm" type="submit">Save note</button></form></div><div class="lead-notes-list">${notes.length ? notes.map(note => `<article class="lead-note"><strong>Note</strong><p>${escape(note.description || note.note)}</p><time>${escape(note.created_at)}</time></article>`).join('') : '<div class="empty-state">No notes yet. Add the first useful context for this relationship.</div>'}</div>`;
     const activityView = `<div class="lead-activity-timeline">${activity.length ? activity.map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${escape(item.activity_type || 'Activity')}</div><div class="timeline-copy">${escape(item.description || '')}</div><div class="timeline-time">${escape(item.created_at || '')}</div></div></div>`).join('') : '<div class="empty-state">No activity recorded yet.</div>'}</div>`;
-    const body = state.leadModule.editing ? renderLeadEditForm(lead) : `${tab === 'overview' ? overview : tab === 'notes' ? notesView : activityView}`;
-    return `<div class="drawer-backdrop" data-lead-module-close></div><aside class="drawer lead-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Lead record</div><h2>${escape(lead.full_name)}</h2><p class="page-subtitle">${escape(lead.assigned_agent || 'Unassigned')} · ${statusBadge(lead.status)}</p></div><button class="drawer-close" data-lead-module-close aria-label="Close lead details">×</button></div>${state.leadModule.editing ? '' : `<div class="lead-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-lead-drawer-tab="overview">Overview</button><button class="${tab === 'notes' ? 'active' : ''}" data-lead-drawer-tab="notes">Notes <span>${notes.length}</span></button><button class="${tab === 'activity' ? 'active' : ''}" data-lead-drawer-tab="activity">Activity <span>${activity.length}</span></button></div>`}${body}</aside>`;
+    const creatingCustomer = state.leadModule.creatingCustomer?.id === lead.id;
+    const body = creatingCustomer ? renderCreateCustomerForm(lead) : state.leadModule.editing ? renderLeadEditForm(lead) : `${tab === 'overview' ? overview : tab === 'notes' ? notesView : activityView}`;
+    return `<div class="drawer-backdrop" data-lead-module-close></div><aside class="drawer lead-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Lead record</div><h2>${escape(lead.full_name)}</h2><p class="page-subtitle">${escape(lead.assigned_agent || 'Unassigned')} · ${statusBadge(lead.status)}</p></div><button class="drawer-close" data-lead-module-close aria-label="Close lead details">×</button></div>${state.leadModule.editing || creatingCustomer ? '' : `<div class="lead-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-lead-drawer-tab="overview">Overview</button><button class="${tab === 'notes' ? 'active' : ''}" data-lead-drawer-tab="notes">Notes <span>${notes.length}</span></button><button class="${tab === 'activity' ? 'active' : ''}" data-lead-drawer-tab="activity">Activity <span>${activity.length}</span></button></div>`}${body}</aside>`;
   }
 
   async function refreshLeads() { try { await loadLeads(state.screen === 'my-leads', true); } catch { /* loadLeads renders its own error state */ } }
@@ -267,8 +280,19 @@
     if (!lead) return;
     if (action === 'call') { showToast(`Call ready for ${lead.full_name}`); return; }
     if (action === 'whatsapp') { showToast(`WhatsApp ready for ${lead.full_name}`); return; }
-    if (action === 'customer') { const linked = window.AureumCustomerIntegrations?.getCustomerFromLeadId?.(id); if (linked) { await openCustomer(linked.id); } else { try { const result = await apiFetch(`/api/leads/${id}/customer`, { method: 'POST' }); await loadCustomers(); await openCustomer(result.data.id); showToast('Customer profile created from lead'); } catch (error) { showToast(`Unable to create customer: ${error.message}`); } } return; }
-    if (action === 'follow-up') { window.openFollowupComposer?.({ lead_id: id, customer_id: lead.customer_id || lead.customerId || '' }); return; }
+    if (action === 'customer' || (action === 'follow-up' && !linkedCustomerId(lead))) {
+      const customerId = linkedCustomerId(lead);
+      if (customerId) { await openCustomer(customerId); return; }
+      state.leadModule.editing = false;
+      state.leadModule.creatingCustomer = { id, schedule: action === 'follow-up' };
+      await openLead(id);
+      // The detail response is authoritative if the table was loaded before conversion.
+      const linked = currentLead()?.id === id && linkedCustomerId(currentLead());
+      if (linked) { state.leadModule.creatingCustomer = null; await openCustomer(linked); }
+      return;
+    }
+    if (action === 'follow-up') { window.openFollowupComposer?.({ lead_id: id, customer_id: linkedCustomerId(lead) || '' }); return; }
+    if (action === 'cancel-customer') { state.leadModule.creatingCustomer = null; render(); return; }
     if (action === 'edit') { state.leadModule.editing = true; state.leadModule.drawerTab = 'overview'; await openLead(id); return; }
     if (action === 'cancel-edit') { state.leadModule.editing = false; render(); return; }
     if (action === 'status') { await openLead(id); state.leadModule.drawerTab = 'overview'; return; }
@@ -296,6 +320,30 @@
     } catch (error) { showToast(error.message); }
   }
 
+  async function submitCreateCustomer(form) {
+    if (form.dataset.saving) return;
+    const formData = new FormData(form);
+    const payload = { ...Object.fromEntries(formData.entries()), tags: normalizeTags(formData.getAll('tags')), schedule_followup: formData.get('schedule_followup') === 'true' };
+    const button = form.querySelector('button[type="submit"]');
+    const errorField = form.querySelector('[data-lead-customer-error]');
+    form.dataset.saving = 'true'; button.disabled = true; errorField.textContent = '';
+    try {
+      const result = await apiFetch(`/api/leads/${form.dataset.leadId}/customer`, { method: 'POST', body: JSON.stringify(payload) });
+      const customerId = result.data.id;
+      if (currentLead()?.id === form.dataset.leadId) currentLead().customer_id = customerId;
+      const row = state.leads?.items?.find(item => item.id === form.dataset.leadId);
+      if (row) row.customer_id = customerId;
+      state.leadModule.creatingCustomer = null;
+      if (state.customerModule) { state.customerModule.editing = false; state.customerModule.tab = 'overview'; }
+      await loadCustomers(true);
+      await refreshLeads();
+      if (payload.schedule_followup && typeof loadFollowups === 'function') await loadFollowups(true);
+      await openCustomer(customerId);
+      showToast(result.created === false ? 'Customer profile already exists' : result.follow_up_id ? 'Customer created and follow-up scheduled' : 'Customer created');
+    } catch (error) { errorField.textContent = error.message || 'Unable to create customer.'; }
+    finally { delete form.dataset.saving; button.disabled = false; }
+  }
+
   document.addEventListener('click', event => {
     const leadTemplate = event.target.closest?.('[data-leads-template]');
     if (leadTemplate) { event.preventDefault(); downloadImportTemplate(); return; }
@@ -320,7 +368,7 @@
     const row = event.target.closest('[data-lead-module-row]');
     if (row && !event.target.closest('button, a, input, select, textarea, summary, details')) { openLead(row.dataset.leadModuleRow); return; }
     const close = event.target.closest('[data-lead-module-close]');
-    if (close) { state.drawer = null; state.leadDetail = null; state.leadModule.editing = false; render(); return; }
+    if (close) { state.drawer = null; state.leadDetail = null; state.leadModule.editing = false; state.leadModule.creatingCustomer = null; render(); return; }
     const open = event.target.closest('[data-leads-open]');
     if (open) { event.preventDefault(); openLead(open.dataset.leadsOpen); return; }
     const tab = event.target.closest('[data-leads-tab]');
@@ -351,6 +399,13 @@
   });
   document.addEventListener('change', event => {
     const input = event.target;
+    if (input.matches('[data-lead-customer-schedule]')) {
+      const form = input.closest('form');
+      const fields = form.querySelector('[data-lead-customer-followup]');
+      fields.hidden = !input.checked; fields.disabled = !input.checked;
+      form.querySelector('button[type="submit"]').textContent = input.checked ? 'Create customer & follow-up' : 'Create customer';
+      return;
+    }
     if (input.matches('[data-import-duplicates]') && state.leadModule.importDialog) { state.leadModule.importDialog.duplicateMode = input.value === 'allow' ? 'allow' : 'skip'; return; }
     if (input.matches('[data-interest-select]')) { syncOtherInterestField(input.closest('form')); return; }
     if (input.matches('[data-leads-source]')) state.leadFilters.source = input.value;
@@ -361,6 +416,7 @@
   });
   document.addEventListener('submit', event => {
     const form = event.target;
+    if (form.matches('#lead-module-customer-form')) { event.preventDefault(); return submitCreateCustomer(form); }
     if (form.matches('#lead-create-form')) { event.preventDefault(); submitCreateLead(form, new FormData(form).get('save_mode') || 'close'); }
     if (form.matches('#lead-module-status-form')) { event.preventDefault(); const data = Object.fromEntries(new FormData(form).entries()); apiFetch(`/api/leads/${currentLead().id}/status`, { method: 'PATCH', body: JSON.stringify(data) }).then(() => { showToast('Lead status updated'); return openLead(currentLead().id); }).then(refreshLeads).catch(error => showToast(error.message)); }
     if (form.matches('#lead-module-note-form')) { event.preventDefault(); const data=Object.fromEntries(new FormData(form).entries()); apiFetch(`/api/leads/${currentLead().id}/notes`, { method: 'POST', body: JSON.stringify(data) }).then(() => { showToast('Note added'); return openLead(currentLead().id); }).then(refreshLeads).catch(error => showToast(error.message)); }

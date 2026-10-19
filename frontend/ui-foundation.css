@@ -52,3 +52,10 @@ html[data-theme="light"] .app-shell .followup-drawer-tabs .tab.active { color: v
 html[data-theme="dark"] .app-shell .followup-contacted-badge { color: #b6ddf6; background: #233b4d; }
 html[data-theme="light"] .followup-registry-card .badge-overdue,
 html[data-theme="light"] .followup-detail-drawer .badge-overdue { color: #8d2727; background: #f8dddd; }
+.lead-customer-followup { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.lead-customer-schedule-toggle { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+.lead-customer-schedule-toggle input { width: 18px; height: 18px; margin: 0; }
+.lead-customer-followup fieldset { border: 0; margin: 16px 0 0; padding: 0; min-width: 0; }
+.lead-customer-followup fieldset[hidden] { display: none; }
+.lead-customer-followup legend { margin-bottom: 12px; font-weight: 600; }
+[data-lead-customer-error]:not(:empty) { color: var(--danger, #e57373); }
