@@ -327,10 +327,41 @@ async function runManagement(api, request) {
   });
 }
 
+async function runLocalTasks(api) {
+  const manager = client(api, await api.login('dua@aureum.com'));
+  const agent = client(api, await api.login('adan@aureum.com'));
+  const colleague = client(api, await api.login('saqib@aureum.com', 'Rao@1234'));
+  let task;
+  await check('Sales Manager', 'Tasks', 'Local task assignment validates fields and creates a dated assignment', async () => {
+    await manager('/api/tasks', 'POST', { title: '' }, 422);
+    await manager('/api/tasks', 'POST', { title: 'Bad date', due_at: 'invalid' }, 422);
+    task = (await manager('/api/tasks', 'POST', { title: 'Local mock assignment', assigned_to: 'usr_003', due_at: '2099-10-24T14:35', priority: 'High' }, 201)).body.data;
+    assert.equal(task.assignedTo, 'usr_003'); assert.equal(task.dueAt, '2099-10-24T09:35:00.000Z');
+  });
+  await check('Sales Agent', 'Tasks', 'Local assignee can complete and reopen; colleagues and restricted actions are denied', async () => {
+    need(task, 'Local task');
+    assert.ok((await agent('/api/tasks')).body.data.some(row => row.id === task.id));
+    await colleague(`/api/tasks/${task.id}`, 'GET', undefined, 404);
+    await agent('/api/tasks', 'POST', { title: 'Forbidden' }, 403);
+    await agent(`/api/tasks/${task.id}`, 'PATCH', { assigned_to: 'usr_004' }, 422);
+    const done = (await agent(`/api/tasks/${task.id}`, 'PATCH', { status: 'Completed' })).body.data;
+    assert.equal(done.status, 'Completed'); assert.ok(done.completedAt);
+    assert.equal((await agent(`/api/tasks/${task.id}`, 'PATCH', { status: 'Pending' })).body.data.completedAt, null);
+  });
+  await check('Sales Manager', 'Tasks', 'Local task can be reassigned, filtered and deleted with ownership updated', async () => {
+    need(task, 'Local task');
+    await manager(`/api/tasks/${task.id}`, 'PATCH', { assigned_to: 'usr_004' });
+    await agent(`/api/tasks/${task.id}`, 'GET', undefined, 404);
+    assert.equal((await manager('/api/tasks?assignedTo=usr_004&q=Local%20mock')).body.data.length, 1);
+    await manager(`/api/tasks/${task.id}`, 'DELETE');
+    await colleague(`/api/tasks/${task.id}`, 'GET', undefined, 404);
+  });
+}
+
 const limits = [
   'Disposable in-memory HTTP fixtures and a separate PGlite database; no production customer records are changed.',
   'PGlite checks execute the actual relational API and SQL repository for tasks and lead imports. They do not verify hosted Neon connectivity or deployment configuration.',
-  'The local HTTP fixture has no Tasks or Import handlers. Those browser flows cannot complete in memory mode; database cases are reported separately.',
+  'Local task flows use the same HTTP validation and permissions as the relational API. Lead import browser flows still require a database-backed development server; their relational API/SQL checks run separately.',
   'Email delivery, real telephone/WhatsApp calls, external integrations, load, accessibility and a full mobile/browser matrix are not certified by this run.',
   'Browser journeys are recorded separately in the dated browser QA report. API success does not prove that the corresponding button works.'
 ];
@@ -357,6 +388,7 @@ async function main() {
   });
   await runPortal(api, 'Sales Manager', 'dua@aureum.com', 'usr_002', 'Manager');
   await runPortal(api, 'Sales Agent', 'adan@aureum.com', 'usr_003', 'Agent');
+  await runLocalTasks(api);
   await runRelationalChecks({ check, need });
 }
 main().catch(error => { results.push({ role: 'Shared', module: 'Harness', name: 'Complete the mock run', layer: 'Test setup', status: 'FAIL', evidence: error.message }); process.exitCode = 1; }).finally(async () => {

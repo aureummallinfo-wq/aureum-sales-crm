@@ -37,6 +37,6 @@ Use a disposable development workspace for these checks. Do not change live cust
 | My Account | Profile, preferences, activity | Same | Invalid submissions preserve saved values; password rules apply |
 | Navigation | Open every permitted menu and browser back/refresh | Same | No blank/error screen or stale data after switching accounts |
 
-The local in-memory backend has no Tasks/Import HTTP handlers; their database logic is exercised separately. Browser checks for those two features need a database-backed development server.
+Tasks work in both the local in-memory/JSON backend and the database backend, with shared HTTP validation and permissions. Lead Import browser checks need a database-backed development server; its actual relational API/SQL logic is exercised separately.
 
 Real email delivery, telephone/WhatsApp, external services, hosted Neon connectivity, performance, accessibility, and the full device/browser matrix require separate checks. `npm run check` and `npm test` remain the broader regression suite; `npm run test:crm` is the explicitly database-backed readiness run.

@@ -1,5 +1,7 @@
 # Mock system test results — 19 October 2026
 
+Update: all six findings below have been addressed. See [fixes and verification](mock-system-test-fixes-2026-10-19.md). The original results are retained here as the before-fix record.
+
 Scope: Sales Manager and Sales Agent portals, using disposable local records and a separate PostgreSQL-compatible PGlite database. Production and hosted Neon were not exercised.
 
 | Test layer | Passed | Failed | Blocked / skipped |

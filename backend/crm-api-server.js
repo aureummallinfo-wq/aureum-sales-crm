@@ -13,6 +13,7 @@ const followUpDates = require('../frontend/features/follow-ups/utils/followup-ov
 const { notePlan, displayStatus, uniqueFollowUps, isCompletedFollowUp } = require('./followup-workflow');
 const { createMemoryFollowUpWorkflow } = require('./memory-followup-workflow');
 const { customerCreationPlan } = require('./customer-creation');
+const { createMemoryTaskRepository } = require('./memory-task-repository');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
@@ -35,6 +36,8 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
 const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173,https://aureum-sales-crm.vercel.app,https://aureum-sales-crm-web.vercel.app,https://aureum-sales-crm-frontend.vercel.app').split(',').map(value => value.trim()).filter(Boolean));
 const loginAttempts = new Map();
+const revokedSessions = new Map();
+const tasks = [];
 const webhookRateLimits = new Map();
 const webhookConnections = [];
 const webhookLogs = [];
@@ -487,6 +490,8 @@ function persistenceSnapshot() {
   return {
     version: 2,
     users,
+    tasks,
+    revokedSessions: [...revokedSessions.entries()],
     teams,
     chatChannels,
     userInvites: [...userInvites.entries()],
@@ -566,6 +571,8 @@ function replaceMap(target, entries) {
 function applyStoredState(saved) {
   if (!saved || typeof saved !== 'object') return;
   replaceArray(users, saved.users);
+  replaceArray(tasks, saved.tasks);
+  replaceMap(revokedSessions, saved.revokedSessions);
   replaceArray(teams, saved.teams);
   replaceArray(chatChannels, saved.chatChannels);
   replaceMap(userInvites, saved.userInvites);
@@ -853,6 +860,7 @@ function sessionFromToken(token) {
   if (suppliedBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)) return null;
   const expiresAt = Number(expiresAtText);
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
+  if (revokedSessions.has(crypto.createHash('sha256').update(token).digest('hex'))) return null;
   return { userId, expiresAt };
 }
 
@@ -1042,9 +1050,14 @@ async function handle(req, res) {
     } else {
       const user = currentUser(req);
       if (user) {
+        const token = parseCookies(req).aureum_session;
+        const session = sessionFromToken(token);
+        for (const [key, expiresAt] of revokedSessions) if (expiresAt <= Date.now()) revokedSessions.delete(key);
+        if (session) revokedSessions.set(crypto.createHash('sha256').update(token).digest('hex'), session.expiresAt);
         const current = accountPreferences.get(user.id) || {};
         current.presence_status = { status: 'Offline', mode: 'manual' };
         accountPreferences.set(user.id, current);
+        persistState();
       }
     }
     json(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, '', 0) });
@@ -1111,6 +1124,22 @@ async function handle(req, res) {
     return;
   }
 
+  if (/^\/api\/tasks(?:\/[^/]+)?$/.test(url.pathname)) {
+    const user = requireAuth(req, res); if (!user) return;
+    const repository = createMemoryTaskRepository({ tasks, users,
+      records: key => key === 'lead_id' ? leads : key === 'customer_id' ? customers : followUps,
+      onChange: (task, actor, action) => { addActivityLog(actor.id, 'task', task.id, action, task.title); persistState(); },
+      notify: (userId, task, actor) => {
+        const list = notifications.get(userId) || [];
+        list.unshift({ id: crypto.randomUUID(), event_type: 'task_assigned', title: 'New task assigned', message: `${actor.full_name} assigned you: ${task.title}`, related_entity_type: 'task', related_entity_id: task.id, is_read: false, created_at: new Date().toISOString() });
+        notifications.set(userId, list);
+      }
+    });
+    const handled = await createRelationalApi({ repository, workspaceId: user.workspace_id || 'local', json, readBody, safeText }).handle(req, res, url, user);
+    if (handled === false) json(res, 405, { error: 'Method not allowed' });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/users/me') {
     const user = requireAuth(req, res);
     if (user) json(res, 200, { user: publicUser(user) });
@@ -1123,18 +1152,21 @@ async function handle(req, res) {
     return;
   }
 
-  if ((req.method === 'GET' || req.method === 'PATCH') && url.pathname === '/api/account/me/profile') {
+  if ((req.method === 'GET' || req.method === 'PATCH') && (url.pathname === '/api/account/me/profile' || req.method === 'PATCH' && url.pathname === '/api/account/me')) {
     const user = requireAuth(req, res);
     if (user) {
       if (req.method === 'PATCH') {
         const body = await readBody(req);
-        if (body.fullName !== undefined || body.full_name !== undefined) user.full_name = String(body.fullName ?? body.full_name).trim();
-        if (body.phone !== undefined) user.phone = String(body.phone || '').trim();
-        if (body.avatarUrl !== undefined || body.avatar_url !== undefined) user.avatar_url = String((body.avatarUrl ?? body.avatar_url) || '').trim();
-        if (!user.full_name) { json(res, 422, { error: 'Full name is required.' }); return; }
-        if (!validatePhone(user.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
+        const patch = {};
+        if (body.fullName !== undefined || body.full_name !== undefined) patch.full_name = safeText(body.fullName ?? body.full_name, 120);
+        if (body.phone !== undefined) patch.phone = String(body.phone || '').trim();
+        if (body.avatarUrl !== undefined || body.avatar_url !== undefined) patch.avatar_url = String((body.avatarUrl ?? body.avatar_url) || '').trim();
+        if (patch.full_name === '') { json(res, 422, { error: 'Full name is required.' }); return; }
+        if (patch.phone !== undefined && !validatePhone(patch.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
+        Object.assign(user, patch);
         user.updated_at = new Date().toISOString(); user.last_activity_at = user.updated_at;
         addUserAudit(user.id, user.id, 'user_updated', 'Personal profile details updated.');
+        persistState();
       }
       json(res, 200, { user: userManagementView(user, user) });
     }
@@ -1175,12 +1207,6 @@ async function handle(req, res) {
       ];
       json(res, 200, { data: events.slice(0, 20), timezone: CRM_TIMEZONE });
     }
-    return;
-  }
-
-  if (req.method === 'PATCH' && url.pathname === '/api/account/me') {
-    const user = requireAuth(req, res);
-    if (user) { const body = await readBody(req); if (body.fullName !== undefined || body.full_name !== undefined) user.full_name = String(body.fullName || body.full_name).trim(); if (body.phone !== undefined) user.phone = String(body.phone || '').trim(); user.updated_at = new Date().toISOString(); user.last_activity_at = user.updated_at; addUserAudit(user.id, user.id, 'user_updated', 'Personal account profile updated.'); json(res, 200, { user: userManagementView(user, user) }); }
     return;
   }
 

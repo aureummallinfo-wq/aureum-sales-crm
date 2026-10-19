@@ -29,7 +29,11 @@
   const initials = customer => field(customer, 'initials', String(customerName(customer)).split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase());
   const currentCustomer = () => state.customerDetail?.data || null;
   const statusBadge = status => typeof badge === 'function' ? badge(status) : `<span class="badge badge-neutral">${escape(status)}</span>`;
-  const selectOptions = (items, selected = '', placeholder = '') => `${placeholder ? `<option value="">${escape(placeholder)}</option>` : ''}${items.map(item => `<option value="${escape(item)}" ${String(item) === String(selected) ? 'selected' : ''}>${escape(item)}</option>`).join('')}`;
+  const selectOptions = (items, selected = '', placeholder = '') => {
+    if (selected === '—') selected = '';
+    const choices = selected && !items.some(item => String(item) === String(selected)) ? [...items, selected] : items;
+    return `${placeholder ? `<option value="">${escape(placeholder)}</option>` : ''}${choices.map(item => `<option value="${escape(item)}" ${String(item) === String(selected) ? 'selected' : ''}>${escape(item)}</option>`).join('')}`;
+  };
   const normalizeTags = value => [...new Set((Array.isArray(value) ? value : value ? String(value).split(/[|;]/) : []).map(tag => String(tag || '').trim()).filter(Boolean))];
   const multiTagOptions = selected => [...new Set([...tagOptions, ...normalizeTags(selected)])].map(tag => `<option value="${escape(tag)}" ${normalizeTags(selected).some(item => item.toLowerCase() === String(tag).toLowerCase()) ? 'selected' : ''}>${escape(tag)}</option>`).join('');
   const multiTagField = (selected = '') => `<select name="tags" class="tag-multi-select" multiple size="4" aria-describedby="customer-tags-help">${multiTagOptions(selected)}</select><small id="customer-tags-help" class="form-hint">Select one or more tags.</small>`;
@@ -128,7 +132,11 @@
     if (action === 'call') { window.location.href = `tel:${String(customer.phone || '').replace(/[^+\d]/g, '')}`; return; }
     if (action === 'whatsapp') { const phone = String(customer.whatsapp_number || customer.phone || '').replace(/\D/g, ''); window.open(`https://wa.me/${phone}`, '_blank', 'noopener'); return; }
     if (action === 'follow-up') { window.openFollowupComposer?.({ customer_id: id, lead_id: customer.lead_id || customer.leadId || '' }); return; }
-    if (action === 'edit') { state.customerModule.editing = true; await openCustomer(id); return; }
+    if (action === 'edit') {
+      if (currentCustomer()?.id !== id) await openCustomer(id);
+      if (currentCustomer()?.id === id) { state.customerModule.editing = true; render(); }
+      return;
+    }
     if (action === 'cancel-edit') { state.customerModule.editing = false; render(); return; }
     if (action === 'note') { state.customerModule.tab = 'notes'; await openCustomer(id); return; }
     if (action === 'status') { state.customerModule.tab = 'overview'; await openCustomer(id); return; }

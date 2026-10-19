@@ -157,7 +157,13 @@ function bind() {
   if (addLeadForm) addLeadForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(addLeadForm).entries()); data.financing_required = data.financing_required === 'true'; try { await apiFetch('/api/leads', { method: 'POST', body: JSON.stringify(data) }); showToast('Lead saved to registry'); navigate(state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'); } catch (error) { showToast(error.message); } });
 }
 
-async function boot() {
+let portalBootPromise;
+function boot() {
+  if (!portalBootPromise) portalBootPromise = initializePortal();
+  return portalBootPromise;
+}
+
+async function initializePortal() {
   const requestedScreen = screenForPath[window.location.pathname] || 'dashboard';
   try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
   catch { state.authUser = null; state.screen = 'login'; }
