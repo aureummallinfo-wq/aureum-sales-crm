@@ -32,7 +32,7 @@ function screen(now = '2026-10-19T12:00:00Z', items = []) {
       get(name) { return this.data.get(name); }
     },
     badge: text => `<span>${text}</span>`, icons: { search: '' },
-    pageHeader: (_, title) => `<h1>${title}</h1>`,
+    pageHeader: (_, title, description, actions = '') => `<h1>${title}</h1>${actions}`,
     render: () => {
       searchInput = {
         value: state.followupModule.search,
@@ -51,6 +51,14 @@ function screen(now = '2026-10-19T12:00:00Z', items = []) {
   window.AureumFollowUpRuntime.render();
   return {
     state, requests, opened, render: window.AureumFollowUpRuntime.render, drawer: window.renderFollowupDrawer,
+    clickMenu(id) {
+      const menu = {};
+      const row = { dataset: { followupModuleOpen: id } };
+      for (const listener of listeners.click) listener({ target: { closest: selector => selector === '.followup-action-menu' ? menu : selector === '[data-followup-module-open]' ? row : null } });
+    },
+    clickCreate() {
+      for (const listener of listeners.click) listener({ target: { closest: selector => selector === '[data-followup-module-create]' ? {} : null } });
+    },
     clickAction(action, id) {
       const button = { dataset: { followupModuleAction: action, followupId: id } };
       const row = { dataset: { followupModuleOpen: id } };
@@ -128,9 +136,15 @@ test('search keeps keyboard focus and selection while filtering customer rows', 
   assert.doesNotMatch(app.render(), /Schedule follow-up for Sara Malik/);
 });
 
-test('customer rows offer only Reschedule and Add note and open the selected form', () => {
+test('full follow-up table retains its fields and Actions dropdown offers only Reschedule and Add note', () => {
   const app = screen(undefined, [reminder('customer-followup', '2026-10-18')]);
   const html = app.render();
+  assert.deepEqual([...html.matchAll(/<th>([^<]+)<\/th>/g)].map(match => match[1]), ['Customer', 'Phone / WhatsApp', 'Type', 'Assigned agent', 'Lead status', 'Due date', 'Due time', 'Priority', 'Status', 'Last activity', 'Actions']);
+  const menu = html.match(/<details class="followup-action-menu">.*?<\/details>/s)?.[0];
+  assert.ok(menu);
+  assert.deepEqual([...menu.matchAll(/data-followup-module-action="([^"]+)"/g)].map(match => match[1]), ['reschedule', 'note']);
+  app.clickMenu('customer-followup');
+  assert.equal(app.opened.length, 0, 'opening Actions must not open the row editor');
   assert.match(html, /data-followup-module-action="reschedule"/);
   assert.match(html, /data-followup-module-action="note"/);
   assert.doesNotMatch(html, /data-followup-module-action="(?:edit|cancel|done|call|whatsapp)"/);
@@ -148,6 +162,16 @@ test('customer rows offer only Reschedule and Add note and open the selected for
   assert.match(drawer, /name="next_due_time" type="time"/);
   assert.match(drawer, /value="Follow-up Needed" selected/);
   assert.match(drawer, /value="VIP"/);
+});
+
+test('top Schedule follow-up button opens a new schedule with customer, note, date, time and tag', () => {
+  const app = screen();
+  assert.match(app.render(), /data-followup-module-create>\+ Schedule follow-up/);
+  app.clickCreate();
+  assert.equal(app.state.drawer, 'create-followup');
+  const form = app.drawer();
+  for (const field of ['customer_id', 'note', 'next_due_date', 'next_due_time', 'followup_tag']) assert.ok(form.includes(`name="${field}"`), field);
+  assert.match(form, /type="submit">Schedule follow-up/);
 });
 
 test('rescheduling and adding notes submit the intended workflow payload and close after saving', async () => {

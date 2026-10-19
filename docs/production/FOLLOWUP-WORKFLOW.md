@@ -2,7 +2,7 @@
 
 The main Follow-ups list has one current row per existing customer in the signed-in advisor's scope. Scheduling a lead's first follow-up creates its customer profile. Click the customer or **Reschedule** to enter a call note, select a future date and Pakistan time, and choose an existing CRM tag (default **Follow-up Needed**). **Reschedule** updates the same reminder and changes Overdue to Contacted. The selected tag is saved on the reminder and added to the customer and linked lead without removing their other tags.
 
-The only row actions are **Reschedule** and **Add note**. **Add note** records a note and activity without changing the contact date, Contacted outcome, overdue status, or last-contacted timestamp. Scheduling from the customer profile uses the same date, time, note and tag form.
+The full table shows customer, phone / WhatsApp, type, assigned agent, lead status, due date, due time, priority, status and last activity. Each row has an **Actions** dropdown containing only **Reschedule** and **Add note**. Use the top **+ Schedule follow-up** button to create a schedule. **Add note** records a note and activity without changing the contact date, Contacted outcome, overdue status, or last-contacted timestamp. Scheduling from the customer profile uses the same date, time, note and tag form.
 
 | Action | Follow-up result | Last activity |
 | --- | --- | --- |

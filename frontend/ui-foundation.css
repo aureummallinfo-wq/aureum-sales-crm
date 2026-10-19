@@ -40,19 +40,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 [data-next-contact-date][hidden], [data-next-contact-time][hidden] { display: none; }
 .followup-table-wrap tr[data-followup-module-open] { cursor: pointer; }
 .followup-latest-response { max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
-.app-shell .followup-table-wrap table { width: 100%; min-width: 760px; table-layout: fixed; }
-.followup-table-wrap th:nth-child(1) { width: 20%; }
-.followup-table-wrap th:nth-child(2) { width: 13%; }
-.followup-table-wrap th:nth-child(3) { width: 29%; }
-.followup-table-wrap th:nth-child(4) { width: 18%; }
-.followup-table-wrap th:nth-child(5) { width: 20%; }
-.followup-table-wrap td { white-space: normal; overflow-wrap: anywhere; }
-.followup-table-wrap th:nth-child(2), .followup-table-wrap td:nth-child(2) { padding-left: 12px; padding-right: 12px; }
+.app-shell .followup-table-wrap table { width: 100%; min-width: 1260px; table-layout: auto; }
+.followup-table-wrap th, .followup-table-wrap td { white-space: nowrap; }
+.followup-table-wrap .followup-latest-response { width: 220px; white-space: normal; }
 .followup-table-wrap .badge { white-space: nowrap; overflow-wrap: normal; }
-.followup-table-wrap .btn { white-space: normal; }
-.followup-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.followup-table-wrap .followup-action-menu[open] { padding-bottom: 76px; }
+.followup-table-wrap .followup-action-options { top: 30px; }
 .followup-drawer-tabs { padding-left: 0; }
-html[data-theme="light"] .app-shell .followup-row-actions .btn-secondary,
+html[data-theme="light"] .app-shell .followup-action-menu summary,
 html[data-theme="light"] .app-shell .followup-drawer-tabs .tab.active { color: var(--ink); }
 .app-shell .followup-contacted-badge { color: #22536f; background: #e0edf5; }
 html[data-theme="dark"] .app-shell .followup-contacted-badge { color: #b6ddf6; background: #233b4d; }

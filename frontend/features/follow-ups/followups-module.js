@@ -49,9 +49,17 @@
     return items().filter(item => (!moduleState.status || status(item) === moduleState.status) && followupDateMatches(item, moduleState.date, moduleState) && (!moduleState.selectedDate || item.due_date === moduleState.selectedDate) && (!moduleState.agentId || item.assigned_agent_id === moduleState.agentId) && (!moduleState.type || item.type === moduleState.type) && (!moduleState.leadStatus || item.lead_status === moduleState.leadStatus) && (!moduleState.priority || item.priority === moduleState.priority) && (!search || [item.customer, item.phone, item.agent, item.type, item.notes].some(part => String(part || '').toLowerCase().includes(search))));
   }
 
+  function actionMenu(item) {
+    return `<details class="followup-action-menu"><summary class="table-action" aria-label="Actions for ${esc(item.customer)}">Actions <span aria-hidden="true">⌄</span></summary><div class="followup-action-options"><button type="button" data-followup-module-action="reschedule" data-followup-id="${esc(item.id)}">Reschedule</button><button type="button" data-followup-module-action="note" data-followup-id="${esc(item.id)}">Add note</button></div></details>`;
+  }
+
   function table(itemsToRender) {
     if (!itemsToRender.length) return '<div class="empty-state"><strong>No follow-ups match this view.</strong><br/>Clear a filter or schedule the next contact.</div>';
-    return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Status</th><th>Last activity</th><th>Next contact</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => `<tr data-followup-module-open="${esc(item.id)}" tabindex="0" aria-label="Schedule follow-up for ${esc(item.customer)}"><td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b></button><div class="person-meta">${esc(item.phone)}</div>${item.followup_tag ? `<span class="customer-tag">${esc(item.followup_tag)}</span>` : ''}</td><td>${statusBadge(item)}</td><td>${window.AureumFollowUpNoteUI.activity(item)}</td><td>${item.completed_at || item.status === 'Cancelled' ? 'No next contact' : `${esc(item.due_date)}<div class="person-meta">${esc(item.due_time)} · Pakistan</div>`}</td><td><div class="followup-row-actions"><button class="btn btn-secondary btn-sm" data-followup-module-action="reschedule" data-followup-id="${esc(item.id)}">Reschedule</button><button class="btn btn-secondary btn-sm" data-followup-module-action="note" data-followup-id="${esc(item.id)}">Add note</button></div></td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Phone / WhatsApp</th><th>Type</th><th>Assigned agent</th><th>Lead status</th><th>Due date</th><th>Due time</th><th>Priority</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => `<tr data-followup-module-open="${esc(item.id)}" tabindex="0" aria-label="Schedule follow-up for ${esc(item.customer)}">
+      <td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b><span>${esc(item.notes || 'No note added')}</span></button>${item.followup_tag ? `<span class="customer-tag">${esc(item.followup_tag)}</span>` : ''}</td>
+      <td>${esc(item.phone)}</td><td>${esc(item.type)}</td><td>${esc(item.agent)}</td><td>${badge(value(item, 'lead_status'))}</td>
+      <td>${esc(item.due_date)}</td><td>${esc(item.due_time)}</td><td>${badge(value(item, 'priority'))}</td><td>${statusBadge(item)}</td>
+      <td>${window.AureumFollowUpNoteUI.activity(item)}</td><td>${actionMenu(item)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   function calendar(itemsToRender) {
@@ -157,6 +165,8 @@
       if (['reschedule', 'note'].includes(action.dataset.followupModuleAction)) openSchedule(action.dataset.followupId, action.dataset.followupModuleAction);
       return;
     }
+    // Let the dropdown open without triggering the row's follow-up editor.
+    if (target.closest('.followup-action-menu')) return;
     const form = target.closest('[data-followup-module-form]');
     if (form) { moduleState.form = form.dataset.followupModuleForm; render(); return; }
     const open = target.closest('[data-followup-module-open]');
