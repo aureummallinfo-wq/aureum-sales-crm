@@ -318,10 +318,37 @@ function canAccess(screen) {
 
 function openFollowupCount() {
   const items = Array.isArray(state.followups?.items) ? state.followups.items : [];
-  return items.filter(isOpenSidebarItem).length;
+  return items.filter(isOverdueSidebarItem).length;
 }
 
-const sidebarBadgeDescriptions = { leads: 'new leads', 'my-leads': 'new leads', 'follow-ups': 'open follow-ups', tasks: 'unfinished tasks', 'team-chat': 'unread messages' };
+function sidebarCalendarDate(value) {
+  const text = String(value || '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const mapped = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  return mapped.year && mapped.month && mapped.day ? `${mapped.year}-${mapped.month}-${mapped.day}` : '';
+}
+
+function isLeadCreatedToday(item) {
+  const created = item?.created_at || item?.createdAt;
+  return Boolean(created && sidebarCalendarDate(created) === sidebarCalendarDate(new Date()) && String(item.status || '').trim().toLowerCase() === 'new');
+}
+
+function isOverdueSidebarItem(item) {
+  const status = String(item?.status || '').trim().toLowerCase();
+  const lifecycle = String(item?.lifecycle_status || '').trim().toLowerCase();
+  if (status === 'overdue' || lifecycle === 'overdue') return true;
+  if (status === 'completed' || status === 'cancelled' || lifecycle === 'completed' || lifecycle === 'cancelled' || item?.completed_at) return false;
+  const dueDate = String(item?.due_date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return false;
+  const dueTime = /^\d{2}:\d{2}$/.test(String(item?.due_time || '')) ? item.due_time : '23:59';
+  const due = new Date(`${dueDate}T${dueTime}:00+05:00`);
+  return Number.isFinite(due.getTime()) && due.getTime() < Date.now();
+}
+
+const sidebarBadgeDescriptions = { leads: 'new leads today', 'my-leads': 'new leads today', 'follow-ups': 'overdue follow-ups', tasks: 'unfinished tasks', 'team-chat': 'unread messages' };
 let sidebarBadgeSession = '';
 let sidebarBadgeTimer = null;
 let sidebarBadgeRefreshTimer = null;
@@ -420,7 +447,7 @@ function observeSidebarResponse(path, method, body) {
   // Filtered lists must never replace the full navigation count.
   if (method === 'GET' && id) {
     if (id === 'team-chat') state.sidebarCounts[id] = Number(body.data?.total) || 0;
-    else if (Array.isArray(body.data)) state.sidebarCounts[id] = body.data.filter(item => id === 'leads' || id === 'my-leads' ? String(item.status).trim().toLowerCase() === 'new' : isOpenSidebarItem(item)).length;
+    else if (Array.isArray(body.data)) state.sidebarCounts[id] = body.data.filter(item => id === 'leads' || id === 'my-leads' ? isLeadCreatedToday(item) : id === 'follow-ups' ? isOverdueSidebarItem(item) : isOpenSidebarItem(item)).length;
     updateSidebarBadges();
   }
   const marksChatRead = method === 'GET' && /\/api\/chat\/.*[?&]markRead=1(?:&|$)/.test(path);

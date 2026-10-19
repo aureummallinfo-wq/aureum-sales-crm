@@ -8,9 +8,14 @@ function portal(role = 'SALES_AGENT') {
   const timers = new Map();
   const intervals = new Map();
   const requests = [];
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  const yesterdayDate = new Date(`${today}T00:00:00Z`);
+  yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+  const yesterday = yesterdayDate.toISOString().slice(0, 10);
   const data = {
-    '/api/leads/my': [{ status: 'New' }, { status: 'Contacted' }],
-    '/api/leads': [{ status: 'New' }, { status: 'New' }],
+    '/api/leads/my': [{ status: 'New', created_at: `${today}T08:00:00+05:00` }, { status: 'Contacted', created_at: `${today}T09:00:00+05:00` }],
+    '/api/leads': [{ status: 'New', created_at: `${today}T08:00:00+05:00` }, { status: 'New', created_at: `${yesterday}T08:00:00+05:00` }],
     '/api/follow-ups/my': [
       { status: 'Pending' }, { status: 'Overdue' }, { status: 'Rescheduled' },
       { status: 'Contacted', lifecycle_status: 'Completed' },
@@ -56,16 +61,16 @@ function portal(role = 'SALES_AGENT') {
   };
 }
 
-test('sidebar counts open work using lifecycle status and shows it on every screen', async () => {
+test('sidebar counts overdue follow-ups and today\'s new leads on every screen', async () => {
   const app = portal();
   await app.refresh();
-  assert.equal(app.state.sidebarCounts['follow-ups'], 3);
+  assert.equal(app.state.sidebarCounts['follow-ups'], 1);
   assert.equal(app.state.sidebarCounts.tasks, 3);
   assert.equal(app.state.sidebarCounts['my-leads'], 1);
   assert.equal(app.state.sidebarCounts['team-chat'], 4);
   app.state.screen = 'customers';
   const navigation = app.context.renderSidebarNavigation();
-  assert.match(navigation, /aria-label="Follow-ups, 3 open follow-ups"/);
+  assert.match(navigation, /aria-label="Follow-ups, 1 overdue follow-up"/);
   assert.match(navigation, /aria-label="Tasks, 3 unfinished tasks"/);
   assert.match(navigation, /aria-label="Team Chat, 4 unread messages"/);
   assert.equal(app.requests.some(request => request.url === '/api/leads'), false);
@@ -80,7 +85,7 @@ test('filtered task and lead responses cannot change the overall navigation coun
   await app.context.apiFetch('/api/leads/my?q=missing');
   assert.equal(app.state.sidebarCounts.tasks, 3);
   assert.equal(app.state.sidebarCounts['my-leads'], 1);
-  assert.equal(app.state.sidebarCounts.leads, 2);
+  assert.equal(app.state.sidebarCounts.leads, 1);
   assert.ok(app.requests.some(request => request.url === '/api/follow-ups'));
   assert.equal(app.requests.some(request => request.url === '/api/follow-ups/my'), false);
 });
@@ -123,7 +128,7 @@ test('transient API failures retain the last known badge counts', async () => {
   app.context.apiInvalidateCache();
   app.context.fetch = async () => { throw new Error('Temporary network failure'); };
   await app.refresh();
-  assert.equal(app.state.sidebarCounts['follow-ups'], 3);
+  assert.equal(app.state.sidebarCounts['follow-ups'], 1);
   assert.equal(app.state.sidebarCounts.tasks, 3);
 });
 
