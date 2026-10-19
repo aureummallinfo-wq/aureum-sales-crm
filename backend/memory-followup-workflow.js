@@ -1,6 +1,6 @@
 const crypto = require('node:crypto');
 const dates = require('../frontend/features/follow-ups/utils/followup-overdue-utils');
-const { notePlan, activitySummary } = require('./followup-workflow');
+const { notePlan, activitySummary, uniqueFollowUps } = require('./followup-workflow');
 
 function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, notifications, customerNotes, addLeadActivity, addCustomerActivity, addFollowUpActivity, canViewFollowUp }) {
   function touch(leadId, customerId, userId, type, description) {
@@ -21,6 +21,35 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
 
   function clearNotifications(ids) {
     for (const list of notifications.values()) for (const item of list) if (ids.includes(item.related_entity_id) && item.event_type === 'follow_up_overdue') item.is_read = true;
+  }
+
+  function schedule(user, customer, input) {
+    const related = followUps.filter(item => (item.customer_id === customer.id || (!item.customer_id && item.lead_id === customer.lead_id)) && canViewFollowUp(user,item));
+    let item = uniqueFollowUps(related)[0];
+    const created = !item;
+    const now = new Date().toISOString();
+    if (!item) {
+      item = { id: `followup_customer_${customer.id}`, customer_id: customer.id, lead_id: customer.lead_id,
+        assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id,
+        customer_name: customer.full_name, customer_phone: customer.phone, created_by: user.id, created_at: now, status: 'Pending' };
+      followUps.unshift(item);
+    } else {
+      item.reschedule_history = [...(item.reschedule_history || []), { fromDate:item.due_date, fromTime:item.due_time,
+        toDate:input.due_date, toTime:input.due_time, reason:'Schedule updated.', changedBy:user.id, createdAt:now }];
+      item.status = 'Rescheduled'; item.completed_at = null;
+      item.customer_id = customer.id; item.lead_id = customer.lead_id;
+    }
+    Object.assign(item, { due_date:input.due_date, due_time:input.due_time, follow_up_type:input.follow_up_type || input.type || item.follow_up_type || 'General Follow-up',
+      priority:input.priority || item.priority || 'Medium', notes:input.notes ?? input.note ?? item.notes ?? '', updated_at:now });
+    if (input.followup_tag) item.followup_tag = input.followup_tag;
+    for (const duplicate of related) if (duplicate !== item && !['Completed','Cancelled'].includes(duplicate.status)) {
+      duplicate.status = 'Cancelled'; duplicate.consolidated_into = item.id;
+      addFollowUpActivity(duplicate,user.id,'Follow-up combined','Combined into the customer follow-up.');
+    }
+    addFollowUpActivity(item,user.id,'Follow-up scheduled',item.notes || `Next contact: ${item.due_date} at ${item.due_time}.`);
+    refresh(customer.lead_id,customer.id);
+    clearNotifications(related.map(record => record.id));
+    return { item, created };
   }
 
   function saveNote(user, { leadId, customerId, followUpId, note, input = {} }) {
@@ -72,7 +101,7 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
     refresh(lead?.id,customer?.id);
     return { entry, target };
   }
-  return { touch, refresh, saveNote, clearNotifications };
+  return { touch, refresh, saveNote, clearNotifications, schedule };
 }
 
 module.exports = { createMemoryFollowUpWorkflow };

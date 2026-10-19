@@ -66,7 +66,53 @@
 
   global.AureumUI = { svg, icon: (name, label = '') => svg(paths[name] || paths.arrow, label), badgeClass, escape, debounce, date, validation, table, render };
 
+  function enhanceTagDropdowns() {
+    document.querySelectorAll('select.tag-multi-select[multiple]:not([data-tag-dropdown-ready])').forEach(select => {
+      select.dataset.tagDropdownReady = 'true';
+      const dropdown = document.createElement('details');
+      dropdown.className = 'tag-dropdown';
+      const label = select.closest('.form-field')?.querySelector('label')?.textContent?.trim() || 'Tags';
+      dropdown.innerHTML = `<summary aria-label="${escape(label)}"><span data-tag-summary></span><span aria-hidden="true">⌄</span></summary><div class="tag-dropdown-options" role="group" aria-label="${escape(label)} options">${[...select.options].map(option => `<label class="tag-dropdown-option"><input type="checkbox" value="${escape(option.value)}" ${option.selected ? 'checked' : ''} /><span>${escape(option.textContent)}</span></label>`).join('')}</div>`;
+      select.hidden = true;
+      select.after(dropdown);
+      const summary = dropdown.querySelector('[data-tag-summary]');
+      const sync = () => {
+        const selected = [...select.selectedOptions].map(option => option.textContent);
+        summary.textContent = selected.length ? selected.join(', ') : 'Select tags';
+        dropdown.querySelectorAll('input').forEach(input => { input.checked = [...select.selectedOptions].some(option => option.value === input.value); input.disabled = select.disabled; });
+      };
+      dropdown.addEventListener('change', event => {
+        const input = event.target;
+        if (!input.matches('input[type="checkbox"]')) return;
+        const option = [...select.options].find(item => item.value === input.value);
+        if (option) option.selected = input.checked;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      select.addEventListener('change', sync);
+      select.form?.addEventListener('reset', () => queueMicrotask(() => { sync(); dropdown.open = false; }));
+      sync();
+    });
+  }
+  new MutationObserver(enhanceTagDropdowns).observe(document.body, { childList: true, subtree: true });
+  enhanceTagDropdowns();
+  document.addEventListener('click', event => {
+    document.querySelectorAll('.tag-dropdown[open]').forEach(dropdown => {
+      if (!dropdown.contains(event.target)) dropdown.open = false;
+    });
+    const label = event.target.closest('label[for]');
+    const select = label && document.getElementById(label.htmlFor);
+    if (select?.matches('select[data-tag-dropdown-ready]')) {
+      event.preventDefault();
+      const dropdown = select.nextElementSibling;
+      dropdown.open = true; dropdown.querySelector('summary').focus();
+    }
+  });
+
   document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      const dropdown = event.target.closest('.tag-dropdown[open]');
+      if (dropdown) { dropdown.open = false; dropdown.querySelector('summary').focus(); event.preventDefault(); return; }
+    }
     if (event.key !== 'Escape' || typeof state === 'undefined' || !state.drawer) return;
     state.drawer = null; state.followupMode = ''; render();
   });

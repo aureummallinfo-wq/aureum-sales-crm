@@ -276,7 +276,7 @@ function ensureCustomerForLead(user, lead) {
 function syncTaggedLeadFollowUp(user, lead) {
   if (!lead) return;
   const tagged = (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up needed');
-  const existing = followUps.find(item => item.lead_id === lead.id && (!['Completed','Cancelled'].includes(item.status) || item.metadata?.source === 'follow-up-tag'));
+  const existing = followUps.find(item => item.lead_id === lead.id && !item.consolidated_into);
   if (!tagged) return;
   const customer = ensureCustomerForLead(user, lead);
   if (!customer || existing) return;
@@ -1312,14 +1312,9 @@ async function handle(req, res) {
     let reminder = null;
     if (plan.schedule) {
       const now = new Date().toISOString();
-      reminder = { id: `followup_${crypto.randomUUID()}`, customer_id: customer.id, lead_id: lead.id,
-        assigned_agent_id: lead.assigned_agent_id, assigned_agent: lead.assigned_agent, assigned_team_id: lead.assigned_team_id,
-        created_by: user.id, follow_up_type: 'General Follow-up', ...plan.schedule, status: 'Pending', priority: lead.priority || 'Medium',
-        notes: plan.note, followup_tag: plan.tag, source: 'customer-creation', customer_name: customer.full_name, customer_phone: customer.phone, created_at: now, updated_at: now };
-      followUps.unshift(reminder);
+      reminder = memoryFollowUpWorkflow().schedule(user,customer,{ ...plan.schedule,notes:plan.note,priority:lead.priority || 'Medium',followup_tag:plan.tag }).item;
       customerNotes.set(customer.id, [{ id: crypto.randomUUID(), note: plan.note, user_id: user.id, user_name: user.full_name, created_at: now }]);
       lead.tags = [...new Set([...(lead.tags || []), plan.tag])];
-      addFollowUpActivity(reminder, user.id, 'Follow-up scheduled', plan.note);
       memoryFollowUpWorkflow().refresh(lead.id, customer.id);
     }
     persistState();
@@ -1453,8 +1448,21 @@ async function handle(req, res) {
     if (action === 'timeline' && req.method === 'GET') { json(res, 200, { data: customerActivities.get(customer.id) || [] }); return; }
     if (action === 'notes' && req.method === 'GET') { json(res, 200, { data: customerNotes.get(customer.id) || [] }); return; }
     if (action === 'notes' && req.method === 'POST') { const body=await readBody(req);const noteText=safeText(body.note,2000);if(!noteText){json(res,400,{error:'Note is required'});return;}let saved;try{saved=memoryFollowUpWorkflow().saveNote(user,{customerId:customer.id,note:noteText,input:body});}catch(error){json(res,422,{error:error.message});return;}json(res,201,{data:saved.entry});return; }
-    if (action === 'follow-ups' && req.method === 'GET') { json(res, 200, { data: customerFollowUps.get(customer.id) || [] }); return; }
-    if (action === 'follow-ups' && req.method === 'POST') { const body = await readBody(req); const rawDue = String(body.due_date || ''); const dateMatch = rawDue.match(/\d{4}-\d{2}-\d{2}/); const timeMatch = rawDue.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i); let dueDate = dateMatch?.[0] || new Date().toISOString().slice(0, 10); if (!dateMatch && /tomorrow/i.test(rawDue)) { const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); dueDate = tomorrow.toISOString().slice(0, 10); } const dueTime = timeMatch ? `${String((Number(timeMatch[1]) + (timeMatch[3]?.toUpperCase() === 'PM' && Number(timeMatch[1]) < 12 ? 12 : 0)).toString().padStart(2, '0'))}:${timeMatch[2]}` : '10:00'; const followUp = { id: crypto.randomUUID(), type: body.type || 'Phone call', due_date: body.due_date || 'Not scheduled', agent: customer.assigned_agent, status: 'Pending', note: body.note || '' }; customerFollowUps.set(customer.id, [followUp, ...(customerFollowUps.get(customer.id) || [])]); customer.next_follow_up_at = followUp.due_date; const primary = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: customer.lead_id, created_by: user.id, follow_up_type: body.type || 'General Follow-up', due_date: dueDate, due_time: dueTime, priority: body.priority || 'Medium', status: 'Pending', notes: body.note || '', customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; followUps.unshift(primary); followUpActivities.set(primary.id, []); addFollowUpActivity(primary, user.id, 'Follow-up scheduled', `${primary.follow_up_type} · ${primary.due_date} at ${primary.due_time}`); addCustomerActivity(customer.id, user.id, 'Follow-up scheduled', `${followUp.type} · ${followUp.due_date}`); json(res, 201, { data: followUp, followUp: followUpView(primary) }); return; }
+    if (action === 'follow-ups' && req.method === 'GET') { json(res, 200, { data: uniqueFollowUps(followUps.filter(item => (item.customer_id===customer.id || (!item.customer_id && item.lead_id===customer.lead_id)) && canViewFollowUp(user,item))).map(followUpView) }); return; }
+    if (action === 'follow-ups' && req.method === 'POST') {
+      const body = await readBody(req);
+      const raw = String(body.due_date || '');
+      const date = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] || followUpDates.todayInTimezone(new Date(Date.now() + (/tomorrow/i.test(raw) ? 86400000 : 0)));
+      const clock = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+      let hour = Number(clock?.[1] || 10);
+      if (clock?.[3]?.toUpperCase() === 'PM' && hour < 12) hour += 12;
+      if (clock?.[3]?.toUpperCase() === 'AM' && hour === 12) hour = 0;
+      const time = body.due_time || (clock ? `${String(hour).padStart(2,'0')}:${clock[2]}` : '10:00');
+      if (!validateIsoDate(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) { json(res,400,{error:'A valid due date and time are required'}); return; }
+      const result = memoryFollowUpWorkflow().schedule(user,customer,{ due_date:date,due_time:time,follow_up_type:safeText(body.type || 'General Follow-up',80),notes:safeText(body.note,2000),priority:['Low','Medium','High','VIP'].includes(body.priority) ? body.priority : undefined });
+      addFollowUpNotification(result.item,'follow_up_due'); persistState();
+      json(res,result.created ? 201 : 200,{data:followUpView(result.item),followUp:followUpView(result.item)}); return;
+    }
     json(res, 405, { error: 'Method not allowed' }); return;
   }
 
@@ -1730,7 +1738,7 @@ async function handle(req, res) {
   if (req.method === 'GET' && (url.pathname === '/api/follow-ups' || url.pathname === '/api/follow-ups/my')) {
     const user = url.pathname.endsWith('/my') ? requireAuth(req, res) : requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
-      let data = followUps.filter(item => canViewFollowUp(user,item) && (!url.pathname.endsWith('/my') || item.assigned_agent_id === user.id));
+      let data = uniqueFollowUps(followUps.filter(item => canViewFollowUp(user,item) && (!url.pathname.endsWith('/my') || item.assigned_agent_id === user.id)));
       const status = url.searchParams.get('status');
       const type = url.searchParams.get('type');
       const priority = url.searchParams.get('priority');
@@ -1773,18 +1781,9 @@ async function handle(req, res) {
     if (!assigned) assigned = users.find(item => item.id === customer.assigned_agent_id);
     if (!assigned || (user.role === 'sales_manager' && assigned.team_id !== user.team_id)) { json(res, 400, { error: 'Choose an active advisor from your permitted team' }); return; }
     if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 400, { error: 'A valid due date and time are required' }); return; }
-    const existing=followUps.find(item=>(item.customer_id===customer.id || (lead && item.lead_id===lead.id)) && !['Completed','Cancelled'].includes(item.status) && canViewFollowUp(user,item));
-    if(existing){
-      existing.reschedule_history=[...(existing.reschedule_history||[]),{fromDate:existing.due_date,fromTime:existing.due_time,toDate:body.due_date,toTime:body.due_time,reason:'Schedule updated.',changedBy:user.id,createdAt:new Date().toISOString()}];
-      existing.due_date=body.due_date;existing.due_time=body.due_time;existing.status='Rescheduled';existing.updated_at=new Date().toISOString();
-      if(body.notes || body.note)existing.notes=safeText(body.notes||body.note,2000);
-      addFollowUpActivity(existing,user.id,'Follow-up scheduled',existing.notes||`Next contact: ${body.due_date} at ${body.due_time}.`);
-      memoryFollowUpWorkflow().refresh(existing.lead_id,existing.customer_id);memoryFollowUpWorkflow().clearNotifications([existing.id]);
-      json(res,200,{data:followUpView(existing)});return;
-    }
-    const item = { id: `followup_${String(followUps.length + 1).padStart(3, '0')}`, customer_id: customer.id, lead_id: body.lead_id || customer.lead_id || null, created_by: user.id, follow_up_type: safeText(body.follow_up_type || body.type || 'General Follow-up', 80), due_date: body.due_date, due_time: body.due_time, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', status: 'Pending', notes: safeText(body.notes || body.note, 2000), customer_name: customer.full_name, customer_phone: customer.phone, assigned_agent_id: assigned.id, assigned_agent: assigned.full_name, assigned_team_id: assigned.team_id, lead_status: customer.customer_status, last_activity: customer.last_contacted_at || 'Not contacted', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-    followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled for ${item.due_date} at ${item.due_time}`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${item.due_date} · ${item.due_time}`;
-    json(res, 201, { data: followUpView(item) }); return;
+    const result = memoryFollowUpWorkflow().schedule(user,customer,{ ...body, notes:safeText(body.notes ?? body.note,2000),follow_up_type:safeText(body.follow_up_type || body.type || 'General Follow-up',80),priority:['Low','Medium','High','VIP'].includes(body.priority) ? body.priority : undefined });
+    addFollowUpNotification(result.item,'follow_up_due'); persistState();
+    json(res,result.created ? 201 : 200,{data:followUpView(result.item)}); return;
   }
 
   const followUpMatch = url.pathname.match(/^\/api\/follow-ups\/([^/]+)$/);

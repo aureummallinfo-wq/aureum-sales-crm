@@ -721,14 +721,29 @@ function createNeonRepository(sql) {
     const existing = await sql.query(`SELECT id,legacy_id FROM crm.follow_ups
       WHERE workspace_id=$1 AND deleted_at IS NULL AND (customer_id=$3 OR (customer_id IS NULL AND lead_id=$2))
       AND (lead_id IS NULL OR lead_id=$2) AND assigned_agent_id=$4 AND assigned_team_id IS NOT DISTINCT FROM $5::uuid
-      AND status IN ('Pending','Overdue','Rescheduled','Missed') ORDER BY due_at,created_at LIMIT 1`, [workspace,leadId,customerId,agentId,teamId]);
-    if (existing[0]) return updateFollowUp(workspace,existing[0].legacy_id || existing[0].id,actor,input);
-    const legacyId = input.id || `followup_${crypto.randomUUID()}`;
+      AND metadata->>'consolidated_into' IS NULL
+      ORDER BY CASE WHEN status IN ('Completed','Cancelled') THEN 1 ELSE 0 END,due_at,created_at LIMIT 1`, [workspace,leadId,customerId,agentId,teamId]);
+    if (existing[0]) {
+      await updateFollowUp(workspace,existing[0].legacy_id || existing[0].id,actor,{...input,reopen:true});
+      await pipeline.consolidate(workspace,actor,existing[0].id);
+      return getFollowUp(workspace,existing[0].legacy_id || existing[0].id);
+    }
+    // All creation routes use this key, so concurrent saves share the existing unique constraint.
+    const legacyId = `followup_customer_${customerId}`;
     const dueAt = timestampValue(`${input.due_date}T${input.due_time}:00+05:00`);
     await sql.query(`INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,priority,status,notes,metadata,created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11::jsonb,$12)`,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11::jsonb,$12)
+      ON CONFLICT (workspace_id,legacy_id) DO UPDATE SET due_at=EXCLUDED.due_at,status='Rescheduled',completed_at=NULL,deleted_at=NULL,
+        assigned_agent_id=EXCLUDED.assigned_agent_id,assigned_team_id=EXCLUDED.assigned_team_id,
+        notes=EXCLUDED.notes,follow_up_type=EXCLUDED.follow_up_type,priority=EXCLUDED.priority,updated_at=now(),
+        metadata=crm.follow_ups.metadata || EXCLUDED.metadata || jsonb_build_object('reschedule_history',
+          coalesce(crm.follow_ups.metadata->'reschedule_history','[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+            'fromDate',to_char(crm.follow_ups.due_at AT TIME ZONE 'Asia/Karachi','YYYY-MM-DD'),
+            'fromTime',to_char(crm.follow_ups.due_at AT TIME ZONE 'Asia/Karachi','HH24:MI'),
+            'toDate',EXCLUDED.metadata->>'due_date','toTime',EXCLUDED.metadata->>'due_time','reason','Schedule updated.','createdAt',now())))`,
       [workspace,legacyId,leadId,customerId,agentId,teamId,input.follow_up_type || input.type || 'General Follow-up',dueAt,input.priority || 'Medium',input.notes || input.note || null,JSON.stringify(input),await resolveUserId(workspace,actor.id)]);
     const followUpId = await resolveFollowUpId(workspace,legacyId);
+    await pipeline.consolidate(workspace,actor,followUpId);
     await insertAudit(workspace,actor,'follow_up_created','follow_up',followUpId,input);
     await enqueueOutbox(workspace,'follow_up_created','follow_up',followUpId,{legacy_id:legacyId});
     await pipeline.recordActivity(workspace,actor,{leadId,customerId,type:'Follow-up scheduled',description:input.notes || `Next contact: ${input.due_date} at ${input.due_time}.`});
@@ -748,7 +763,8 @@ function createNeonRepository(sql) {
       metadata.due_date=patch.due_date||current.due_date; metadata.due_time=patch.due_time||current.due_time;
       const dueAt=new Date(`${metadata.due_date}T${metadata.due_time}:00+05:00`).toISOString();
       assign('due_at',dueAt);
-      if(!['Completed','Cancelled'].includes(current.lifecycle_status))assign('status','Rescheduled');
+      if(patch.reopen || !['Completed','Cancelled'].includes(current.lifecycle_status))assign('status','Rescheduled');
+      if(patch.reopen)assign('completed_at',null);
       const history={fromDate:current.due_date,fromTime:current.due_time,toDate:metadata.due_date,toTime:metadata.due_time,reason:patch.reason||'Schedule updated.',createdAt:new Date().toISOString(),changedBy:actor.id};
       metadata.reschedule_history=[...(current.reschedule_history||[]),history];metadata.rescheduled_from_date=current.due_date;metadata.reschedule_reason=history.reason;
     }

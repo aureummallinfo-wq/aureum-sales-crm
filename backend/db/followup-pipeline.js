@@ -94,10 +94,18 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         WHERE f.id IN (SELECT id FROM candidate) RETURNING f.id,f.status
       ), next_followup AS (
         INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,priority,status,notes,metadata,created_by)
-        SELECT $1,$15,c.lead_id,c.customer_id,coalesce(old.assigned_agent_id,c.agent_id),coalesce(old.assigned_team_id,c.team_id),
+        SELECT $1,coalesce('followup_customer_' || c.customer_id::text,'followup_lead_' || c.lead_id::text,$15::text),c.lead_id,c.customer_id,coalesce(old.assigned_agent_id,c.agent_id),coalesce(old.assigned_team_id,c.team_id),
           coalesce(old.follow_up_type,'General Follow-up'),$9::timestamptz,coalesce(old.priority,'Medium'),'Rescheduled',$7,
           jsonb_build_object('due_date',$10::text,'due_time',$11::text,'source','contact-note','outcome','Contacted','contacted_at',now(),'note_id',$14::text) || $12::jsonb,$4
-        FROM context c LEFT JOIN candidate old ON true WHERE $8 AND $9::timestamptz IS NOT NULL AND NOT EXISTS (SELECT 1 FROM changed) RETURNING id,legacy_id
+        FROM context c LEFT JOIN candidate old ON true WHERE $8 AND $9::timestamptz IS NOT NULL AND NOT EXISTS (SELECT 1 FROM changed)
+        ON CONFLICT (workspace_id,legacy_id) DO UPDATE SET due_at=EXCLUDED.due_at,status=EXCLUDED.status,completed_at=NULL,deleted_at=NULL,
+          assigned_agent_id=EXCLUDED.assigned_agent_id,assigned_team_id=EXCLUDED.assigned_team_id,
+          notes=EXCLUDED.notes,updated_at=now(),metadata=crm.follow_ups.metadata || EXCLUDED.metadata || jsonb_build_object('reschedule_history',
+            coalesce(crm.follow_ups.metadata->'reschedule_history','[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+              'fromDate',to_char(crm.follow_ups.due_at AT TIME ZONE 'Asia/Karachi','YYYY-MM-DD'),
+              'fromTime',to_char(crm.follow_ups.due_at AT TIME ZONE 'Asia/Karachi','HH24:MI'),
+              'toDate',$10::text,'toTime',$11::text,'reason','Next contact scheduled after a note.','changedBy',$4::text,'createdAt',now())))
+        RETURNING id,legacy_id
       ), consolidated AS (
         UPDATE crm.follow_ups f SET status='Cancelled',updated_at=now(),metadata=f.metadata || jsonb_build_object('consolidated_into',(SELECT id::text FROM changed),'consolidation_reason','Combined into the customer follow-up.','consolidated_from_status',f.status)
         FROM context c WHERE EXISTS (SELECT 1 FROM changed) AND ($8 OR $9::timestamptz IS NOT NULL) AND f.workspace_id=$1 AND f.deleted_at IS NULL
@@ -119,6 +127,7 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
       ), followup_activity AS (
         INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description,metadata)
         SELECT id,$4,$16,$7,$12::jsonb FROM changed
+        UNION ALL SELECT id,$4,$16,$7,$12::jsonb FROM next_followup
       ), lead_activity AS (
         INSERT INTO crm.lead_activities (lead_id,actor_user_id,activity_type,description,metadata)
         SELECT lead_id,$4,$16,$7,$12::jsonb FROM context
@@ -153,7 +162,31 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
     return { ...result[0], user_id: actor.id, user_name: actor.full_name, customer_contacted: plan.contacted };
   }
 
-  return { recordActivity, saveNote, refreshNextAction };
+  async function consolidate(workspace, actor, followUpId) {
+    const actorId = await resolveUserId(workspace,actor.id);
+    const teamId = await resolveTeamId(workspace,actor.team_id);
+    await sql.query(`WITH target AS (
+        SELECT * FROM crm.follow_ups WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL
+          AND ($3='super_admin' OR ($3='sales_manager' AND assigned_team_id=$4::uuid) OR ($3='sales_agent' AND assigned_agent_id=$5::uuid))
+      ), duplicates AS (
+        UPDATE crm.follow_ups f SET status='Cancelled',updated_at=now(),metadata=f.metadata || jsonb_build_object(
+          'consolidated_into',t.id::text,'consolidation_reason','Combined into the customer follow-up.','consolidated_from_status',f.status)
+        FROM target t WHERE f.workspace_id=t.workspace_id AND f.deleted_at IS NULL AND f.id<>t.id
+          AND f.assigned_agent_id=t.assigned_agent_id AND f.assigned_team_id IS NOT DISTINCT FROM t.assigned_team_id
+          AND (f.customer_id=t.customer_id OR (f.customer_id IS NULL AND f.lead_id=t.lead_id))
+          AND (f.lead_id IS NULL OR f.lead_id=t.lead_id) AND f.status IN ('Pending','Overdue','Rescheduled','Missed')
+        RETURNING f.id,f.metadata
+      ), history AS (
+        INSERT INTO crm.follow_up_status_history (follow_up_id,from_status,to_status,changed_by)
+        SELECT id,metadata->>'consolidated_from_status','Cancelled',$5 FROM duplicates
+      ), activity AS (
+        INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description)
+        SELECT id,$5,'Follow-up combined','Combined into the customer follow-up.' FROM duplicates
+      ) UPDATE crm.notifications SET is_read=true WHERE event_key='follow_up_overdue' AND related_entity_id IN (SELECT id FROM duplicates)`,
+    [workspace,followUpId,actor.role,teamId,actorId]);
+  }
+
+  return { recordActivity, saveNote, refreshNextAction, consolidate };
 }
 
 module.exports = { createFollowUpPipeline };

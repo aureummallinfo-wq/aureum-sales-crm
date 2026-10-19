@@ -35,10 +35,12 @@ function activitySummary(type, description, actor, now = new Date()) {
 
 function uniqueFollowUps(items) {
   const groups = new Map();
-  const leadCustomers = new Map(items.filter(item=>item.lead_id && item.customer_id).map(item=>[item.lead_id,item.customer_id]));
+  const scopeKey = (item, id) => `${item.workspace_id || ''}:${id}`;
+  const leadCustomers = new Map(items.filter(item=>item.lead_id && item.customer_id).map(item=>[scopeKey(item,item.lead_id),item.customer_id]));
   for (const item of items) {
-    const customerId=item.customer_id || leadCustomers.get(item.lead_id);
-    const key = customerId ? `customer:${customerId}` : item.lead_id ? `lead:${item.lead_id}` : `followup:${item.id}`;
+    if (item.consolidated_into || item.metadata?.consolidated_into) continue;
+    const customerId=item.customer_id || leadCustomers.get(scopeKey(item,item.lead_id));
+    const key = scopeKey(item, customerId ? `customer:${customerId}` : item.lead_id ? `lead:${item.lead_id}` : `followup:${item.id}`);
     const current = groups.get(key);
     const open = value => !['Completed','Cancelled'].includes(value.lifecycle_status || value.status) && !value.completed_at;
     if (!current || (open(item) && !open(current)) || (open(item) === open(current) && (open(item) ? String(item.due_date || '') + String(item.due_time || '') < String(current.due_date || '') + String(current.due_time || '') : String(item.updated_at || '') > String(current.updated_at || '')))) groups.set(key,item);

@@ -1,5 +1,6 @@
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const net = require('node:net');
 
 const ROOT = path.resolve(__dirname, '../../..');
 
@@ -8,7 +9,11 @@ function wait(ms) {
 }
 
 async function startApiServer(t) {
-  const port = 4300 + Math.floor(Math.random() * 1000);
+  // Ask the OS for a free port rather than occasionally choosing a blocked port such as 5060.
+  const reservation = net.createServer();
+  await new Promise((resolve,reject) => { reservation.once('error',reject); reservation.listen(0,'127.0.0.1',resolve); });
+  const port = reservation.address().port;
+  await new Promise(resolve => reservation.close(resolve));
   const base = `http://127.0.0.1:${port}`;
   let output = '';
   const server = spawn(process.execPath, ['backend/crm-api-server.js'], {
@@ -19,6 +24,7 @@ async function startApiServer(t) {
 
   server.stdout.on('data', chunk => { output += chunk.toString(); });
   server.stderr.on('data', chunk => { output += chunk.toString(); });
+  t.after(() => { if (!server.killed) server.kill(); });
 
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
@@ -29,10 +35,6 @@ async function startApiServer(t) {
     }
     if (attempt === 49) throw new Error(`API server did not start. Output: ${output}`);
   }
-
-  t.after(() => {
-    if (!server.killed) server.kill();
-  });
 
   async function request(route, options = {}) {
     const response = await fetch(`${base}${route}`, options);
