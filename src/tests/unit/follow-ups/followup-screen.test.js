@@ -176,13 +176,20 @@ test('follow-up drawer shows existing remarks, activity, and reschedule history'
       reschedule_history: [{ fromDate: '2026-10-18', fromTime: '10:00', toDate: '2026-10-21', toTime: '09:47', reason: 'Customer requested a later call.' }]
     },
     notes: [{ note: 'Previous agent note', user_name: 'Adnan Agent', created_at: '2026-10-18T08:00:00Z' }],
-    activity: [{ activity_type: 'Note added', description: 'Previous agent note', user_name: 'Adnan Agent', created_at: '2026-10-18T08:00:00Z' }]
+    activity: [{ activity_type: 'Note added', description: 'Previous agent note', user_name: 'Adnan Agent', created_at: '2026-10-18T08:00:00Z' }],
+    followUps: [
+      { id: 'customer-followup', follow_up_type: 'General follow-up', status: 'Contacted', notes: 'Latest customer remark', assigned_agent: 'Adnan Agent', due_date: '2026-10-21', due_time: '09:47', updated_at: '2026-10-19T08:00:00Z' },
+      { id: 'older-followup', follow_up_type: 'Call', status: 'Completed', notes: 'Earlier conversation', assigned_agent: 'Earlier Agent', due_date: '2026-10-15', due_time: '11:30', updated_at: '2026-10-15T07:00:00Z' }
+    ]
   };
   app.state.drawer = 'followup';
   const html = app.drawer();
   assert.match(html, /Notes &amp; remarks|Notes & remarks/);
   assert.match(html, /Previous agent note/);
   assert.match(html, /Follow-up activity/);
+  assert.match(html, /Complete customer history/);
+  assert.match(html, /Earlier conversation/);
+  assert.match(html, /Earlier Agent/);
   assert.match(html, /Customer requested a later call\./);
   assert.match(html, /Reschedule history/);
   assert.match(html, /Moved to 2026-10-21 · 09:47/);

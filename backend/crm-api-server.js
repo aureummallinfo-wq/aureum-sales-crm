@@ -1867,7 +1867,8 @@ async function handle(req, res) {
     if (!item) { json(res, 404, { error: 'Follow-up not found' }); return; }
     if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     const customer = customers.find(record => record.id === item.customer_id || (!item.customer_id && record.lead_id === item.lead_id));
-    json(res, 200, { data: followUpView(item), activity: followUpActivities.get(item.id) || [], notes: customer ? customerNotes.get(customer.id) || [] : [], timeline: customer ? customerActivities.get(customer.id) || [] : [] }); return;
+    const relatedFollowUps = customer ? followUps.filter(record => (record.customer_id === customer.id || (!record.customer_id && record.lead_id === customer.lead_id)) && canViewFollowUp(user, record)).map(followUpView) : [];
+    json(res, 200, { data: followUpView(item), activity: followUpActivities.get(item.id) || [], notes: customer ? customerNotes.get(customer.id) || [] : [], timeline: customer ? customerActivities.get(customer.id) || [] : [], followUps: relatedFollowUps }); return;
   }
   if (followUpMatch && req.method === 'PATCH') {
     const user = requireAuth(req, res); const item = findFollowUp(followUpMatch[1]);

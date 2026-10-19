@@ -59,6 +59,8 @@ test('rescheduling saves date, time and tag; adding a note preserves the commitm
   assert.equal(updated.notes[0].note, 'Payment plan attached for the next conversation.');
   const detail = (await request(`/api/follow-ups/${row.id}`)).body;
   assert.equal(detail.activity[0].activity_type, 'Note added');
+  assert.ok(Array.isArray(detail.followUps));
+  assert.ok(detail.followUps.some(item => item.id === row.id));
   const listed = await request('/api/follow-ups/my');
   assert.equal(listed.body.data.length, before.body.data.length);
   assert.equal(listed.body.data.filter(item => item.customer_id === row.customer_id).length, 1);
