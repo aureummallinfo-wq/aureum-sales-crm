@@ -69,6 +69,51 @@ test('lead drawer customer creation API validates, preserves ownership, and prev
   assert.equal(plainDetail.data.last_contacted_at, plain.last_contacted_at);
 });
 
+test('all CRM portals create one linked customer from an owned lead', async t => {
+  const api = await startApiServer(t);
+  const roleCases = [
+    { identifier: 'waqas@aureum.com', assigned_agent_id: 'usr_003', listRoute: '/api/customers' },
+    { identifier: 'dua@aureum.com', assigned_agent_id: 'usr_003', listRoute: '/api/customers' },
+    { identifier: 'adan@aureum.com', listRoute: '/api/customers/my' }
+  ];
+
+  for (const [index, roleCase] of roleCases.entries()) {
+    const cookie = await api.login(roleCase.identifier);
+    const request = (url, method = 'GET', body) => api.request(url, {
+      method,
+      headers: { cookie, 'content-type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+    const leadResult = await request('/api/leads', 'POST', {
+      full_name: `Portal conversion ${index}`,
+      phone: `+9230012345${70 + index}`,
+      interested_in: 'Commercial',
+      ...(roleCase.assigned_agent_id ? { assigned_agent_id: roleCase.assigned_agent_id } : {})
+    });
+    assert.equal(leadResult.response.status, 201);
+    const lead = leadResult.body.data;
+    const endpoint = `/api/leads/${lead.id}/customer`;
+
+    const created = await request(endpoint, 'POST', { schedule_followup: false });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.created, true);
+    assert.equal(created.body.data.lead_id, lead.id);
+
+    const retry = await request(endpoint, 'POST', { full_name: 'Must not duplicate', schedule_followup: false });
+    assert.equal(retry.response.status, 200);
+    assert.equal(retry.body.created, false);
+    assert.equal(retry.body.data.id, created.body.data.id);
+    assert.equal(retry.body.data.full_name, created.body.data.full_name);
+
+    const visibleCustomers = await request(roleCase.listRoute);
+    assert.equal(visibleCustomers.response.status, 200);
+    assert.equal(visibleCustomers.body.data.filter(item => item.lead_id === lead.id).length, 1);
+    const linkedLead = await request(`/api/leads/${lead.id}`);
+    assert.equal(linkedLead.response.status, 200);
+    assert.equal(linkedLead.body.data.customer_id, created.body.data.id);
+  }
+});
+
 test('PostgreSQL creates the linked customer and pending reminder atomically', async t => {
   const db = new PGlite();
   t.after(() => db.close());
