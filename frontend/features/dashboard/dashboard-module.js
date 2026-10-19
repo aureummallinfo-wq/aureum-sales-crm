@@ -3,7 +3,10 @@
 // instead of a runtime chart dependency while keeping the same API-ready boundaries.
 
 const dashboardMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const dashboardStatuses = ['Pending', 'Completed', 'Overdue', 'Missed', 'Rescheduled'];
+// Keep the performance chart aligned with the follow-up workflow.  Contacted is
+// a real outcome for a scheduled touchpoint, so it must not be dropped when the
+// API returns it alongside the lifecycle statuses.
+const dashboardStatuses = ['Pending', 'Contacted', 'Completed', 'Overdue', 'Missed', 'Rescheduled', 'Cancelled'];
 const dashboardStages = ["New","Contacted","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won"];
 const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
 const dashboardSummaryCache = new Map();

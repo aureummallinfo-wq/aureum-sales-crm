@@ -45,7 +45,7 @@ export interface DashboardSummary {
 export interface LeadInflowPoint { label: string; leads: number; newLeads?: number; qualifiedLeads?: number; closedDeals?: number; }
 export type LeadSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Sales Partner' | 'Walk-in' | 'Referral' | 'Manual Entry';
 export interface LeadSourceData { source: LeadSource; count: number; percentage: number; }
-export type FollowUpStatus = 'Pending' | 'Completed' | 'Overdue' | 'Missed' | 'Rescheduled' | 'Cancelled';
+export type FollowUpStatus = 'Pending' | 'Contacted' | 'Completed' | 'Overdue' | 'Missed' | 'Rescheduled' | 'Cancelled';
 export interface FollowUpPerformanceData { status: FollowUpStatus; count: number; percentage?: number; }
 export interface AgentPerformanceData { agentId: string; agentName: string; teamName?: string; assignedLeads: number; contactedLeads: number; completedFollowUps: number; overdueFollowUps: number; closedDeals: number; conversionRate: number; }
 export type ConversionStage = "New" | "Contacted" | "Follow-up" | "Visit Scheduled" | "Visit Completed" | "Negotiation" | "Closed Won";
