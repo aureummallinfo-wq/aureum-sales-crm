@@ -702,7 +702,7 @@ function createNeonRepository(sql) {
     LEFT JOIN crm.teams t ON t.id=f.assigned_team_id AND t.workspace_id=f.workspace_id
     LEFT JOIN crm.users cu ON cu.id=f.created_by AND cu.workspace_id=f.workspace_id`;
 
-  async function listFollowUps({ workspaceId: workspace, user, includeCompleted = true, customerId, includeHistory = false }) {
+  async function listFollowUps({ workspaceId: workspace, user, includeCompleted = true, customerId, includeHistory = false, notify = true }) {
     if (!user || (user.workspace_id && user.workspace_id !== workspace)) return [];
     const { conditions, params } = await scope(workspace, user, 'f');
     if (customerId) {
@@ -713,7 +713,7 @@ function createNeonRepository(sql) {
     const rows = await sql.query(`${followUpSelect} WHERE ${conditions.join(' AND ')} ORDER BY f.due_at ASC`, params);
     const records = rows.map(followUpRecord);
     const visibleRecords = includeHistory ? records : uniqueFollowUps(records);
-    for (const record of visibleRecords) {
+    for (const record of notify ? visibleRecords : []) {
       if (['Completed','Cancelled'].includes(record.lifecycle_status)) continue;
       const row = rows.find(item => (item.legacy_id || item.id) === record.id);
       await createFollowUpNotification(workspace, row.id, row.assigned_agent_id, record.status === 'Overdue' ? 'follow_up_overdue' : 'follow_up_due', record);
@@ -824,7 +824,7 @@ function createNeonRepository(sql) {
   async function transitionFollowUp(workspace, identifier, actor, status, patch={}) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return null;const actorId=await resolveUserId(workspace,actor.id);const old=await sql.query('SELECT status,assigned_agent_id FROM crm.follow_ups WHERE id=$1',[id]);await sql.query('UPDATE crm.follow_ups SET status=$1,completed_at=$2,notes=coalesce($3,notes),updated_at=now() WHERE id=$4',[status,status==='Completed'?new Date().toISOString():null,patch.completion_note||patch.note||null,id]);await sql.query('INSERT INTO crm.follow_up_status_history (follow_up_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.status||null,status,actorId]);await sql.query('INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)',[id,actorId,`Follow-up ${status.toLowerCase()}`,patch.reason||patch.note||`Follow-up marked as ${status}.`,JSON.stringify(patch)]);await enqueueOutbox(workspace,'follow_up_status_changed','follow_up',id,{status});const item = await getFollowUp(workspace,identifier); const lid=await resolveLeadId(workspace,item.lead_id); const cid=await resolveCustomerId(workspace,item.customer_id); await pipeline.recordActivity(workspace,actor,{leadId:lid,customerId:cid,type:`Follow-up ${status.toLowerCase()}`,description:patch.completion_note||patch.reason||patch.note||`Follow-up marked ${status}.`}); await pipeline.refreshNextAction(workspace,lid,cid); await sql.query("UPDATE crm.notifications SET is_read=true WHERE related_entity_id=$1 AND event_key='follow_up_overdue'",[id]); const updated = await getFollowUp(workspace,identifier);if(status==='Completed') await createFollowUpNotification(workspace,id,old[0]?.assigned_agent_id,'follow_up_completed',updated);return updated; }
   async function listFollowUpActivities(workspace, identifier) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return[];return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,u.full_name AS user_name,a.created_at FROM crm.follow_up_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.follow_up_id=$1 ORDER BY a.created_at DESC`,[id]); }
   async function listCustomerFollowUps(workspace, identifier, user = {role:'super_admin',workspace_id:workspace}) { return listFollowUps({workspaceId:workspace,user,customerId:identifier}); }
-  async function listCustomerFollowUpHistory(workspace, identifier, user = {role:'super_admin',workspace_id:workspace}) { return listFollowUps({workspaceId:workspace,user,customerId:identifier,includeHistory:true}); }
+  async function listCustomerFollowUpHistory(workspace, identifier, user = {role:'super_admin',workspace_id:workspace}) { return listFollowUps({workspaceId:workspace,user,customerId:identifier,includeHistory:true,notify:false}); }
 
   const taskSelect = `SELECT t.*, au.legacy_id AS assigned_to_legacy, au.full_name AS assigned_to_name, au.email AS assigned_to_email,
     at.legacy_id AS assigned_team_legacy, cu.legacy_id AS created_by_legacy, cu.full_name AS created_by_name,
