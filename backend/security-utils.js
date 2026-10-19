@@ -20,9 +20,10 @@ function canAccessRoute(role, route) { return Boolean(ROUTE_PERMISSIONS[route]?.
 function isKnownRole(role) { return CRM_ROLES.includes(role); }
 function canViewOwnedRecord(user, record, ownerField = 'assigned_agent_id', teamField = 'assigned_team_id') {
   if (!user || !record || !isKnownRole(user.role)) return false;
+  if (user.workspace_id && record.workspace_id && user.workspace_id !== record.workspace_id) return false;
   if (user.role === 'super_admin') return true;
-  if (user.role === 'sales_manager') return record[teamField] === user.team_id;
-  return record[ownerField] === user.id;
+  if (user.role === 'sales_manager') return Boolean(user.team_id && record[teamField] === user.team_id);
+  return Boolean(user.id && record[ownerField] === user.id);
 }
 function validatePasswordPolicy(password, minimumLength = 8) {
   const value = String(password || '');

@@ -31,9 +31,15 @@ screenForPath['/access-denied'] = 'unauthorized';
 const API_REQUEST_TIMEOUT_MS = 20000;
 const API_CACHE = new Map();
 const API_INFLIGHT = new Map();
+let portalSessionRevision = 0;
+function portalUserScope(user) {
+  return JSON.stringify([user?.workspace_id || user?.workspaceId || '', user?.id || user?.db_id || '', user?.role || '', user?.team_id || '']);
+}
+function portalSessionKey() { return `${API_BASE_URL}:${portalSessionRevision}:${portalUserScope(state.authUser)}`; }
+window.aureumPortalSessionKey = portalSessionKey;
 function apiCacheKey(path, requestOptions = {}) {
   const method = String(requestOptions.method || 'GET').toUpperCase();
-  return `${method}:${apiUrl(path)}`;
+  return `${portalSessionKey()}:${method}:${apiUrl(path)}`;
 }
 function apiInvalidateCache(pathPrefix = '') {
   const prefix = String(pathPrefix || '');
@@ -43,6 +49,7 @@ function apiInvalidateCache(pathPrefix = '') {
 }
 window.apiInvalidateCache = apiInvalidateCache;
 async function apiFetch(path, options = {}) {
+  const sessionKey = portalSessionKey();
   const { cacheTtl = 0, force = false, ...requestOptions } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
   const cacheable = method === 'GET' && Number(cacheTtl) > 0;
@@ -60,8 +67,8 @@ async function apiFetch(path, options = {}) {
     try {
       response = await fetch(apiUrl(path), {
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...(requestOptions.headers || {}) },
         ...requestOptions,
+        headers: { 'Content-Type': 'application/json', ...(requestOptions.headers || {}), ...(state.authUser ? { 'X-Aureum-Portal-Scope': portalUserScope(state.authUser) } : {}) },
         ...(controller ? { signal: controller.signal } : {})
       });
     } catch (error) {
@@ -71,12 +78,14 @@ async function apiFetch(path, options = {}) {
     }
     if (timeoutId) window.clearTimeout(timeoutId);
     const body = await response.json().catch(() => ({}));
-    if (response.status === 401 && state?.authUser && state.screen !== 'login') {
+    // A response from a previous account must never repopulate the current portal.
+    if (sessionKey !== portalSessionKey()) throw new Error('The signed-in account changed. Please retry.');
+    if ((response.status === 401 || body.code === 'PORTAL_SESSION_CHANGED') && state?.authUser && state.screen !== 'login') {
       state.authUser = null;
       state.ready = true;
       state.screen = 'login';
       state.drawer = null;
-      state.loginError = 'Your session has expired. Please sign in again.';
+      state.loginError = body.code === 'PORTAL_SESSION_CHANGED' ? 'The account for this tab changed. Please sign in again.' : 'Your session has expired. Please sign in again.';
       window.history.replaceState({}, '', '/');
       if (typeof render === 'function') render();
     }
@@ -133,6 +142,50 @@ const state = {
   selectedChannel: 'Sales Team',
   toast: ''
 };
+
+// Clear every data-bearing view whenever ownership changes. Module event flags
+// and device display preferences stay available across sign-ins.
+let portalAuthUser = state.authUser;
+function clearPortalData() {
+  const collection = () => ({ loading: false, error: '', items: [] });
+  Object.assign(state, {
+    dashboard: { loading: false, error: '', data: null },
+    leads: collection(), customers: collection(), followups: collection(), agents: collection(),
+    leadFilters: { q: '', status: '', source: '', propertyType: '', priority: '', agentId: '' },
+    leadModule: { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', importDialog: null },
+    customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' } },
+    followupModule: { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: new Date().toISOString().slice(0, 7), tab: 'overview', form: '' },
+    tasks: { ...collection(), users: [], leads: [], customers: [], followUps: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '' }, formOpen: false, editing: null },
+    users: { ...collection(), teams: [], detail: null, filters: { search: '', role: 'All', status: 'All', inviteStatus: 'All', teamId: 'All', activityStatus: 'All' }, drawer: '' },
+    account: { loading: false, error: '', data: null },
+    chat: { loading: false, error: '', channels: [], groups: [], direct: [], users: [], messages: [], attachments: [], links: [], unread: {} },
+    reports: { loading: false, error: '', data: null, detail: null, summary: null, agents: [], filters: { dateRange: 'this_month', teamId: 'all', agentId: 'all', leadStatus: 'all', leadSource: 'all', followUpStatus: 'all' } },
+    settings: { loading: false, error: '', data: null, permissions: [], statuses: [], customerStatuses: [], tags: [], sources: [], notifications: [], activities: [] },
+    webhooks: { loading: false, error: '', connections: [], logs: [], failed: [], selected: null, panel: null, oneTimeSecret: '' },
+    globalSearch: { q: '', loading: false, results: null, error: '' },
+    notificationsData: [], notificationsUnread: 0, notificationOpen: false,
+    leadDetail: null, customerDetail: null, customerId: null, followupDetail: null, followupPrefill: null,
+    agentDetail: null, reportAgentDetail: null, chatActive: null, chatGroupDraft: null,
+    drawer: null, drawerName: '', userMenu: false, toast: '',
+    chatSearch: '', chatGroupModalOpen: false, customerSearch: '', customerStatusFilter: '', customerListFilter: '',
+    followupSearch: '', followupTab: 'all', followupDateFilter: 'all', followupType: '', followupPriority: '',
+    dashboardRecentLeadAgentId: '', dashboardAgentFilter: []
+  });
+}
+Object.defineProperty(state, 'authUser', {
+  enumerable: true,
+  get() { return portalAuthUser; },
+  set(user) {
+    if (portalUserScope(portalAuthUser) !== portalUserScope(user)) {
+      portalSessionRevision += 1;
+      API_CACHE.clear();
+      API_INFLIGHT.clear();
+      window.invalidateDashboardCache?.();
+      clearPortalData();
+    }
+    portalAuthUser = user;
+  }
+});
 
 /* Personal display preferences are device-scoped, while the API remains the source
    of truth after sign-in. These helpers are intentionally available to every screen
@@ -402,13 +455,15 @@ function customerInitials(name) { return String(name || '').split(' ').map(part 
 
 async function loadCustomers(force = false) {
   if (!state.authUser) return;
+  const sessionKey = portalSessionKey();
   state.customers = { loading: true, error: '', items: state.customers.items || [] };
   render();
   try {
     const endpoint = state.role === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers';
     const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
+    if (sessionKey !== portalSessionKey()) return;
     state.customers = { loading: false, error: '', items: result.data || [] };
-  } catch (error) { state.customers = { loading: false, error: error.message, items: state.customers.items || [] }; }
+  } catch (error) { if (sessionKey !== portalSessionKey()) return; state.customers = { loading: false, error: error.message, items: state.customers.items || [] }; }
   render();
 }
 
@@ -542,13 +597,15 @@ function followupDateMatches(item, filter) {
 
 async function loadFollowups(force = false) {
   if (!state.authUser) return;
+  const sessionKey = portalSessionKey();
   state.followups = { loading: true, error: '', items: state.followups.items || [] };
   render();
   try {
     const endpoint = state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups';
     const result = await apiFetch(endpoint, { cacheTtl: 15 * 1000, force });
+    if (sessionKey !== portalSessionKey()) return;
     state.followups = { loading: false, error: '', items: result.data || [] };
-  } catch (error) { state.followups = { loading: false, error: error.message, items: state.followups.items || [] }; }
+  } catch (error) { if (sessionKey !== portalSessionKey()) return; state.followups = { loading: false, error: error.message, items: state.followups.items || [] }; }
   render();
 }
 

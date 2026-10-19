@@ -13,7 +13,7 @@ async function startApiServer(t) {
   let output = '';
   const server = spawn(process.execPath, ['backend/crm-api-server.js'], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, NODE_ENV: 'test', DATABASE_URL: '', AUREUM_PERSISTENCE: '0', PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 

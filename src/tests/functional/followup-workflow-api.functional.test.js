@@ -1,0 +1,68 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { startApiServer } = require('../helpers/api-test-server');
+
+test('sales agent logs a call, keeps one customer row, and validates the next contact',async t=>{
+  const api=await startApiServer(t);const cookie=await api.login('adan@aureum.com');
+  const request=(url,method='GET',body)=>api.request(url,{method,headers:{cookie,'content-type':'application/json'},...(body ? {body:JSON.stringify(body)} : {})});
+  const before=await request('/api/follow-ups/my');assert.equal(before.response.status,200);
+  const row=before.body.data.find(item=>item.status==='Overdue');assert.ok(row);
+  const profileBefore=await request(`/api/customers/${row.customer_id}`);
+  const contact=await request(`/api/follow-ups/${row.id}/notes`,'POST',{note:'Customer requested a call in seven days.',customer_contacted:true,next_followup_days:'7',next_due_time:'16:20'});
+  assert.equal(contact.response.status,201);assert.equal(contact.body.data.id,row.id);assert.equal(contact.body.data.status,'Contacted');assert.equal(contact.body.data.due_time,'16:20');
+  const after=await request('/api/follow-ups/my');assert.equal(after.body.data.length,before.body.data.length);assert.equal(after.body.data.filter(item=>item.customer_id===row.customer_id).length,1);
+  const profile=await request(`/api/customers/${row.customer_id}`);assert.equal(profile.body.data.last_activity_description,'Customer requested a call in seven days.');assert.ok(profile.body.data.last_contacted_at);assert.equal(profile.body.notes.length,profileBefore.body.notes.length+1);assert.equal(profile.body.data.customer_status,profileBefore.body.data.customer_status);
+  const tags=await request(`/api/customers/${row.customer_id}`,'PATCH',{tags:['VIP']});assert.equal(tags.response.status,200);
+  const tagged=await request(`/api/follow-ups/${row.id}`);assert.equal(tagged.body.data.last_activity_description,'Tags: VIP');assert.equal(tagged.body.data.due_date,contact.body.data.due_date);
+  const invalid=await request(`/api/follow-ups/${row.id}/notes`,'POST',{note:'Do not save this invalid date.',customer_contacted:true,next_followup_days:'custom',next_due_date:'2026-02-30',next_due_time:'12:00'});
+  assert.equal(invalid.response.status,422);
+  const unchanged=await request(`/api/follow-ups/${row.id}`);assert.equal(unchanged.body.data.last_activity_description,'Tags: VIP');
+  const forbidden=await request('/api/follow-ups/followup_003/notes','POST',{note:'Outside ownership',customer_contacted:true});assert.equal(forbidden.response.status,403);
+});
+
+test('rescheduling saves date, time and tag; adding a note preserves the commitment', async t => {
+  const api = await startApiServer(t);
+  const cookie = await api.login('adan@aureum.com');
+  const request = (url, method = 'GET', body) => api.request(url, { method, headers: { cookie, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const before = await request('/api/follow-ups/my');
+  const row = before.body.data.find(item => item.status === 'Overdue');
+  const originalCustomer = (await request(`/api/customers/${row.customer_id}`)).body;
+  const noteOnly = { customer_contacted: false, next_followup_days: 'none' };
+  const firstNote = await request(`/api/follow-ups/${row.id}/notes`, 'POST', { ...noteOnly, note: 'Internal note before contacting the customer.' });
+  assert.equal(firstNote.response.status, 201);
+  assert.equal(firstNote.body.data.status, 'Overdue');
+  assert.equal(firstNote.body.data.due_date, row.due_date);
+  assert.equal(firstNote.body.data.due_time, row.due_time);
+
+  const payload = { note: 'Customer agreed to the next call.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-06-21', next_due_time: '14:35', followup_tag: 'Follow-up Needed' };
+  const saved = await request(`/api/follow-ups/${row.id}/notes`, 'POST', payload);
+  assert.equal(saved.response.status, 201);
+  assert.equal(saved.body.data.status, 'Contacted');
+  assert.equal(saved.body.data.id, row.id);
+  assert.equal(saved.body.data.due_date, payload.next_due_date);
+  assert.equal(saved.body.data.due_time, payload.next_due_time);
+  assert.equal(saved.body.data.followup_tag, payload.followup_tag);
+  const customer = (await request(`/api/customers/${row.customer_id}`)).body;
+  const lead = (await request(`/api/leads/${row.lead_id}`)).body;
+  for (const tag of [...originalCustomer.data.tags, payload.followup_tag]) assert.ok(customer.data.tags.includes(tag));
+  assert.ok(lead.data.tags.includes(payload.followup_tag));
+  assert.equal(customer.data.customer_status, originalCustomer.data.customer_status);
+  const internal = await request(`/api/follow-ups/${row.id}/notes`, 'POST', { ...noteOnly, note: 'Payment plan attached for the next conversation.' });
+  assert.equal(internal.response.status, 201);
+  assert.equal(internal.body.data.status, 'Contacted');
+  assert.equal(internal.body.data.due_date, saved.body.data.due_date);
+  assert.equal(internal.body.data.due_time, saved.body.data.due_time);
+  assert.equal(internal.body.data.followup_tag, payload.followup_tag);
+  assert.equal(internal.body.data.reschedule_history.length, saved.body.data.reschedule_history.length);
+  const updated = (await request(`/api/customers/${row.customer_id}`)).body;
+  assert.equal(updated.data.last_contacted_at, customer.data.last_contacted_at);
+  assert.equal(updated.notes[0].note, 'Payment plan attached for the next conversation.');
+  const detail = (await request(`/api/follow-ups/${row.id}`)).body;
+  assert.equal(detail.activity[0].activity_type, 'Note added');
+  const listed = await request('/api/follow-ups/my');
+  assert.equal(listed.body.data.length, before.body.data.length);
+  assert.equal(listed.body.data.filter(item => item.customer_id === row.customer_id).length, 1);
+  const invalid = await request(`/api/follow-ups/${row.id}/notes`, 'POST', { ...payload, followup_tag: '<invalid>' });
+  assert.equal(invalid.response.status, 422);
+  assert.equal((await request(`/api/follow-ups/${row.id}`)).body.data.last_activity_description, internal.body.data.last_activity_description);
+});

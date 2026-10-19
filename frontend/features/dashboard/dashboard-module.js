@@ -8,6 +8,7 @@ const dashboardStages = ['New', 'Contacted', 'Qualified', 'Follow-up', 'Negotiat
 const DASHBOARD_CACHE_TTL_MS = 30 * 1000;
 const dashboardSummaryCache = new Map();
 let dashboardPresenceTimer = null;
+let dashboardRequestId = 0;
 state.dashboardDateRange = state.dashboardDateRange || 'this_month';
 state.dashboardCustomStart = state.dashboardCustomStart || '';
 state.dashboardCustomEnd = state.dashboardCustomEnd || '';
@@ -57,8 +58,8 @@ function dashboardRelativeTime(value) {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
-function dashboardCacheKey() { return [dashboardRole().role, dashboardRole().scope, state.dashboardDateRange, state.dashboardCustomStart || '', state.dashboardCustomEnd || '', state.dashboardRecentLeadAgentId || '', state.dashboardRecentLeadDateRange || 'all'].join('|'); }
-function dashboardCacheableData(data) { return { role: data.role, scope: data.scope, dateRange: data.dateRange, summary: { ...data.summary }, leadInflow: dashboardSafeArray(data.leadInflow).map(item => ({ ...item })), leadSources: dashboardSafeArray(data.leadSources).map(item => ({ ...item })), followUpPerformance: dashboardSafeArray(data.followUpPerformance).map(item => ({ ...item })), conversionOverview: dashboardSafeArray(data.conversionOverview).map(item => ({ ...item })), agentPerformance: dashboardSafeArray(data.agentPerformance).map(item => ({ ...item })), recentLeads: dashboardSafeArray(data.recentLeads).map(item => ({ ...item })), recentActivities: dashboardSafeArray(data.recentActivities).map(item => ({ ...item })), todayFollowUps: dashboardSafeArray(data.todayFollowUps).map(item => ({ ...item })), scopeLabel: data.scopeLabel, meta: { ...data.meta } }; }
+function dashboardCacheKey() { return JSON.stringify([window.aureumPortalSessionKey?.() || [state.authUser?.workspace_id || '', state.authUser?.id || '', state.authUser?.team_id || ''], dashboardRole().role, dashboardRole().scope, state.dashboardDateRange, state.dashboardCustomStart || '', state.dashboardCustomEnd || '', state.dashboardRecentLeadAgentId || '', state.dashboardRecentLeadDateRange || 'all']); }
+function dashboardCacheableData(data) { return { role: data.role, scope: data.scope, dateRange: data.dateRange, summary: { ...data.summary }, leadInflow: dashboardSafeArray(data.leadInflow).map(item => ({ ...item })), leadSources: dashboardSafeArray(data.leadSources).map(item => ({ ...item })), followUpPerformance: dashboardSafeArray(data.followUpPerformance).map(item => ({ ...item })), conversionOverview: dashboardSafeArray(data.conversionOverview).map(item => ({ ...item })), agentPerformance: [], recentLeads: [], recentActivities: [], todayFollowUps: [], scopeLabel: data.scopeLabel, meta: { ...data.meta } }; }
 function dashboardReadCache(key = dashboardCacheKey()) { const entry = dashboardSummaryCache.get(key); if (!entry || entry.expiresAt <= Date.now()) { dashboardSummaryCache.delete(key); return null; } return normalizeDashboardData(entry.data); }
 function dashboardWriteCache(data, key = dashboardCacheKey()) { dashboardSummaryCache.set(key, { expiresAt: Date.now() + DASHBOARD_CACHE_TTL_MS, data: dashboardCacheableData(data) }); }
 function invalidateDashboardCache() { dashboardSummaryCache.clear(); }
@@ -167,21 +168,25 @@ async function loadDashboard(options = {}) {
   if (!state.authUser) return;
   ensurePresenceHeartbeat();
   const cacheKey = dashboardCacheKey();
+  const requestId = ++dashboardRequestId;
   const forceRefresh = Boolean(options?.force);
   if (forceRefresh) dashboardSummaryCache.delete(cacheKey);
   const cachedData = forceRefresh ? null : dashboardReadCache(cacheKey);
-  state.dashboard = { loading: true, error: '', data: cachedData || state.dashboard.data || null, cacheHit: Boolean(cachedData), backgroundRefreshing: Boolean(cachedData) };
+  const previousData = state.dashboard?.cacheKey === cacheKey ? state.dashboard.data : null;
+  state.dashboard = { loading: true, error: '', data: cachedData || previousData || null, cacheKey, cacheHit: Boolean(cachedData), backgroundRefreshing: Boolean(cachedData) };
   render();
   try {
     const endpoints = ['/api/dashboard/summary', '/api/dashboard/lead-inflow', '/api/dashboard/lead-sources', '/api/dashboard/follow-up-performance', '/api/dashboard/conversion-overview', '/api/dashboard/recent-leads', '/api/dashboard/today-follow-ups'];
     if (state.role !== 'SALES_AGENT') endpoints.push('/api/dashboard/agent-performance');
     const responses = await Promise.all(endpoints.map(dashboardEndpoint));
+    if (requestId !== dashboardRequestId || cacheKey !== dashboardCacheKey()) return;
     const [summary, leadInflow, leadSources, followUpPerformance, conversionOverview, recentLeads, todayFollowUps, agentPerformance] = responses;
     const normalized = normalizeDashboardData({ summary: summary.summary || summary, scopeLabel: summary.scope || '', leadInflow, leadSources, followUpPerformance, conversionOverview, recentLeads, todayFollowUps, agentPerformance });
     dashboardWriteCache(normalized, cacheKey);
-    state.dashboard = { loading: false, error: '', data: normalized, cacheHit: Boolean(cachedData), backgroundRefreshing: false };
+    state.dashboard = { loading: false, error: '', data: normalized, cacheKey, cacheHit: Boolean(cachedData), backgroundRefreshing: false };
   } catch (error) {
-    state.dashboard = cachedData ? { loading: false, error: '', data: cachedData, cacheHit: true, backgroundRefreshing: false, backgroundError: error.message } : { loading: false, error: error.message, data: null };
+    if (requestId !== dashboardRequestId || cacheKey !== dashboardCacheKey()) return;
+    state.dashboard = cachedData ? { loading: false, error: '', data: cachedData, cacheKey, cacheHit: true, backgroundRefreshing: false, backgroundError: error.message } : { loading: false, error: error.message, data: null, cacheKey };
   }
   render();
 }

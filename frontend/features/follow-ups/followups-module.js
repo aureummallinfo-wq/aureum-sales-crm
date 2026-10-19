@@ -5,16 +5,32 @@
   const esc = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const role = () => state.role || '';
   const currentDate = () => dateUtils.todayInTimezone();
-  const title = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   const value = (item, ...keys) => { for (const key of keys) if (item?.[key] !== undefined && item?.[key] !== null && item[key] !== '') return item[key]; return '—'; };
   const status = item => dateUtils.getComputedFollowUpStatus(item);
-  const statusBadge = item => badge(status(item));
-  const priorityBadge = item => badge(value(item, 'priority'));
+  const statusBadge = item => status(item) === 'Contacted' ? '<span class="badge followup-contacted-badge">Contacted</span>' : badge(status(item));
   const stateForModule = () => { state.followupModule = state.followupModule || { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: currentDate().slice(0, 7), tab: 'overview', form: '' }; return state.followupModule; };
   const items = () => (state.followups?.items || []).map(item => ({ ...item, status: status(item), customer: value(item, 'customer', 'customer_name'), phone: value(item, 'phone', 'customer_phone'), agent: value(item, 'agent', 'assigned_agent'), type: value(item, 'type', 'follow_up_type') }));
   const select = (name, options, selected, label, required = false) => `<select name="${name}" ${required ? 'required' : ''}>${label ? `<option value="">${esc(label)}</option>` : ''}${options.map(option => { const val = Array.isArray(option) ? option[0] : option; const text = Array.isArray(option) ? option[1] : option; return `<option value="${esc(val)}" ${String(val) === String(selected || '') ? 'selected' : ''}>${esc(text)}</option>`; }).join('')}</select>`;
   const summaryCard = (label, amount, detail, tone = '') => `<div class="card followup-summary-card"><div class="kpi-label">${esc(label)}</div><div class="kpi-value">${esc(amount)}</div><div class="followup-summary-detail ${tone ? `is-${tone}` : ''}">${esc(detail)}</div></div>`;
   const metricCard = (label, amount) => `<div class="followup-metric"><span>${esc(label)}</span><strong>${esc(amount)}</strong></div>`;
+
+  // Calendar values are dates in Pakistan, not instants to convert to UTC.
+  function addCalendarDays(date, days) {
+    const calendarDate = new Date(`${date}T00:00:00Z`);
+    calendarDate.setUTCDate(calendarDate.getUTCDate() + days);
+    return calendarDate.toISOString().slice(0, 10);
+  }
+
+  function changeCalendarMonth(direction) {
+    const moduleState = stateForModule();
+    if (direction === 'today') {
+      moduleState.calendarMonth = currentDate().slice(0, 7);
+    } else {
+      const [year, month] = moduleState.calendarMonth.split('-').map(Number);
+      moduleState.calendarMonth = new Date(Date.UTC(year, month - 1 + (direction === 'next' ? 1 : -1), 1)).toISOString().slice(0, 7);
+    }
+    render();
+  }
 
   function followupDateMatches(item, filter, moduleState) {
     const date = item.due_date; const today = currentDate();
@@ -22,9 +38,8 @@
     if (filter === 'overdue') return status(item) === 'Overdue';
     if (filter === 'custom') return (!moduleState.customStart || date >= moduleState.customStart) && (!moduleState.customEnd || date <= moduleState.customEnd);
     if (filter === 'today') return date === today;
-    const base = new Date(`${today}T00:00:00+05:00`); const target = new Date(base); if (filter === 'tomorrow') target.setDate(target.getDate() + 1);
-    if (filter === 'tomorrow') return date === target.toISOString().slice(0, 10);
-    if (filter === 'week') { const end = new Date(base); end.setDate(end.getDate() + 7); const instant = dateUtils.toInstant(date, '00:00'); return instant >= base.getTime() && instant < end.getTime(); }
+    if (filter === 'tomorrow') return date === addCalendarDays(today, 1);
+    if (filter === 'week') return date >= today && date < addCalendarDays(today, 7);
     if (filter === 'month') return date.slice(0, 7) === today.slice(0, 7);
     return true;
   }
@@ -34,12 +49,14 @@
     return items().filter(item => (!moduleState.status || status(item) === moduleState.status) && followupDateMatches(item, moduleState.date, moduleState) && (!moduleState.selectedDate || item.due_date === moduleState.selectedDate) && (!moduleState.agentId || item.assigned_agent_id === moduleState.agentId) && (!moduleState.type || item.type === moduleState.type) && (!moduleState.leadStatus || item.lead_status === moduleState.leadStatus) && (!moduleState.priority || item.priority === moduleState.priority) && (!search || [item.customer, item.phone, item.agent, item.type, item.notes].some(part => String(part || '').toLowerCase().includes(search))));
   }
 
-  function actionMenu(item) { return `<details class="followup-action-menu"><summary class="table-action">Actions <span aria-hidden="true">⌄</span></summary><div class="followup-action-options"><button data-followup-module-open="${esc(item.id)}">Open details</button>${item.lead_id && !item.customer_id ? `<button data-followup-module-lead="${esc(item.lead_id)}">Open lead</button>` : '<button data-followup-module-action="customer" data-followup-id="' + esc(item.id) + '">Open customer</button>'}<button data-followup-module-action="edit" data-followup-id="${esc(item.id)}">Edit details</button><button data-followup-module-action="call" data-followup-id="${esc(item.id)}">Call</button><button data-followup-module-action="whatsapp" data-followup-id="${esc(item.id)}">WhatsApp</button>${!['Completed', 'Cancelled'].includes(status(item)) ? `<button data-followup-module-action="done" data-followup-id="${esc(item.id)}">Mark done</button><button data-followup-module-action="reschedule" data-followup-id="${esc(item.id)}">Reschedule</button><button data-followup-module-action="cancel" data-followup-id="${esc(item.id)}">Cancel follow-up</button>` : ''}<button data-followup-module-action="note" data-followup-id="${esc(item.id)}">Add note</button></div></details>`; }
-  function table(itemsToRender) { if (!itemsToRender.length) return '<div class="empty-state"><strong>No follow-ups match this view.</strong><br/>Clear a filter or schedule a new client touchpoint.</div>'; return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Phone / WhatsApp</th><th>Type</th><th>Assigned agent</th><th>Lead status</th><th>Due date</th><th>Due time</th><th>Priority</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => `<tr><td><button class="followup-customer-button" ${item.customer_id ? `data-followup-module-customer="${esc(item.customer_id)}"` : item.lead_id ? `data-followup-module-lead="${esc(item.lead_id)}"` : ''} aria-label="Open ${esc(item.customer)} profile"><b>${esc(item.customer)}</b><span>${esc(item.notes || 'No note added')}</span></button></td><td>${esc(item.phone)}</td><td>${esc(item.type)}</td><td>${esc(item.agent)}</td><td>${badge(value(item, 'lead_status', 'Active'))}</td><td>${esc(item.due_date)}</td><td>${esc(item.due_time)}</td><td>${priorityBadge(item)}</td><td>${statusBadge(item)}</td><td>${esc(value(item, 'last_activity', 'Not contacted'))}</td><td>${actionMenu(item)}</td></tr>`).join('')}</tbody></table></div>`; }
+  function table(itemsToRender) {
+    if (!itemsToRender.length) return '<div class="empty-state"><strong>No follow-ups match this view.</strong><br/>Clear a filter or schedule the next contact.</div>';
+    return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Status</th><th>Last activity</th><th>Next contact</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => `<tr data-followup-module-open="${esc(item.id)}" tabindex="0" aria-label="Schedule follow-up for ${esc(item.customer)}"><td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b></button><div class="person-meta">${esc(item.phone)}</div>${item.followup_tag ? `<span class="customer-tag">${esc(item.followup_tag)}</span>` : ''}</td><td>${statusBadge(item)}</td><td>${window.AureumFollowUpNoteUI.activity(item)}</td><td>${item.completed_at || item.status === 'Cancelled' ? 'No next contact' : `${esc(item.due_date)}<div class="person-meta">${esc(item.due_time)} · Pakistan</div>`}</td><td><div class="followup-row-actions"><button class="btn btn-secondary btn-sm" data-followup-module-action="reschedule" data-followup-id="${esc(item.id)}">Reschedule</button><button class="btn btn-secondary btn-sm" data-followup-module-action="note" data-followup-id="${esc(item.id)}">Add note</button></div></td></tr>`).join('')}</tbody></table></div>`;
+  }
 
   function calendar(itemsToRender) {
-    const moduleState = stateForModule(); const month = moduleState.calendarMonth || currentDate().slice(0, 7); const [year, monthNumber] = month.split('-').map(Number); const days = metrics.getFollowUpCalendarDays(itemsToRender, month); const firstDay = new Date(`${month}-01T00:00:00+05:00`).getDay(); const blanks = Array.from({ length: firstDay }, () => '<span class="followup-calendar-empty"></span>').join('');
-    return `<section class="card followup-calendar-card"><div class="followup-calendar-head"><div><div class="eyebrow">Schedule map</div><h3>${new Date(year, monthNumber - 1, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' })}</h3></div><div class="header-actions"><button class="table-action" data-followup-module-month="prev">←</button><button class="table-action" data-followup-module-month="today">Today</button><button class="table-action" data-followup-module-month="next">→</button></div></div><div class="followup-calendar-week">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('')}</div><div class="followup-calendar-grid">${blanks}${days.map(day => `<button class="followup-calendar-day ${moduleState.selectedDate === day.date ? 'selected' : ''}" data-followup-module-calendar-date="${day.date}"><strong>${day.day}</strong><span class="followup-calendar-dots">${day.hasScheduled ? '<i class="scheduled"></i>' : ''}${day.hasCompleted ? '<i class="completed"></i>' : ''}${day.hasOverdue ? '<i class="overdue"></i>' : ''}</span></button>`).join('')}</div><div class="followup-calendar-legend"><span><i class="scheduled"></i> Scheduled</span><span><i class="completed"></i> Completed</span><span><i class="overdue"></i> Overdue</span></div></section>`;
+    const moduleState = stateForModule(); const month = moduleState.calendarMonth || currentDate().slice(0, 7); const [year, monthNumber] = month.split('-').map(Number); const days = metrics.getFollowUpCalendarDays(itemsToRender, month); const firstDay = new Date(Date.UTC(year, monthNumber - 1, 1)).getUTCDay(); const blanks = Array.from({ length: firstDay }, () => '<span class="followup-calendar-empty"></span>').join('');
+    return `<section class="card followup-calendar-card"><div class="followup-calendar-head"><div><div class="eyebrow">Schedule map</div><h3>${new Date(Date.UTC(year, monthNumber - 1, 1)).toLocaleString(undefined, { timeZone: 'UTC', month: 'long', year: 'numeric' })}</h3></div><div class="header-actions"><button class="table-action" data-followup-module-month="prev">←</button><button class="table-action" data-followup-module-month="today">Today</button><button class="table-action" data-followup-module-month="next">→</button></div></div><div class="followup-calendar-week">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `<span>${day}</span>`).join('')}</div><div class="followup-calendar-grid">${blanks}${days.map(day => `<button class="followup-calendar-day ${moduleState.selectedDate === day.date ? 'selected' : ''}" data-followup-module-calendar-date="${day.date}"><strong>${day.day}</strong><span class="followup-calendar-dots">${day.hasScheduled ? '<i class="scheduled"></i>' : ''}${day.hasCompleted ? '<i class="completed"></i>' : ''}${day.hasOverdue ? '<i class="overdue"></i>' : ''}</span></button>`).join('')}</div><div class="followup-calendar-legend"><span><i class="scheduled"></i> Scheduled</span><span><i class="completed"></i> Completed</span><span><i class="overdue"></i> Overdue</span></div></section>`;
   }
 
   function renderFollowupsModule() {
@@ -50,33 +67,159 @@
     return pageHeader('Daily rhythm', 'Follow-ups', role() === 'SALES_AGENT' ? 'Work the next conversation assigned to your advisor account.' : role() === 'SALES_MANAGER' ? 'Coordinate the team’s next conversations and recover overdue commitments.' : 'Protect every customer conversation with a clear owner, due time, priority, and outcome.', `<button class="btn btn-secondary" data-followup-module-calendar-toggle>${moduleState.calendarOpen ? 'Hide calendar' : 'Calendar view'}</button><button class="btn btn-secondary" data-followup-module-reload>Refresh</button><button class="btn btn-gold" data-followup-module-create>+ Schedule follow-up</button>`) + `<section class="grid grid-4 followup-summary-grid">${summaryCard("Today's follow-ups", summary.today, 'Due in your timezone', summary.today ? 'warm' : '')}${summaryCard('Overdue', summary.overdue, summary.overdue ? 'Action required' : 'Clear', summary.overdue ? 'hot' : 'green')}${summaryCard('Upcoming', summary.upcoming, 'Pending future actions')}${summaryCard('Completed', summary.completed, 'Closed commitments', 'green')}${summaryCard('Missed', summary.missed, summary.missed ? 'Needs recovery' : 'None', summary.missed ? 'hot' : '')}${summaryCard('Total follow-ups', summary.total, role() === 'SALES_AGENT' ? 'Assigned to me' : 'Permitted scope')}</section><section class="card followup-performance-card"><div class="section-title"><div><h3>Follow-up performance</h3><p>Operational metrics for the current permitted scope.</p></div><span class="badge badge-neutral">Timezone: ${esc(constants.timezone)}</span></div><div class="followup-metrics-grid">${metricCard('Completion rate', `${performance.completionRate}%`)}${metricCard('Overdue rate', `${performance.overdueRate}%`)}${metricCard('Missed rate', `${performance.missedRate}%`)}${metricCard('Reschedule rate', `${performance.rescheduleRate}%`)}${metricCard('High-priority completion', `${performance.highPriorityCompletionRate}%`)}${metricCard('Same-day completion', `${performance.sameDayCompletionRate}%`)}</div></section>${moduleState.calendarOpen ? calendar(all) : ''}<section class="card table-card followup-registry-card"><div class="tabs followup-status-tabs">${statusTabs.map(([id, label]) => `<button class="tab ${moduleState.status === id ? 'active' : ''}" data-followup-module-status="${esc(id)}">${esc(label)}${id ? `<span>${all.filter(item => status(item) === id).length}</span>` : ''}</button>`).join('')}</div><div class="filter-bar followup-filter-bar"><div class="search-box">${icons.search}<input data-followup-module-search value="${esc(moduleState.search)}" placeholder="Search customer, phone, type, agent…" /></div>${dateFilter}${role() !== 'SALES_AGENT' ? select('followup_agent', [['', 'All agents'], ...agents], moduleState.agentId) .replace('name="followup_agent"', 'name="followup_agent" data-followup-module-agent') : ''}${select('followup_type', [['', 'All types'], ...constants.types], moduleState.type).replace('name="followup_type"', 'name="followup_type" data-followup-module-type')}${select('followup_priority', [['', 'All priorities'], ...constants.priorities], moduleState.priority).replace('name="followup_priority"', 'name="followup_priority" data-followup-module-priority')}${leadStatuses.length ? select('followup_lead_status', [['', 'All lead statuses'], ...leadStatuses], moduleState.leadStatus).replace('name="followup_lead_status"', 'name="followup_lead_status" data-followup-module-lead-status') : ''}<button class="btn btn-secondary btn-sm" data-followup-module-clear>Clear</button></div>${moduleState.date === 'custom' ? `<div class="followup-custom-date-bar"><label>Start date<input type="date" data-followup-module-custom-start value="${esc(moduleState.customStart)}" /></label><label>End date<input type="date" data-followup-module-custom-end value="${esc(moduleState.customEnd)}" /></label><button class="btn btn-gold btn-sm" data-followup-module-apply-custom>Apply range</button></div>` : ''}${state.followups?.loading && !all.length ? '<div class="empty-state">Refreshing the permitted follow-up schedule…</div>' : error && !all.length ? error : table(visible)}</section>`;
   }
 
-  function detailItem(label, text) { return `<div><div class="detail-label">${esc(label)}</div><div class="detail-value">${esc(text)}</div></div>`; }
-  function renderActionForm(f, form) { if (form === 'edit') return `<form id="followup-module-edit-form" class="drawer-section followup-edit-form"><div class="drawer-section-label">Edit follow-up details</div><p class="form-hint">Update the next action from your phone.</p><div class="form-grid"><div class="form-field"><label>Follow-up type</label>${select('follow_up_type', constants.types, value(f, 'type', 'follow_up_type'), '', true)}</div><div class="form-field"><label>Priority</label>${select('priority', constants.priorities, value(f, 'priority'), '', true)}</div><div class="form-field"><label>Due date</label><input name="due_date" type="date" value="${esc(f.due_date)}" required /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" value="${esc(f.due_time)}" required /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?">${esc(value(f, 'notes', '')) === '—' ? '' : esc(value(f, 'notes', ''))}</textarea></div></div><div class="drawer-action-row"><button type="button" class="btn btn-secondary" data-followup-module-action="cancel-edit" data-followup-id="${esc(f.id)}">Cancel</button><button class="btn btn-gold" type="submit">Save changes</button></div></form>`; if (form === 'reschedule') return `<form id="followup-module-reschedule-form" class="drawer-section"><div class="drawer-section-label">Reschedule commitment</div><div class="form-grid"><div class="form-field"><label>New date</label><input name="due_date" type="date" value="${esc(f.due_date)}" required /></div><div class="form-field"><label>New time</label><input name="due_time" type="time" value="${esc(f.due_time)}" required /></div><div class="form-field full"><label>Reason</label><textarea name="reason" rows="3" required placeholder="Why is this moving?"></textarea></div></div><button class="btn btn-gold" type="submit">Save new schedule</button></form>`; if (form === 'complete') return `<form id="followup-module-complete-form" class="drawer-section"><div class="drawer-section-label">Record outcome</div><div class="form-field"><label>Completion note</label><textarea name="completion_note" rows="3" required placeholder="What happened on the call, visit, or message?"></textarea></div><div class="form-field"><label>Customer response</label><input name="customer_response" placeholder="Optional response or objection" /></div><div class="form-grid"><div class="form-field"><label>Next date</label><input name="next_due_date" type="date" /></div><div class="form-field"><label>Next time</label><input name="next_due_time" type="time" /></div></div><button class="btn btn-gold" type="submit">Mark follow-up done</button></form>`; if (form === 'note') return `<form id="followup-module-note-form" class="drawer-section"><div class="drawer-section-label">Add activity note</div><textarea name="note" rows="4" required placeholder="Record the customer response or next context…"></textarea><button class="btn btn-gold" type="submit">Save note</button></form>`; if (form === 'cancel') return `<form id="followup-module-cancel-form" class="drawer-section"><div class="drawer-section-label">Cancel commitment</div><textarea name="reason" rows="3" required placeholder="Why should this follow-up be cancelled?"></textarea><button class="btn btn-secondary" type="submit">Cancel follow-up</button></form>`; return ''; }
-  function renderFollowupDrawerModule() {
-    if (state.drawer === 'create-followup') return renderCreateFollowupDrawerModule();
-    const detail = state.followupDetail; if (!detail) return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Follow-up detail</div><h2>Loading…</h2></div><button class="drawer-close" data-followup-module-close>×</button></div><div class="empty-state">Loading the permitted follow-up…</div></aside>`;
-    if (detail.error) return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Protected follow-up</div><h2>Access denied</h2></div><button class="drawer-close" data-followup-module-close>×</button></div><div class="empty-state">${esc(detail.error)}</div></aside>`;
-    const f = detail.data; const activity = detail.activity || []; const tab = stateForModule().tab; const history = Array.isArray(f.reschedule_history) ? f.reschedule_history : (f.rescheduled_from_date ? [{ fromDate: f.rescheduled_from_date, fromTime: f.rescheduled_from_time, toDate: f.due_date, toTime: f.due_time, reason: f.reschedule_reason }] : []); const activityMarkup = activity.length ? activity.map(entry => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${esc(title(entry.activity_type))}</div><div class="timeline-copy">${esc(entry.description)}</div><div class="timeline-time">${esc(entry.created_at)}</div></div></div>`).join('') : '<div class="empty-state">No activity recorded yet.</div>';
-    const historyMarkup = history.length ? history.map(entry => `<div class="followup-history-row"><b>${esc(entry.fromDate)} · ${esc(entry.fromTime)}</b><span>Moved to ${esc(entry.toDate || f.due_date)} · ${esc(entry.toTime || f.due_time)}</span><small>${esc(entry.reason || 'Schedule updated')}</small></div>`).join('') : '<div class="empty-state">No reschedule history yet.</div>';
-    const body = tab === 'activity' ? `<div class="drawer-section"><div class="timeline">${activityMarkup}</div></div>` : tab === 'history' ? `<div class="drawer-section"><div class="followup-history-list">${historyMarkup}</div></div>` : `<div class="drawer-section"><div class="drawer-section-label">Contact and schedule</div><div class="detail-grid">${detailItem('Phone / WhatsApp', value(f, 'phone', 'customer_phone'))}${detailItem('Assigned agent', value(f, 'agent', 'assigned_agent'))}${detailItem('Follow-up type', value(f, 'type', 'follow_up_type'))}${detailItem('Due date', f.due_date)}${detailItem('Due time', `${f.due_time} · ${constants.timezone}`)}${detailItem('Priority', value(f, 'priority'))}${detailItem('Status', status(f))}${detailItem('Lead status', value(f, 'lead_status', 'Active'))}${detailItem('Created by', value(f, 'created_by'))}${detailItem('Completed at', value(f, 'completed_at'))}</div><div class="followup-detail-note">${esc(value(f, 'notes', 'No note added'))}</div></div>`;
-    const activeButtons = !['Completed', 'Cancelled'].includes(status(f)) ? `<button class="btn btn-gold btn-sm" data-followup-module-action="done" data-followup-id="${esc(f.id)}">Mark done</button><button class="btn btn-secondary btn-sm" data-followup-module-action="reschedule" data-followup-id="${esc(f.id)}">Reschedule</button><button class="btn btn-secondary btn-sm" data-followup-module-action="cancel" data-followup-id="${esc(f.id)}">Cancel</button>` : '';
-    return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Follow-up detail</div><h2>${esc(value(f, 'customer', 'customer_name'))}</h2><p class="page-subtitle">${statusBadge(f)} · ${esc(value(f, 'type', 'follow_up_type'))}</p></div><button class="drawer-close" data-followup-module-close>×</button></div><div class="drawer-section"><div class="drawer-action-row">${activeButtons}<button class="btn btn-secondary btn-sm" data-followup-module-action="edit" data-followup-id="${esc(f.id)}">Edit details</button><button class="btn btn-secondary btn-sm" data-followup-module-action="note" data-followup-id="${esc(f.id)}">Add note</button><button class="btn btn-secondary btn-sm" data-followup-module-action="customer" data-followup-id="${esc(f.id)}">Open customer</button><button class="btn btn-secondary btn-sm" data-followup-module-action="call" data-followup-id="${esc(f.id)}">Call</button><button class="btn btn-secondary btn-sm" data-followup-module-action="whatsapp" data-followup-id="${esc(f.id)}">WhatsApp</button></div></div><div class="followup-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-followup-module-tab="overview">Overview</button><button class="${tab === 'activity' ? 'active' : ''}" data-followup-module-tab="activity">Activity <span>${activity.length}</span></button><button class="${tab === 'history' ? 'active' : ''}" data-followup-module-tab="history">Reschedule history <span>${history.length}</span></button></div>${body}${renderActionForm(f, stateForModule().form)}</aside>`;
+  function scheduleFields(item = {}) {
+    const future = dateUtils.toInstant(item.due_date, item.due_time) > Date.now();
+    return window.AureumFollowUpNoteUI.scheduleFields({
+      dueDate: future ? item.due_date : addCalendarDays(currentDate(), 1),
+      dueTime: item.due_time || '10:00', minDate: currentDate(), tag: item.followup_tag
+    });
   }
 
-  function customerOptions() { const source = state.customers?.items || []; const permitted = role() === 'SALES_AGENT' ? source.filter(item => item.assigned_agent_id === state.authUser?.id) : source; const prefill = state.followupPrefill || {}; const selected = prefill.customer_id && !permitted.some(item => item.id === prefill.customer_id) ? [{ id: prefill.customer_id, full_name: 'Selected customer', phone: '' }, ...permitted] : permitted; return selected.map(customer => `<option value="${esc(customer.id)}" ${customer.id === prefill.customer_id ? 'selected' : ''}>${esc(value(customer, 'full_name', 'name'))} · ${esc(customer.phone)}</option>`).join('') || '<option value="">Load permitted customers first</option>'; }
-  function leadOptions() { const selectedLead = state.followupPrefill?.lead_id || ''; return `<option value="">No linked lead</option>${(state.leads?.items || []).map(lead => `<option value="${esc(lead.id)}" ${lead.id === selectedLead ? 'selected' : ''}>${esc(value(lead, 'full_name', 'name'))}</option>`).join('')}`; }
-  function agentOptions() { const available = role() === 'SALES_AGENT' ? [state.authUser] : [{ id: 'usr_003', full_name: 'Ali Raza' }, { id: 'usr_002', full_name: 'Sales Manager' }]; return available.filter(Boolean).map(agent => `<option value="${esc(agent.id)}">${esc(agent.full_name)}</option>`).join(''); }
-  function renderCreateFollowupDrawerModule() { const today = currentDate(); const prefill = state.followupPrefill || {}; const customerRequired = !prefill.lead_id; return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">New commitment</div><h2>Schedule follow-up</h2><p class="page-subtitle">Every commitment is stored with a Karachi date/time and a clear owner.</p></div><button class="drawer-close" data-followup-module-close>×</button></div><form id="followup-module-create-form"><div class="drawer-section"><div class="form-grid"><div class="form-field full"><label>Customer${customerRequired ? ' *' : ''}</label><select name="customer_id" ${customerRequired ? 'required' : ''}>${customerRequired ? '<option value="">Choose a customer</option>' : '<option value="">Create customer from linked lead</option>'}${customerOptions()}</select>${!customerRequired ? '<small class="form-hint">The linked lead will be converted into a customer profile automatically if needed.</small>' : ''}</div><div class="form-field"><label>Linked lead</label><select name="lead_id">${leadOptions()}</select></div><div class="form-field"><label>Assigned agent</label><select name="assigned_agent_id" ${role() === 'SALES_AGENT' ? 'disabled' : ''}>${agentOptions()}</select></div><div class="form-field"><label>Follow-up type</label>${select('follow_up_type', constants.types, 'Call', '', true)}</div><div class="form-field"><label>Priority</label>${select('priority', constants.priorities, 'Medium', '', true)}</div><div class="form-field"><label>Due date</label><input name="due_date" type="date" value="${today}" required /></div><div class="form-field"><label>Due time</label><input name="due_time" type="time" value="10:00" required /></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows="4" placeholder="What should happen next?"></textarea></div></div></div><div class="drawer-section"><button class="btn btn-gold" type="submit">Schedule follow-up</button></div></form></aside>`; }
+  function renderFollowupDrawerModule() {
+    if (state.drawer === 'create-followup') return renderCreateFollowupDrawerModule();
+    const detail = state.followupDetail;
+    if (!detail) return '<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer"><div class="drawer-header"><h2>Loading follow-up…</h2><button class="drawer-close" data-followup-module-close aria-label="Close">×</button></div></aside>';
+    if (detail.error) return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer"><div class="drawer-header"><h2>Unable to open follow-up</h2><button class="drawer-close" data-followup-module-close aria-label="Close">×</button></div><div class="drawer-section">${esc(detail.error)}</div></aside>`;
+    const item = detail.data;
+    const note = stateForModule().form === 'note';
+    const closed = ['Completed', 'Cancelled'].includes(item.lifecycle_status || item.status) || Boolean(item.completed_at);
+    return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Follow-up schedule</div><h2>${esc(value(item, 'customer', 'customer_name'))}</h2><p class="page-subtitle">${statusBadge(item)} · ${esc(value(item, 'phone', 'customer_phone'))}</p></div><button class="drawer-close" data-followup-module-close aria-label="Close follow-up">×</button></div>
+      <div class="tabs followup-drawer-tabs" role="tablist" aria-label="Follow-up actions"><button type="button" class="tab ${note ? '' : 'active'}" role="tab" aria-selected="${!note}" data-followup-module-form="reschedule">Reschedule</button><button type="button" class="tab ${note ? 'active' : ''}" role="tab" aria-selected="${note}" data-followup-module-form="note">Add note</button></div>
+      <form id="${note ? 'followup-module-note-form' : 'followup-module-reschedule-form'}" class="drawer-section">
+        <p class="form-hint">${note ? 'Add a note to the customer history. The current contact date and status stay the same.' : 'Record the customer response and choose the next contact. Rescheduling changes this reminder to Contacted.'}</p>
+        ${note ? window.AureumFollowUpNoteUI.noteFields() : scheduleFields(item)}
+        <div class="drawer-action-row"><button class="btn btn-secondary" type="button" data-followup-module-close>Cancel</button><button class="btn btn-gold" type="submit">${note ? 'Save note' : 'Reschedule'}</button></div>
+        ${!note && closed ? '<p class="form-hint">This reminder is closed. Rescheduling opens the next contact for this customer.</p>' : ''}
+      </form></aside>`;
+  }
 
-  async function refreshList() { if (typeof loadFollowups === 'function') await loadFollowups(true); else if (typeof render === 'function') render(); }
-  async function action(id, type) { const item = items().find(entry => entry.id === id) || state.followupDetail?.data; if (!item) return; if (type === 'open') { openFollowup(id); return; } if (type === 'customer') { openCustomer(item.customer_id); return; } if (type === 'call') { showToast(`Call ${item.phone}`); return; } if (type === 'whatsapp') { showToast(`WhatsApp ${item.phone}`); return; } if (['done', 'reschedule', 'note', 'cancel', 'edit'].includes(type)) { state.followupModule.form = type === 'done' ? 'complete' : type; if (state.drawer !== 'followup') openFollowup(id); else render(); } }
-  async function submit(form, endpoint, success) { try { await apiFetch(endpoint, { method: endpoint.endsWith('/notes') ? 'POST' : 'PATCH', body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); state.followupModule.form = ''; await refreshFollowupDetail(); showToast(success); } catch (error) { showToast(error.message); } }
+  function customerOptions() {
+    const source = state.customers?.items || [];
+    const permitted = role() === 'SALES_AGENT' ? source.filter(item => item.assigned_agent_id === state.authUser?.id) : source;
+    const prefill = state.followupPrefill || {};
+    const selected = prefill.customer_id && !permitted.some(item => item.id === prefill.customer_id) ? [{ id: prefill.customer_id, full_name: 'Selected customer', phone: '' }, ...permitted] : permitted;
+    return selected.map(customer => `<option value="${esc(customer.id)}" ${customer.id === prefill.customer_id ? 'selected' : ''}>${esc(value(customer, 'full_name', 'name'))} · ${esc(customer.phone)}</option>`).join('') || '<option value="">No permitted customers available</option>';
+  }
 
-  document.addEventListener('click', event => { const close = event.target.closest('[data-followup-module-close]'); if (close) { state.drawer = null; state.followupModule.form = ''; state.followupPrefill = null; render(); return; } const create = event.target.closest('[data-followup-module-create]'); if (create) { state.followupPrefill = null; state.drawer = 'create-followup'; state.followupDetail = null; state.followupModule.form = ''; render(); if (!state.customers?.items?.length && typeof loadCustomers === 'function') loadCustomers(); return; } const customer = event.target.closest('[data-followup-module-customer]'); if (customer) { openCustomer(customer.dataset.followupModuleCustomer); return; } const lead = event.target.closest('[data-followup-module-lead]'); if (lead) { openLead(lead.dataset.followupModuleLead); return; } const open = event.target.closest('[data-followup-module-open]'); if (open) { state.followupModule.form = ''; state.followupModule.tab = 'overview'; openFollowup(open.dataset.followupModuleOpen); return; } const actionButton = event.target.closest('[data-followup-module-action]'); if (actionButton) { event.preventDefault(); if (actionButton.dataset.followupModuleAction === 'cancel-edit') { state.followupModule.form = ''; render(); return; } action(actionButton.dataset.followupId, actionButton.dataset.followupModuleAction); return; } const tab = event.target.closest('[data-followup-module-tab]'); if (tab) { state.followupModule.tab = tab.dataset.followupModuleTab; render(); return; } const statusTab = event.target.closest('[data-followup-module-status]'); if (statusTab) { state.followupModule.status = statusTab.dataset.followupModuleStatus; render(); return; } const day = event.target.closest('[data-followup-module-calendar-date]'); if (day) { state.followupModule.selectedDate = state.followupModule.selectedDate === day.dataset.followupModuleCalendarDate ? '' : day.dataset.followupModuleCalendarDate; render(); return; } const month = event.target.closest('[data-followup-module-month]'); if (month) { const current = new Date(`${state.followupModule.calendarMonth}-01T00:00:00`); if (month.dataset.followupModuleMonth === 'prev') current.setMonth(current.getMonth() - 1); if (month.dataset.followupModuleMonth === 'next') current.setMonth(current.getMonth() + 1); if (month.dataset.followupModuleMonth === 'today') { state.followupModule.calendarMonth = currentDate().slice(0, 7); } else state.followupModule.calendarMonth = current.toISOString().slice(0, 7); render(); return; } const calendarToggle = event.target.closest('[data-followup-module-calendar-toggle]'); if (calendarToggle) { state.followupModule.calendarOpen = !state.followupModule.calendarOpen; render(); return; } const reload = event.target.closest('[data-followup-module-reload]'); if (reload) refreshList(); const clear = event.target.closest('[data-followup-module-clear]'); if (clear) { Object.assign(state.followupModule, { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '' }); render(); } const apply = event.target.closest('[data-followup-module-apply-custom]'); if (apply) { state.followupModule.customStart = document.querySelector('[data-followup-module-custom-start]')?.value || ''; state.followupModule.customEnd = document.querySelector('[data-followup-module-custom-end]')?.value || ''; state.followupModule.date = 'custom'; render(); } });
-  document.addEventListener('input', event => { if (event.target.matches('[data-followup-module-search]')) { state.followupModule.search = event.target.value; render(); } });
-  document.addEventListener('change', event => { const target = event.target; if (target.matches('[data-followup-module-date]')) state.followupModule.date = target.value; if (target.matches('[data-followup-module-agent]')) state.followupModule.agentId = target.value; if (target.matches('[data-followup-module-type]')) state.followupModule.type = target.value; if (target.matches('[data-followup-module-priority]')) state.followupModule.priority = target.value; if (target.matches('[data-followup-module-lead-status]')) state.followupModule.leadStatus = target.value; if (target.matches('[data-followup-module-date], [data-followup-module-agent], [data-followup-module-type], [data-followup-module-priority], [data-followup-module-lead-status]')) render(); });
-  document.addEventListener('submit', async event => { const form = event.target; if (form.id === 'followup-module-create-form') { event.preventDefault(); try { await apiFetch('/api/follow-ups', { method: 'POST', body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); state.drawer = null; state.followupPrefill = null; await refreshList(); showToast('Follow-up scheduled'); } catch (error) { showToast(error.message); } } if (form.id === 'followup-module-edit-form') { event.preventDefault(); await submit(form, `/api/follow-ups/${state.followupDetail.data.id}`, 'Follow-up details updated'); } if (form.id === 'followup-module-reschedule-form') { event.preventDefault(); await submit(form, `/api/follow-ups/${state.followupDetail.data.id}/reschedule`, 'Follow-up rescheduled'); } if (form.id === 'followup-module-complete-form') { event.preventDefault(); await submit(form, `/api/follow-ups/${state.followupDetail.data.id}/complete`, 'Follow-up marked done'); } if (form.id === 'followup-module-note-form') { event.preventDefault(); await submit(form, `/api/follow-ups/${state.followupDetail.data.id}/notes`, 'Follow-up note saved'); } if (form.id === 'followup-module-cancel-form') { event.preventDefault(); await submit(form, `/api/follow-ups/${state.followupDetail.data.id}/cancel`, 'Follow-up cancelled'); } });
+  function renderCreateFollowupDrawerModule() {
+    const prefill = state.followupPrefill || {};
+    return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><h2>Schedule follow-up</h2><button class="drawer-close" data-followup-module-close aria-label="Close follow-up">×</button></div><form id="followup-module-create-form" class="drawer-section">${prefill.lead_id && !prefill.customer_id ? `<input type="hidden" name="lead_id" value="${esc(prefill.lead_id)}" />` : `<div class="form-field"><label>Customer<select name="customer_id" required><option value="">Choose a customer</option>${customerOptions()}</select></label></div>`}${scheduleFields()}<button class="btn btn-gold" type="submit">Schedule follow-up</button></form></aside>`;
+  }
 
+  async function refreshList() {
+    if (typeof loadFollowups === 'function') await loadFollowups(true);
+    else if (typeof render === 'function') render();
+  }
+
+  function openSchedule(id, form = 'reschedule') {
+    stateForModule().form = form;
+    openFollowup(id);
+  }
+
+  async function saveWorkflow(form, endpoint, success) {
+    if (form.dataset.saving) return;
+    form.dataset.saving = 'true';
+    const button = form.querySelector('button[type=submit]');
+    if (button) button.disabled = true;
+    try {
+      const data = Object.fromEntries(new FormData(form).entries());
+      await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(data) });
+      state.drawer = null;
+      state.followupPrefill = null;
+      stateForModule().form = '';
+      if (state.customers) state.customers.loaded = false;
+      if (state.leads) state.leads.loaded = false;
+      await refreshList();
+      if (state.screen === 'customers' && typeof loadCustomers === 'function') await loadCustomers(true);
+      showToast(success);
+    } catch (error) {
+      showToast(error.message);
+    } finally {
+      delete form.dataset.saving;
+      if (button) button.disabled = false;
+    }
+  }
+
+  document.addEventListener('click', event => {
+    const target = event.target;
+    const moduleState = stateForModule();
+    if (target.closest('[data-followup-module-close]')) {
+      state.drawer = null; moduleState.form = ''; state.followupPrefill = null; render(); return;
+    }
+    if (target.closest('[data-followup-module-create]')) {
+      state.followupPrefill = null; state.drawer = 'create-followup'; state.followupDetail = null; moduleState.form = ''; render();
+      if (!state.customers?.items?.length && typeof loadCustomers === 'function') loadCustomers();
+      return;
+    }
+    const action = target.closest('[data-followup-module-action]');
+    if (action) {
+      event.preventDefault();
+      if (['reschedule', 'note'].includes(action.dataset.followupModuleAction)) openSchedule(action.dataset.followupId, action.dataset.followupModuleAction);
+      return;
+    }
+    const form = target.closest('[data-followup-module-form]');
+    if (form) { moduleState.form = form.dataset.followupModuleForm; render(); return; }
+    const open = target.closest('[data-followup-module-open]');
+    if (open) { openSchedule(open.dataset.followupModuleOpen); return; }
+    const statusTab = target.closest('[data-followup-module-status]');
+    if (statusTab) { moduleState.status = statusTab.dataset.followupModuleStatus; render(); return; }
+    const day = target.closest('[data-followup-module-calendar-date]');
+    if (day) { moduleState.selectedDate = moduleState.selectedDate === day.dataset.followupModuleCalendarDate ? '' : day.dataset.followupModuleCalendarDate; render(); return; }
+    const month = target.closest('[data-followup-module-month]');
+    if (month) { changeCalendarMonth(month.dataset.followupModuleMonth); return; }
+    if (target.closest('[data-followup-module-calendar-toggle]')) { moduleState.calendarOpen = !moduleState.calendarOpen; render(); return; }
+    if (target.closest('[data-followup-module-reload]')) refreshList();
+    if (target.closest('[data-followup-module-clear]')) {
+      Object.assign(moduleState, { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '' }); render();
+    }
+    if (target.closest('[data-followup-module-apply-custom]')) {
+      moduleState.customStart = document.querySelector('[data-followup-module-custom-start]')?.value || '';
+      moduleState.customEnd = document.querySelector('[data-followup-module-custom-end]')?.value || '';
+      moduleState.date = 'custom'; render();
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.target.matches('tr[data-followup-module-open]') && ['Enter', ' '].includes(event.key)) {
+      event.preventDefault(); openSchedule(event.target.dataset.followupModuleOpen);
+    }
+  });
+  document.addEventListener('input', event => {
+    if (!event.target.matches('[data-followup-module-search]')) return;
+    const { value, selectionStart, selectionEnd, selectionDirection } = event.target;
+    stateForModule().search = value;
+    render();
+    const input = document.querySelector('[data-followup-module-search]');
+    if (input) {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
+    }
+  });
+  document.addEventListener('change', event => {
+    const target = event.target; const moduleState = stateForModule();
+    const filters = { date: 'date', agent: 'agentId', type: 'type', priority: 'priority', 'lead-status': 'leadStatus' };
+    for (const [attribute, key] of Object.entries(filters)) {
+      if (target.matches(`[data-followup-module-${attribute}]`)) { moduleState[key] = target.value; render(); break; }
+    }
+  });
+  document.addEventListener('submit', async event => {
+    const form = event.target;
+    if (!['followup-module-create-form', 'followup-module-reschedule-form', 'followup-module-note-form'].includes(form.id)) return;
+    event.preventDefault();
+    if (form.id === 'followup-module-create-form') {
+      const data = new FormData(form);
+      const endpoint = data.get('customer_id') ? `/api/customers/${data.get('customer_id')}/notes` : `/api/leads/${data.get('lead_id')}/notes`;
+      await saveWorkflow(form, endpoint, 'Follow-up scheduled · Contacted');
+      return;
+    }
+    const item = state.followupDetail?.data;
+    if (!item) return;
+    const note = form.id === 'followup-module-note-form';
+    const closed = ['Completed', 'Cancelled'].includes(item.lifecycle_status || item.status) || Boolean(item.completed_at);
+    const endpoint = !note && closed ? (item.customer_id ? `/api/customers/${item.customer_id}/notes` : `/api/leads/${item.lead_id}/notes`) : `/api/follow-ups/${item.id}/notes`;
+    await saveWorkflow(form, endpoint, note ? 'Note added' : 'Follow-up rescheduled · Contacted');
+  });
+
+  setInterval(() => { if (state.ready && state.screen === 'follow-ups' && !state.drawer && !document.hidden) refreshList().catch(() => {}); }, 60000);
   window.renderFollowups = renderFollowupsModule;
   window.renderFollowupDrawer = renderFollowupDrawerModule;
   window.AureumFollowUpRuntime = { render: renderFollowupsModule, metrics: () => metrics.getFollowUpSuccessMetrics(items()) };

@@ -62,7 +62,10 @@ test('E2E webhook lead ingestion validates secret, creates one imported lead, de
 
   const managerImported = await api.request('/api/leads?imported=unassigned', { headers: { cookie: manager } });
   assert.equal(managerImported.response.status, 200);
-  assert.ok(managerImported.body.data.some(lead => lead.id === imported.body.leadId));
+  assert.equal(managerImported.body.data.some(lead => lead.id === imported.body.leadId), false, 'A manager must not see an imported lead outside their team');
+  const adminImported = await api.request('/api/leads?imported=unassigned', { headers: { cookie: admin } });
+  assert.equal(adminImported.response.status, 200);
+  assert.ok(adminImported.body.data.some(lead => lead.id === imported.body.leadId));
 
   const agentLeads = await api.request('/api/leads/my', { headers: { cookie: agent } });
   assert.equal(agentLeads.body.data.some(lead => lead.id === imported.body.leadId), false);

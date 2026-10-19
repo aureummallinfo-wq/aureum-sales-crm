@@ -1,4 +1,7 @@
 const crypto = require('node:crypto');
+const { canViewOwnedRecord } = require('../security-utils');
+const { createFollowUpPipeline } = require('./followup-pipeline');
+const { notePlan, displayStatus, uniqueFollowUps, activitySummary } = require('../followup-workflow');
 
 function hashToken(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -25,12 +28,13 @@ function normalizeTags(value) {
 function localDateParts(value) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return { date: '', time: '' };
-  return { date: date.toISOString().slice(0, 10), time: date.toISOString().slice(11, 16) };
+  return { date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date), time: new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date) };
 }
 
 function timestampValue(value) {
   if (!value) return null;
-  const parsed = new Date(value);
+  const input = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+05:00` : value;
+  const parsed = new Date(input);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
@@ -52,6 +56,7 @@ function userPresenceStatus(user, now = Date.now()) {
 
 function createNeonRepository(sql) {
   if (!sql) throw new Error('A Neon SQL client is required.');
+  const pipeline = createFollowUpPipeline(sql, resolveUserId, resolveTeamId);
 
   async function workspaceId(legacyId = 'workspace_default') {
     const rows = await sql.query('SELECT id FROM crm.workspaces WHERE legacy_id = $1 AND is_active = true LIMIT 1', [legacyId]);
@@ -126,7 +131,8 @@ function createNeonRepository(sql) {
     return tokenHash;
   }
 
-  async function findSession(token) {
+  async function findSession(token, workspace) {
+    if (!workspace) return null;
     const rows = await sql.query(`SELECT s.id AS session_id, s.user_id, s.expires_at, u.id, u.legacy_id, u.workspace_id, u.email,
       u.full_name, u.phone, u.password_hash, u.role_key AS role, t.legacy_id AS team_id, u.status,
       u.must_change_password, u.last_login_at, u.last_activity_at, presence.preference_value->>'status' AS presence_status, presence.preference_value->>'mode' AS presence_mode, u.created_at, u.updated_at,
@@ -134,11 +140,15 @@ function createNeonRepository(sql) {
       invite.created_at AS access_email_sent_at FROM crm.sessions s JOIN crm.users u ON u.id = s.user_id LEFT JOIN crm.teams t ON t.id = u.team_id
       LEFT JOIN LATERAL (SELECT status, expires_at, created_at FROM crm.user_invites WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1) invite ON true
       LEFT JOIN LATERAL (SELECT preference_value FROM crm.user_preferences WHERE user_id = u.id AND preference_key = 'presence_status' LIMIT 1) presence ON true
-      WHERE s.token_hash = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.deleted_at IS NULL LIMIT 1`, [hashToken(token)]);
+      WHERE s.token_hash = $1 AND u.workspace_id = $2 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.deleted_at IS NULL LIMIT 1`, [hashToken(token), workspace]);
     return rows[0] ? userRecord(rows[0]) : null;
   }
 
-  async function revokeSession(token) { await sql.query('UPDATE crm.sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL', [hashToken(token)]); }
+  async function revokeSession(token, workspace) {
+    if (!workspace) return;
+    await sql.query(`UPDATE crm.sessions s SET revoked_at = now() FROM crm.users u
+      WHERE u.id = s.user_id AND u.workspace_id = $2 AND s.token_hash = $1 AND s.revoked_at IS NULL`, [hashToken(token), workspace]);
+  }
 
   async function recordLogin({ userId, email, eventType, ipAddress, userAgent, metadata = {} }) {
     await sql.query('INSERT INTO crm.login_activity (user_id, email, event_type, ip_address, user_agent, metadata) VALUES ($1, $2, $3, $4, $5, $6::jsonb)', [userId || null, email || null, eventType, ipAddress || null, userAgent || null, JSON.stringify(metadata)]);
@@ -403,17 +413,17 @@ function createNeonRepository(sql) {
 
   function leadRecord(row) {
     const metadata = valueObject(row.metadata);
-    return { ...metadata, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: row.status, lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: row.status, lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function customerRecord(row) {
     const metadata = valueObject(row.metadata);
-    return { ...metadata, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, customer_status: row.customer_status, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, workspace_id: row.workspace_id, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, customer_status: row.customer_status, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function followUpRecord(row) {
     const metadata = valueObject(row.metadata); const parts = localDateParts(row.due_at);
-    return { ...metadata, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, customer_id: row.customer_id_legacy || metadata.customer_id || null, customer_name: row.customer_name || row.lead_name || metadata.customer_name || metadata.lead_name || null, lead_name: row.lead_name || metadata.lead_name || null, phone: row.customer_phone || row.lead_phone || metadata.phone || metadata.customer_phone || null, customer_phone: row.customer_phone || row.lead_phone || metadata.customer_phone || null, lead_status: row.lead_status || metadata.lead_status || null, follow_up_type: row.follow_up_type, due_date: metadata.due_date || parts.date, due_time: metadata.due_time || parts.time, priority: row.priority, status: row.status, notes: row.notes, completed_at: row.completed_at, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, workspace_id: row.workspace_id, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, customer_id: row.customer_id_legacy || metadata.customer_id || null, customer_name: row.customer_name || row.lead_name || metadata.customer_name || metadata.lead_name || null, lead_name: row.lead_name || metadata.lead_name || null, phone: row.customer_phone || row.lead_phone || metadata.phone || metadata.customer_phone || null, customer_phone: row.customer_phone || row.lead_phone || metadata.customer_phone || null, lead_status: row.lead_status || metadata.lead_status || null, follow_up_type: row.follow_up_type, due_date: metadata.due_date || parts.date, due_time: metadata.due_time || parts.time, priority: row.priority, lifecycle_status: row.status, status: displayStatus({ ...metadata, status: row.status, due_date: metadata.due_date || parts.date, due_time: metadata.due_time || parts.time }), last_activity_at: row.relationship_activity_at || metadata.last_activity_at || row.updated_at, last_activity_description: row.relationship_activity_description || metadata.last_activity_description || row.notes || '', last_activity_by: row.relationship_activity_by || metadata.last_activity_by || '', notes: row.notes, completed_at: row.completed_at, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function taskRecord(row) {
@@ -487,14 +497,8 @@ function createNeonRepository(sql) {
     const tagged = tags.includes('follow-up needed');
     const leadId = await resolveLeadId(workspace, lead.id);
     if (!leadId) return;
-    const existing = await sql.query(`SELECT id, legacy_id, customer_id FROM crm.follow_ups WHERE workspace_id=$1 AND lead_id=$2 AND metadata->>'source'='follow-up-tag' AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`, [workspace, leadId]);
-    if (!tagged) {
-      if (existing[0]) {
-        await sql.query('UPDATE crm.follow_ups SET deleted_at=now(), updated_at=now() WHERE id=$1', [existing[0].id]);
-        await insertAudit(workspace, actor, 'follow_up_tag_removed', 'follow_up', existing[0].id, { lead_id: lead.id });
-      }
-      return;
-    }
+    const existing = await sql.query(`SELECT id, legacy_id, customer_id FROM crm.follow_ups WHERE workspace_id=$1 AND lead_id=$2 AND deleted_at IS NULL AND (status IN ('Pending','Overdue','Rescheduled','Missed') OR metadata->>'source'='follow-up-tag') ORDER BY CASE WHEN status IN ('Pending','Overdue','Rescheduled','Missed') THEN 0 ELSE 1 END, created_at ASC LIMIT 1`, [workspace, leadId]);
+    if (!tagged) return;
       const customer = await convertLeadToCustomer(workspace, lead.id, actor);
       const customerId = await resolveCustomerId(workspace, customer?.id);
       if (existing[0]) {
@@ -526,7 +530,7 @@ function createNeonRepository(sql) {
     const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id);
     const statusRows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.status || 'New']); const sourceRows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.lead_source || 'Manual Entry']);
     const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, JSON.stringify(lead)]);
-    const leadId = rows[0].id; await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId); await syncLeadFollowUpTag(workspace, actor, created); return created;
+    const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId); await syncLeadFollowUpTag(workspace, actor, created); return created;
   }
 
   async function updateLead(workspace, identifier, actor, patch) {
@@ -538,7 +542,7 @@ function createNeonRepository(sql) {
     if (patch.next_follow_up_at !== undefined) assign('next_follow_up_at', timestampValue(patch.next_follow_up_at));
     if (patch.tags !== undefined) assign('metadata', JSON.stringify({ ...valueObject(current), tags: normalizeTags(patch.tags) }));
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
-    await insertAudit(workspace, actor, 'lead_updated', 'lead', id, patch); await enqueueOutbox(workspace,'lead_updated','lead',id,patch); const updated = await getLead(workspace, identifier); if (patch.tags !== undefined || patch.next_follow_up_at !== undefined) await syncLeadFollowUpTag(workspace, actor, updated); return updated;
+    await pipeline.recordActivity(workspace, actor, { leadId: id, type: patch.tags !== undefined ? 'Tags updated' : 'Lead updated', description: patch.tags !== undefined ? `Tags: ${normalizeTags(patch.tags).join(', ') || 'None'}` : 'Lead details updated.' }); await insertAudit(workspace, actor, 'lead_updated', 'lead', id, patch); await enqueueOutbox(workspace,'lead_updated','lead',id,patch); const updated = await getLead(workspace, identifier); if (patch.tags !== undefined || patch.next_follow_up_at !== undefined) await syncLeadFollowUpTag(workspace, actor, updated); return updated;
   }
 
   async function deleteLead(workspace, identifier, actor) {
@@ -551,11 +555,47 @@ function createNeonRepository(sql) {
     return { id: rows[0].legacy_id || rows[0].id };
   }
 
-  async function assignLead(workspace, identifier, actor, assignedAgent) { const id = await resolveLeadId(workspace, identifier); const agentId = await resolveUserId(workspace, assignedAgent); if (!id || !agentId) return null; const agent = await findUser(workspace, assignedAgent); const teamId = await resolveTeamId(workspace, agent?.team_id); await sql.query('UPDATE crm.leads SET assigned_agent_id = $1, assigned_team_id = $2, updated_at = now() WHERE id = $3', [agentId, teamId, id]); await insertAudit(workspace, actor, 'lead_assigned', 'lead', id, { assigned_agent_id: assignedAgent }); await enqueueOutbox(workspace,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent}); const updated = await getLead(workspace, identifier); await syncLeadFollowUpTag(workspace, actor, updated); return updated; }
+  async function assignLead(workspace, identifier, actor, assignedAgent) {
+    const lead = await getLead(workspace,identifier);
+    const agent = await findUser(workspace,assignedAgent);
+    if (!lead || !canViewOwnedRecord(actor,lead) || !['super_admin','sales_manager'].includes(actor.role)
+      || !agent || agent.status !== 'active' || !['sales_agent','sales_manager'].includes(agent.role)
+      || (actor.role === 'sales_manager' && agent.team_id !== actor.team_id)) return null;
+    const id = await resolveLeadId(workspace,identifier);
+    const agentId = await resolveUserId(workspace,assignedAgent);
+    const teamId = await resolveTeamId(workspace,agent.team_id);
+    const previousAgentId = await resolveUserId(workspace,lead.assigned_agent_id);
+    const previousTeamId = await resolveTeamId(workspace,lead.assigned_team_id);
+    // Move the complete customer relationship in a single PostgreSQL statement.
+    await sql.query(`WITH moved_lead AS (
+      UPDATE crm.leads SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
+      WHERE id=$3 AND workspace_id=$4 RETURNING id
+    ), moved_customers AS (
+      UPDATE crm.customers SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
+      WHERE workspace_id=$4 AND lead_id IN (SELECT id FROM moved_lead) RETURNING id
+    ) UPDATE crm.follow_ups SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
+      WHERE workspace_id=$4 AND assigned_agent_id=$5 AND assigned_team_id IS NOT DISTINCT FROM $6::uuid
+        AND ((customer_id IN (SELECT id FROM moved_customers) AND (lead_id IS NULL OR lead_id=$3))
+        OR (customer_id IS NULL AND lead_id IN (SELECT id FROM moved_lead)))`, [agentId,teamId,id,workspace,previousAgentId,previousTeamId]);
+    await pipeline.recordActivity(workspace,actor,{leadId:id,type:'Lead assigned',description:`Assigned to ${agent.full_name}.`});
+    await insertAudit(workspace,actor,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent});
+    await enqueueOutbox(workspace,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent});
+    const updated = await getLead(workspace,identifier);
+    await syncLeadFollowUpTag(workspace,actor,updated);
+    return updated;
+  }
 
-  async function changeLeadStatus(workspace, identifier, actor, status, priority) { const id = await resolveLeadId(workspace, identifier); if (!id) return null; const rows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, status]); if (!rows[0]) return null; const current = await sql.query('SELECT status_id FROM crm.leads WHERE id = $1', [id]); await sql.query('UPDATE crm.leads SET status_id = $1, priority = coalesce($2, priority), updated_at = now() WHERE id = $3', [rows[0].id, priority || null, id]); await sql.query('INSERT INTO crm.lead_status_history (lead_id, from_status_id, to_status_id, changed_by) VALUES ($1,$2,$3,$4)', [id, current[0]?.status_id || null, rows[0].id, await resolveUserId(workspace, actor.id)]); await insertAudit(workspace, actor, 'lead_status_changed', 'lead', id, { status, priority }); await enqueueOutbox(workspace,'lead_status_changed','lead',id,{status,priority}); return getLead(workspace, identifier); }
+  async function changeLeadStatus(workspace, identifier, actor, status, priority) { const id = await resolveLeadId(workspace, identifier); if (!id) return null; const rows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, status]); if (!rows[0]) return null; const current = await sql.query('SELECT status_id FROM crm.leads WHERE id = $1', [id]); await sql.query('UPDATE crm.leads SET status_id = $1, priority = coalesce($2, priority), updated_at = now() WHERE id = $3', [rows[0].id, priority || null, id]); await sql.query('INSERT INTO crm.lead_status_history (lead_id, from_status_id, to_status_id, changed_by) VALUES ($1,$2,$3,$4)', [id, current[0]?.status_id || null, rows[0].id, await resolveUserId(workspace, actor.id)]); await pipeline.recordActivity(workspace,actor,{leadId:id,type:'Status changed',description:`Lead status changed to ${status}.`}); await insertAudit(workspace, actor, 'lead_status_changed', 'lead', id, { status, priority }); await enqueueOutbox(workspace,'lead_status_changed','lead',id,{status,priority}); return getLead(workspace, identifier); }
 
-  async function addLeadActivity(workspace, identifier, actor, activityType, description, metadata = {}) { const id = await resolveLeadId(workspace, identifier); if (!id) return null; const rows = await sql.query('INSERT INTO crm.lead_activities (lead_id, actor_user_id, activity_type, description, metadata) VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id, activity_type, description, created_at', [id, await resolveUserId(workspace, actor.id), activityType, description, JSON.stringify(metadata)]); return rows[0] || null; }
+  async function addLeadActivity(workspace, identifier, actor, activityType, description, metadata = {}) {
+    const id = await resolveLeadId(workspace, identifier); if (!id) return null;
+    if (activityType === 'Note added') {
+      const plan = notePlan(metadata.note_input || {});
+      if (plan.contacted && plan.schedule) await convertLeadToCustomer(workspace,identifier,actor);
+      return pipeline.saveNote(workspace,actor,{leadId:id,note:description,plan});
+    }
+    return pipeline.recordActivity(workspace,actor,{leadId:id,type:activityType,description,metadata});
+  }
 
   async function convertLeadToCustomer(workspace, identifier, actor) { const lead = await getLead(workspace, identifier); if (!lead) return null; const leadId = await resolveLeadId(workspace, identifier); const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]); if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id); const legacyId = `customer_${crypto.randomUUID()}`; await sql.query(`INSERT INTO crm.customers (workspace_id, legacy_id, lead_id, full_name, email, phone, whatsapp_number, customer_status, assigned_agent_id, assigned_team_id, created_by, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [workspace, legacyId, leadId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.status === 'Closed Won' ? 'Closed Won' : lead.status === 'Hot' ? 'Hot' : lead.status === 'Follow-up' ? 'Follow-up' : 'Active', await resolveUserId(workspace, lead.assigned_agent_id), await resolveTeamId(workspace, lead.assigned_team_id), await resolveUserId(workspace, actor.id), JSON.stringify(lead)]); const customerId=await resolveCustomerId(workspace,legacyId); await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId }); await enqueueOutbox(workspace,'customer_created','customer',customerId,{legacy_id:legacyId,lead_id:identifier}); return getCustomer(workspace, legacyId); }
 
@@ -563,15 +603,74 @@ function createNeonRepository(sql) {
 
   async function listCustomers({ workspaceId: workspace, user, status, source, search }) { const scoped = await scope(workspace, user, 'c'); const conditions = [...scoped.conditions]; const params = [...scoped.params]; if (status) { params.push(status); conditions.push(`c.customer_status = $${params.length}`); } if (source) { params.push(source); conditions.push(`coalesce(c.metadata->>'lead_source','') = $${params.length}`); } if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p})`); } const rows = await sql.query(`${customerSelect} WHERE ${conditions.join(' AND ')} ORDER BY c.created_at DESC`, params); return rows.map(customerRecord); }
   async function getCustomer(workspace, identifier) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const rows = await sql.query(`${customerSelect} WHERE c.id = $1 AND c.deleted_at IS NULL LIMIT 1`, [id]); return rows[0] ? customerRecord(rows[0]) : null; }
-  async function updateCustomer(workspace, identifier, actor, patch) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const current = await getCustomer(workspace, identifier); const fields=[]; const params=[]; const assign=(column,value)=>{params.push(value);fields.push(`${column} = $${params.length}`)}; for(const column of ['full_name','phone','whatsapp_number','email']) if(patch[column]!==undefined)assign(column,patch[column]); if(patch.customer_status!==undefined)assign('customer_status',patch.customer_status); if(Object.keys(patch).some(key=>!['full_name','phone','whatsapp_number','email','customer_status'].includes(key))) { const metadata = { ...valueObject(current), ...patch }; if (patch.tags !== undefined) metadata.tags = normalizeTags(patch.tags); assign('metadata',JSON.stringify(metadata)); } if(fields.length){params.push(id);await sql.query(`UPDATE crm.customers SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params)} await insertAudit(workspace,actor,'customer_updated','customer',id,patch); return getCustomer(workspace,identifier); }
+  async function updateCustomer(workspace, identifier, actor, patch) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const current = await getCustomer(workspace, identifier); const fields=[]; const params=[]; const assign=(column,value)=>{params.push(value);fields.push(`${column} = $${params.length}`)}; for(const column of ['full_name','phone','whatsapp_number','email']) if(patch[column]!==undefined)assign(column,patch[column]); if(patch.customer_status!==undefined)assign('customer_status',patch.customer_status); if(Object.keys(patch).some(key=>!['full_name','phone','whatsapp_number','email','customer_status'].includes(key))) { const metadata = { ...valueObject(current), ...patch }; if (patch.tags !== undefined) metadata.tags = normalizeTags(patch.tags); assign('metadata',JSON.stringify(metadata)); } if(fields.length){params.push(id);await sql.query(`UPDATE crm.customers SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params)} await pipeline.recordActivity(workspace,actor,{customerId:id,type:patch.tags !== undefined ? 'Tags updated' : 'Customer updated',description:patch.tags !== undefined ? `Tags: ${normalizeTags(patch.tags).join(', ') || 'None'}` : 'Customer details updated.'}); await insertAudit(workspace,actor,'customer_updated','customer',id,patch); return getCustomer(workspace,identifier); }
   async function deleteCustomer(workspace, identifier, actor) { const id = await resolveCustomerId(workspace, identifier); if (!id) return null; const rows = await sql.query('UPDATE crm.customers SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id, legacy_id', [id]); if (!rows[0]) return null; await insertAudit(workspace, actor, 'customer_deleted', 'customer', id, { legacy_id: rows[0].legacy_id }); return { id: rows[0].legacy_id || rows[0].id }; }
-  async function changeCustomerStatus(workspace, identifier, actor, status) { const id=await resolveCustomerId(workspace,identifier); if(!id)return null; const old=await sql.query('SELECT customer_status FROM crm.customers WHERE id=$1',[id]); await sql.query('UPDATE crm.customers SET customer_status=$1,updated_at=now() WHERE id=$2',[status,id]); await sql.query('INSERT INTO crm.customer_status_history (customer_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.customer_status||null,status,await resolveUserId(workspace,actor.id)]); await insertAudit(workspace,actor,'customer_status_changed','customer',id,{status}); await enqueueOutbox(workspace,'customer_status_changed','customer',id,{status}); return getCustomer(workspace,identifier); }
-  async function listCustomerNotes(workspace, identifier) { const id=await resolveCustomerId(workspace,identifier); if(!id)return[]; return sql.query(`SELECT n.id,n.note,u.legacy_id AS user_id,n.created_at FROM crm.customer_notes n LEFT JOIN crm.users u ON u.id=n.author_user_id WHERE n.customer_id=$1 AND n.deleted_at IS NULL ORDER BY n.created_at DESC`,[id]); }
-  async function addCustomerNote(workspace, identifier, actor, note) { const id=await resolveCustomerId(workspace,identifier); if(!id)return null; const actorId=await resolveUserId(workspace,actor.id); const rows=await sql.query('INSERT INTO crm.customer_notes (customer_id,author_user_id,note) VALUES ($1,$2,$3) RETURNING id,note,created_at',[id,actorId,note]); await sql.query('INSERT INTO crm.customer_activities (customer_id,actor_user_id,activity_type,description) VALUES ($1,$2,$3,$4)',[id,actorId,'Note added',note]); return rows[0]||null; }
-  async function listCustomerActivities(workspace, identifier) { const id=await resolveCustomerId(workspace,identifier); if(!id)return[]; return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,a.created_at FROM crm.customer_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.customer_id=$1 ORDER BY a.created_at DESC`,[id]); }
+  async function changeCustomerStatus(workspace, identifier, actor, status) { const id=await resolveCustomerId(workspace,identifier); if(!id)return null; const old=await sql.query('SELECT customer_status FROM crm.customers WHERE id=$1',[id]); await sql.query('UPDATE crm.customers SET customer_status=$1,updated_at=now() WHERE id=$2',[status,id]); await sql.query('INSERT INTO crm.customer_status_history (customer_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.customer_status||null,status,await resolveUserId(workspace,actor.id)]); await pipeline.recordActivity(workspace,actor,{customerId:id,type:'Status changed',description:`Customer status changed to ${status}.`}); await insertAudit(workspace,actor,'customer_status_changed','customer',id,{status}); await enqueueOutbox(workspace,'customer_status_changed','customer',id,{status}); return getCustomer(workspace,identifier); }
+  async function listCustomerNotes(workspace, identifier) { const id=await resolveCustomerId(workspace,identifier); if(!id)return[]; return sql.query(`SELECT n.id,n.note,u.legacy_id AS user_id,u.full_name AS user_name,n.created_at FROM crm.customer_notes n LEFT JOIN crm.users u ON u.id=n.author_user_id WHERE n.customer_id=$1 AND n.deleted_at IS NULL ORDER BY n.created_at DESC`,[id]); }
+  async function addCustomerNote(workspace, identifier, actor, note, input = {}) {
+    const id = await resolveCustomerId(workspace,identifier); if (!id) return null;
+    return pipeline.saveNote(workspace,actor,{customerId:id,note,plan:notePlan(input)});
+  }
 
-  async function listFollowUps({ workspaceId: workspace, user, includeCompleted = true, customerId }) { if (user?.id) { const taggedLeads = await listLeads({ workspaceId: workspace, user }); for (const lead of taggedLeads) if (valueArray(lead.tags).some(tag => String(tag).trim().toLowerCase() === 'follow-up needed')) await syncLeadFollowUpTag(workspace, user, lead); } const conditions=['f.workspace_id=$1','f.deleted_at IS NULL']; const params=[workspace]; if(user?.role==='sales_manager'){params.push(await resolveTeamId(workspace,user.team_id));conditions.push(`f.assigned_team_id=$${params.length}`)}else if(user?.role!=='super_admin'){params.push(await resolveUserId(workspace,user.id));conditions.push(`f.assigned_agent_id=$${params.length}`)} if(customerId){params.push(await resolveCustomerId(workspace,customerId));conditions.push(`f.customer_id=$${params.length}`)} if(!includeCompleted)conditions.push("f.status NOT IN ('Completed','Cancelled')"); const rows=await sql.query(`SELECT f.*,l.legacy_id AS lead_id_legacy,l.full_name AS lead_name,l.phone AS lead_phone,ls.name AS lead_status,c.legacy_id AS customer_id_legacy,c.full_name AS customer_name,c.phone AS customer_phone,au.legacy_id AS assigned_agent_id_legacy,au.full_name AS assigned_agent,t.legacy_id AS assigned_team_id_legacy,cu.legacy_id AS created_by_legacy FROM crm.follow_ups f LEFT JOIN crm.leads l ON l.id=f.lead_id LEFT JOIN crm.lead_statuses ls ON ls.id=l.status_id LEFT JOIN crm.customers c ON c.id=f.customer_id JOIN crm.users au ON au.id=f.assigned_agent_id LEFT JOIN crm.teams t ON t.id=f.assigned_team_id LEFT JOIN crm.users cu ON cu.id=f.created_by WHERE ${conditions.join(' AND ')} ORDER BY f.due_at ASC`,params); const records = rows.map(followUpRecord); for (const [index, record] of records.entries()) { if (record.status === 'Completed' || record.status === 'Cancelled') continue; const eventKey = new Date(rows[index].due_at).getTime() <= Date.now() ? 'follow_up_overdue' : 'follow_up_due'; await createFollowUpNotification(workspace, rows[index].id, rows[index].assigned_agent_id, eventKey, record); } return records; }
-  async function getFollowUp(workspace, identifier) { const id=await resolveFollowUpId(workspace,identifier); if(!id)return null; const rows=await sql.query(`SELECT f.*,l.legacy_id AS lead_id_legacy,l.full_name AS lead_name,l.phone AS lead_phone,ls.name AS lead_status,c.legacy_id AS customer_id_legacy,c.full_name AS customer_name,c.phone AS customer_phone,au.legacy_id AS assigned_agent_id_legacy,au.full_name AS assigned_agent,t.legacy_id AS assigned_team_id_legacy,cu.legacy_id AS created_by_legacy FROM crm.follow_ups f LEFT JOIN crm.leads l ON l.id=f.lead_id LEFT JOIN crm.lead_statuses ls ON ls.id=l.status_id LEFT JOIN crm.customers c ON c.id=f.customer_id JOIN crm.users au ON au.id=f.assigned_agent_id LEFT JOIN crm.teams t ON t.id=f.assigned_team_id LEFT JOIN crm.users cu ON cu.id=f.created_by WHERE f.id=$1 AND f.deleted_at IS NULL LIMIT 1`,[id]); return rows[0]?followUpRecord(rows[0]):null; }
+  async function addFollowUpNote(workspace, identifier, actor, note, input = {}) {
+    const item = await getFollowUp(workspace,identifier); if (!item) return null;
+    const plan = notePlan(input);
+    if (plan.contacted && ['Completed','Cancelled'].includes(item.lifecycle_status)) throw new Error('This follow-up is closed. Schedule a new follow-up from the customer profile.');
+    await pipeline.saveNote(workspace,actor,{leadId:await resolveLeadId(workspace,item.lead_id),customerId:await resolveCustomerId(workspace,item.customer_id),followUpId:await resolveFollowUpId(workspace,identifier),note,plan});
+    return getFollowUp(workspace,identifier);
+  }
+
+  async function listCustomerActivities(workspace, identifier) { const id=await resolveCustomerId(workspace,identifier); if(!id)return[]; return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,u.full_name AS user_name,a.created_at FROM crm.customer_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.customer_id=$1 ORDER BY a.created_at DESC`,[id]); }
+
+  // Reminder ownership alone is insufficient: it must still match a real,
+  // active customer in the same workspace. Never use imported metadata as a
+  // substitute for a missing relationship or owner.
+  const followUpSelect = `SELECT f.*,
+    coalesce(c.metadata->>'last_activity_at',l.metadata->>'last_activity_at') AS relationship_activity_at,
+    coalesce(c.metadata->>'last_activity_description',l.metadata->>'last_activity_description') AS relationship_activity_description,
+    coalesce(c.metadata->>'last_activity_by',l.metadata->>'last_activity_by') AS relationship_activity_by,
+    coalesce(l.legacy_id,l.id::text) AS lead_id_legacy,l.full_name AS lead_name,l.phone AS lead_phone,ls.name AS lead_status,
+    coalesce(c.legacy_id,c.id::text) AS customer_id_legacy,c.full_name AS customer_name,c.phone AS customer_phone,
+    coalesce(au.legacy_id,au.id::text) AS assigned_agent_id_legacy,au.full_name AS assigned_agent,
+    coalesce(t.legacy_id,t.id::text) AS assigned_team_id_legacy,cu.legacy_id AS created_by_legacy
+    FROM crm.follow_ups f
+    JOIN crm.customers c ON c.workspace_id=f.workspace_id AND c.deleted_at IS NULL
+      AND (c.id=f.customer_id OR (f.customer_id IS NULL AND c.lead_id=f.lead_id))
+      AND (f.lead_id IS NULL OR f.lead_id=c.lead_id)
+      AND c.assigned_agent_id=f.assigned_agent_id
+      AND c.assigned_team_id IS NOT DISTINCT FROM f.assigned_team_id
+    JOIN crm.leads l ON l.id=c.lead_id AND l.workspace_id=c.workspace_id AND l.deleted_at IS NULL
+      AND l.assigned_agent_id=c.assigned_agent_id AND l.assigned_team_id IS NOT DISTINCT FROM c.assigned_team_id
+    LEFT JOIN crm.lead_statuses ls ON ls.id=l.status_id AND ls.workspace_id=f.workspace_id
+    JOIN crm.users au ON au.id=f.assigned_agent_id AND au.workspace_id=f.workspace_id AND au.deleted_at IS NULL
+    LEFT JOIN crm.teams t ON t.id=f.assigned_team_id AND t.workspace_id=f.workspace_id
+    LEFT JOIN crm.users cu ON cu.id=f.created_by AND cu.workspace_id=f.workspace_id`;
+
+  async function listFollowUps({ workspaceId: workspace, user, includeCompleted = true, customerId }) {
+    if (!user || (user.workspace_id && user.workspace_id !== workspace)) return [];
+    const { conditions, params } = await scope(workspace, user, 'f');
+    if (customerId) {
+      params.push(await resolveCustomerId(workspace, customerId));
+      conditions.push(`c.id=$${params.length}`);
+    }
+    if (!includeCompleted) conditions.push("f.status NOT IN ('Completed','Cancelled')");
+    const rows = await sql.query(`${followUpSelect} WHERE ${conditions.join(' AND ')} ORDER BY f.due_at ASC`, params);
+    const records = uniqueFollowUps(rows.map(followUpRecord));
+    for (const record of records) {
+      if (['Completed','Cancelled'].includes(record.lifecycle_status)) continue;
+      const row = rows.find(item => (item.legacy_id || item.id) === record.id);
+      await createFollowUpNotification(workspace, row.id, row.assigned_agent_id, record.status === 'Overdue' ? 'follow_up_overdue' : 'follow_up_due', record);
+    }
+    return records;
+  }
+
+  async function getFollowUp(workspace, identifier) {
+    const id = await resolveFollowUpId(workspace, identifier);
+    if (!id) return null;
+    const rows = await sql.query(`${followUpSelect} WHERE f.id=$1 AND f.workspace_id=$2 AND f.deleted_at IS NULL LIMIT 1`, [id, workspace]);
+    return rows[0] ? followUpRecord(rows[0]) : null;
+  }
+
   async function createFollowUpNotification(workspace, followUpId, assignedAgentId, eventKey, followUp) {
     const userId = await resolveUserId(workspace, assignedAgentId); if (!userId || !followUpId) return;
     const definition = await sql.query('SELECT event_name FROM crm.notification_definitions WHERE event_key=$1 LIMIT 1', [eventKey]); if (!definition[0]) return;
@@ -582,15 +681,76 @@ function createNeonRepository(sql) {
     const due = followUp?.due_date ? ` due ${followUp.due_date}${followUp.due_time ? ` at ${followUp.due_time}` : ''}` : '';
     const copy = eventKey === 'follow_up_overdue' ? `${customer} — ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} — ${type} was completed.` : `${customer} — ${type} scheduled${due}.`;
     const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
-    await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}`]);
+    await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}:${followUp?.due_date}:${followUp?.due_time}`]);
   }
 
-  async function createFollowUp(workspace, actor, input) { let customerId=await resolveCustomerId(workspace,input.customer_id); const leadId=await resolveLeadId(workspace,input.lead_id); if(!customerId&&leadId){const customer=await convertLeadToCustomer(workspace,input.lead_id,actor);customerId=await resolveCustomerId(workspace,customer?.id);} const agentId=await resolveUserId(workspace,input.assigned_agent_id||actor.id); const agent=await findUser(workspace,input.assigned_agent_id||actor.id); if(!agentId||(!customerId&&!leadId))return null; const teamId=await resolveTeamId(workspace,input.assigned_team_id||agent?.team_id||actor.team_id); const legacyId=input.id||`followup_${crypto.randomUUID()}`; const dueAt=timestampValue(`${input.due_date}T${input.due_time}:00`); await sql.query(`INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,priority,status,notes,metadata,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11::jsonb,$12)`,[workspace,legacyId,leadId,customerId,agentId,teamId,input.follow_up_type||input.type||'General Follow-up',dueAt,input.priority||'Medium',input.notes||input.note||null,JSON.stringify(input),await resolveUserId(workspace,actor.id)]); const followUpId=await resolveFollowUpId(workspace,legacyId); await insertAudit(workspace,actor,'follow_up_created','follow_up',followUpId,input); await enqueueOutbox(workspace,'follow_up_created','follow_up',followUpId,{legacy_id:legacyId}); const created = await getFollowUp(workspace,legacyId); await createFollowUpNotification(workspace, followUpId, agentId, 'follow_up_due', created); return created; }
-  async function updateFollowUp(workspace, identifier, actor, patch) { const id=await resolveFollowUpId(workspace,identifier); if(!id)return null; const fields=[];const params=[];const assign=(column,value)=>{params.push(value);fields.push(`${column}=$${params.length}`)};if(patch.follow_up_type!==undefined)assign('follow_up_type',patch.follow_up_type);if(patch.due_date!==undefined||patch.due_time!==undefined){const current=await getFollowUp(workspace,identifier);assign('due_at',timestampValue(`${patch.due_date||current.due_date}T${patch.due_time||current.due_time}:00`))}if(patch.priority!==undefined)assign('priority',patch.priority);if(patch.notes!==undefined)assign('notes',patch.notes);if(fields.length){params.push(id);await sql.query(`UPDATE crm.follow_ups SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params)}await insertAudit(workspace,actor,'follow_up_updated','follow_up',id,patch);return getFollowUp(workspace,identifier); }
+  async function createFollowUp(workspace, actor, input) {
+    if (!actor || (actor.workspace_id && actor.workspace_id !== workspace)) return null;
+    let customer = input.customer_id ? await getCustomer(workspace, input.customer_id) : null;
+    const lead = input.lead_id ? await getLead(workspace, input.lead_id) : null;
+    if ((input.customer_id && !customer) || (input.lead_id && !lead)) return null;
+    if (customer && lead && customer.lead_id !== lead.id) return null;
+    const parent = customer || lead;
+    if (!canViewOwnedRecord(actor, parent) || !parent.assigned_agent_id) return null;
+    if (input.assigned_agent_id && input.assigned_agent_id !== parent.assigned_agent_id) return null;
+    const agent = await findUser(workspace, parent.assigned_agent_id);
+    if (!agent || agent.status !== 'active' || !['sales_agent','sales_manager'].includes(agent.role)) return null;
+    if (!customer) customer = await convertLeadToCustomer(workspace, lead.id, actor);
+    if (!customer || customer.assigned_agent_id !== parent.assigned_agent_id) return null;
+    const customerId = await resolveCustomerId(workspace, customer.id);
+    const leadId = await resolveLeadId(workspace, customer.lead_id);
+    const agentId = await resolveUserId(workspace, customer.assigned_agent_id);
+    const teamId = await resolveTeamId(workspace, customer.assigned_team_id);
+    const existing = await sql.query(`SELECT id,legacy_id FROM crm.follow_ups
+      WHERE workspace_id=$1 AND deleted_at IS NULL AND (customer_id=$3 OR (customer_id IS NULL AND lead_id=$2))
+      AND (lead_id IS NULL OR lead_id=$2) AND assigned_agent_id=$4 AND assigned_team_id IS NOT DISTINCT FROM $5::uuid
+      AND status IN ('Pending','Overdue','Rescheduled','Missed') ORDER BY due_at,created_at LIMIT 1`, [workspace,leadId,customerId,agentId,teamId]);
+    if (existing[0]) return updateFollowUp(workspace,existing[0].legacy_id || existing[0].id,actor,input);
+    const legacyId = input.id || `followup_${crypto.randomUUID()}`;
+    const dueAt = timestampValue(`${input.due_date}T${input.due_time}:00+05:00`);
+    await sql.query(`INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,priority,status,notes,metadata,created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'Pending',$10,$11::jsonb,$12)`,
+      [workspace,legacyId,leadId,customerId,agentId,teamId,input.follow_up_type || input.type || 'General Follow-up',dueAt,input.priority || 'Medium',input.notes || input.note || null,JSON.stringify(input),await resolveUserId(workspace,actor.id)]);
+    const followUpId = await resolveFollowUpId(workspace,legacyId);
+    await insertAudit(workspace,actor,'follow_up_created','follow_up',followUpId,input);
+    await enqueueOutbox(workspace,'follow_up_created','follow_up',followUpId,{legacy_id:legacyId});
+    await pipeline.recordActivity(workspace,actor,{leadId,customerId,type:'Follow-up scheduled',description:input.notes || `Next contact: ${input.due_date} at ${input.due_time}.`});
+    await pipeline.refreshNextAction(workspace,leadId,customerId);
+    const created = await getFollowUp(workspace,legacyId);
+    await createFollowUpNotification(workspace,followUpId,agentId,'follow_up_due',created);
+    return created;
+  }
+
+  async function updateFollowUp(workspace, identifier, actor, patch) {
+    const id=await resolveFollowUpId(workspace,identifier); if(!id)return null;
+    const current=await getFollowUp(workspace,identifier); if (!current || !canViewOwnedRecord(actor,current)) return null;
+    const fields=[];const params=[];const assign=(column,value)=>{params.push(value);fields.push(`${column}=$${params.length}`)};
+    const metadata={ ...current };
+    if(patch.follow_up_type!==undefined)assign('follow_up_type',patch.follow_up_type);
+    if(patch.due_date!==undefined||patch.due_time!==undefined){
+      metadata.due_date=patch.due_date||current.due_date; metadata.due_time=patch.due_time||current.due_time;
+      const dueAt=new Date(`${metadata.due_date}T${metadata.due_time}:00+05:00`).toISOString();
+      assign('due_at',dueAt);
+      if(!['Completed','Cancelled'].includes(current.lifecycle_status))assign('status','Rescheduled');
+      const history={fromDate:current.due_date,fromTime:current.due_time,toDate:metadata.due_date,toTime:metadata.due_time,reason:patch.reason||'Schedule updated.',createdAt:new Date().toISOString(),changedBy:actor.id};
+      metadata.reschedule_history=[...(current.reschedule_history||[]),history];metadata.rescheduled_from_date=current.due_date;metadata.reschedule_reason=history.reason;
+    }
+    if(patch.priority!==undefined)assign('priority',patch.priority);
+    if(patch.notes!==undefined)assign('notes',patch.notes);
+    const summary=activitySummary('Follow-up updated',patch.notes||patch.reason||'Follow-up details updated.',actor);
+    assign('metadata',JSON.stringify({...metadata,...summary}));
+    params.push(id);await sql.query(`UPDATE crm.follow_ups SET ${fields.join(',')},updated_at=now() WHERE id=$${params.length}`,params);
+    await sql.query('INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description) VALUES ($1,$2,$3,$4)',[id,await resolveUserId(workspace,actor.id),'Follow-up updated',summary.last_activity_description]);
+    await pipeline.recordActivity(workspace,actor,{leadId:await resolveLeadId(workspace,current.lead_id),customerId:await resolveCustomerId(workspace,current.customer_id),type:summary.last_activity_type,description:summary.last_activity_description});
+    await pipeline.refreshNextAction(workspace,await resolveLeadId(workspace,current.lead_id),await resolveCustomerId(workspace,current.customer_id));
+    await sql.query("UPDATE crm.notifications SET is_read=true WHERE related_entity_id=$1 AND event_key='follow_up_overdue'",[id]);
+    await insertAudit(workspace,actor,'follow_up_updated','follow_up',id,patch);return getFollowUp(workspace,identifier);
+  }
+
   async function deleteFollowUp(workspace, identifier, actor) { const id=await resolveFollowUpId(workspace, identifier); if (!id) return null; const rows = await sql.query('UPDATE crm.follow_ups SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL RETURNING id, legacy_id', [id]); if (!rows[0]) return null; await insertAudit(workspace, actor, 'follow_up_deleted', 'follow_up', id, { legacy_id: rows[0].legacy_id }); return { id: rows[0].legacy_id || rows[0].id }; }
-  async function transitionFollowUp(workspace, identifier, actor, status, patch={}) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return null;const actorId=await resolveUserId(workspace,actor.id);const old=await sql.query('SELECT status,assigned_agent_id FROM crm.follow_ups WHERE id=$1',[id]);await sql.query('UPDATE crm.follow_ups SET status=$1,completed_at=$2,notes=coalesce($3,notes),updated_at=now() WHERE id=$4',[status,status==='Completed'?new Date().toISOString():null,patch.completion_note||patch.note||null,id]);await sql.query('INSERT INTO crm.follow_up_status_history (follow_up_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.status||null,status,actorId]);await sql.query('INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)',[id,actorId,`Follow-up ${status.toLowerCase()}`,patch.reason||patch.note||`Follow-up marked as ${status}.`,JSON.stringify(patch)]);await enqueueOutbox(workspace,'follow_up_status_changed','follow_up',id,{status});const updated = await getFollowUp(workspace,identifier);if(status==='Completed') await createFollowUpNotification(workspace,id,old[0]?.assigned_agent_id,'follow_up_completed',updated);return updated; }
-  async function listFollowUpActivities(workspace, identifier) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return[];return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,a.created_at FROM crm.follow_up_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.follow_up_id=$1 ORDER BY a.created_at DESC`,[id]); }
-  async function listCustomerFollowUps(workspace, identifier) { return listFollowUps({workspaceId:workspace,user:{role:'super_admin'},customerId:identifier}); }
+  async function transitionFollowUp(workspace, identifier, actor, status, patch={}) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return null;const actorId=await resolveUserId(workspace,actor.id);const old=await sql.query('SELECT status,assigned_agent_id FROM crm.follow_ups WHERE id=$1',[id]);await sql.query('UPDATE crm.follow_ups SET status=$1,completed_at=$2,notes=coalesce($3,notes),updated_at=now() WHERE id=$4',[status,status==='Completed'?new Date().toISOString():null,patch.completion_note||patch.note||null,id]);await sql.query('INSERT INTO crm.follow_up_status_history (follow_up_id,from_status,to_status,changed_by) VALUES ($1,$2,$3,$4)',[id,old[0]?.status||null,status,actorId]);await sql.query('INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)',[id,actorId,`Follow-up ${status.toLowerCase()}`,patch.reason||patch.note||`Follow-up marked as ${status}.`,JSON.stringify(patch)]);await enqueueOutbox(workspace,'follow_up_status_changed','follow_up',id,{status});const item = await getFollowUp(workspace,identifier); const lid=await resolveLeadId(workspace,item.lead_id); const cid=await resolveCustomerId(workspace,item.customer_id); await pipeline.recordActivity(workspace,actor,{leadId:lid,customerId:cid,type:`Follow-up ${status.toLowerCase()}`,description:patch.completion_note||patch.reason||patch.note||`Follow-up marked ${status}.`}); await pipeline.refreshNextAction(workspace,lid,cid); await sql.query("UPDATE crm.notifications SET is_read=true WHERE related_entity_id=$1 AND event_key='follow_up_overdue'",[id]); const updated = await getFollowUp(workspace,identifier);if(status==='Completed') await createFollowUpNotification(workspace,id,old[0]?.assigned_agent_id,'follow_up_completed',updated);return updated; }
+  async function listFollowUpActivities(workspace, identifier) { const id=await resolveFollowUpId(workspace,identifier);if(!id)return[];return sql.query(`SELECT a.id,a.activity_type,a.description,u.legacy_id AS user_id,u.full_name AS user_name,a.created_at FROM crm.follow_up_activities a LEFT JOIN crm.users u ON u.id=a.actor_user_id WHERE a.follow_up_id=$1 ORDER BY a.created_at DESC`,[id]); }
+  async function listCustomerFollowUps(workspace, identifier, user = {role:'super_admin',workspace_id:workspace}) { return listFollowUps({workspaceId:workspace,user,customerId:identifier}); }
 
   const taskSelect = `SELECT t.*, au.legacy_id AS assigned_to_legacy, au.full_name AS assigned_to_name, au.email AS assigned_to_email,
     at.legacy_id AS assigned_team_legacy, cu.legacy_id AS created_by_legacy, cu.full_name AS created_by_name,
@@ -696,7 +856,10 @@ function createNeonRepository(sql) {
     await insertAudit(workspace, actor, 'task_deleted', 'task', id, { id: current.id }); await enqueueOutbox(workspace, 'task_deleted', 'task', id, { legacy_id: current.id }); return true;
   }
 
-  async function listNotifications(workspace, userIdentifier) { const userId=await resolveUserId(workspace,userIdentifier);if(!userId)return[];return sql.query(`SELECT n.id,n.event_key AS event_type,n.title,n.message,n.related_entity_type,n.related_entity_id,n.dedupe_key,n.is_read,n.read_at,n.created_at FROM crm.notifications n WHERE n.user_id=$1 ORDER BY n.created_at DESC`,[userId]); }
+  async function listNotifications(workspace, userIdentifier) { const userId=await resolveUserId(workspace,userIdentifier);if(!userId)return[];return sql.query(`SELECT n.id,n.event_key AS event_type,n.title,n.message,n.related_entity_type,n.related_entity_id,n.dedupe_key,n.is_read,n.read_at,n.created_at FROM crm.notifications n WHERE n.user_id=$1
+      AND (n.related_entity_type IS DISTINCT FROM 'follow_up' OR EXISTS (
+        ${followUpSelect} WHERE f.id=n.related_entity_id AND f.workspace_id=$2 AND f.deleted_at IS NULL AND f.assigned_agent_id=$1
+      )) ORDER BY n.created_at DESC`,[userId,workspace]); }
   async function markNotificationRead(workspace,userIdentifier,identifier) { const userId=await resolveUserId(workspace,userIdentifier);await sql.query('UPDATE crm.notifications SET is_read=true,read_at=now() WHERE user_id=$1 AND (id::text=$2 OR dedupe_key=$2)',[userId,String(identifier)]);return true; }
   async function markAllNotificationsRead(workspace,userIdentifier) { const userId=await resolveUserId(workspace,userIdentifier);await sql.query('UPDATE crm.notifications SET is_read=true,read_at=now() WHERE user_id=$1 AND is_read=false',[userId]);return true; }
   const webhookColumns = 'id,legacy_id,name AS connection_name,source_platform,source_type,secret_hash,status,field_mappings,default_lead_source,default_lead_status,default_tags,default_assigned_team_id,default_assigned_agent_id,auto_assign_lead,duplicate_check_rule,failed_attempts,unauthorized_attempts,last_received_at,created_by,created_at,updated_at';
@@ -734,12 +897,12 @@ function createNeonRepository(sql) {
   async function markMessageRead(workspace,user,identifier) { const userId=await resolveUserId(workspace,user.id);await sql.query('INSERT INTO crm.chat_read_receipts (message_id,user_id,read_at) SELECT id,$2,now() FROM crm.chat_messages WHERE workspace_id=$1 AND legacy_id=$3 ON CONFLICT (message_id,user_id) DO UPDATE SET read_at=now()',[workspace,userId,String(identifier)]);return true; }
   async function reportRows(workspace,user) { const agents=await listUsers(workspace,user);const leads=await listLeads({workspaceId:workspace,user});const customers=await listCustomers({workspaceId:workspace,user});const followUps=await listFollowUps({workspaceId:workspace,user});return agents.filter(item=>['sales_agent','sales_manager'].includes(item.role)).map(agent=>{const ls=leads.filter(item=>item.assigned_agent_id===agent.id);const cs=customers.filter(item=>item.assigned_agent_id===agent.id);const fs=followUps.filter(item=>item.assigned_agent_id===agent.id);const closed=ls.filter(item=>item.status==='Closed Won').length;const overdue=fs.filter(item=>item.status==='Overdue').length;const completed=fs.filter(item=>item.status==='Completed').length;const conversion=ls.length?Number((closed/ls.length*100).toFixed(1)):0;const performance=conversion>=20&&overdue<=1?'Excellent':conversion>=12&&overdue<=2?'Good':conversion>0?'Average':'Needs Attention';return {id:agent.id,agentId:agent.id,name:agent.full_name,agentName:agent.full_name,initials:String(agent.full_name||'?').split(/\s+/).map(part=>part[0]).slice(0,2).join('').toUpperCase(),email:agent.email,phone:agent.phone,role:agent.role,agentRole:agent.role==='sales_manager'?'Sales Manager':'Sales Agent',team:agent.team_id||'Unassigned',teamId:agent.team_id,assignedLeads:ls.length,activeLeads:ls.filter(item=>!['Closed Won','Closed Lost','Not Interested'].includes(item.status)).length,contactedLeads:ls.filter(item=>item.status!=='New').length,hotLeads:ls.filter(item=>['Hot','Booking'].includes(item.status)).length,followUpsAssigned:fs.length,followUpsDue:fs.filter(item=>['Pending','Rescheduled'].includes(item.status)).length,followUpsCompleted:completed,overdueFollowUps:overdue,customersHandled:cs.length,closedDeals:closed,lostLeads:ls.filter(item=>['Closed Lost','Lost'].includes(item.status)).length,conversionRate:conversion,conversionRateLabel:`${conversion}%`,performance,status:agent.status,presenceStatus:agent.presence_status||null,lastActivity:agent.last_login_at||agent.last_activity_at||agent.updated_at,lastActivityAt:agent.last_activity_at||agent.updated_at};}); }
 
-  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+  return { workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, changeLeadStatus, addLeadActivity, convertLeadToCustomer, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, addFollowUpNote, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
 }
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.invite_status === 'sent'), temporary_password_expires_at: row.temporary_password_expires_at || null, access_email_sent_at: row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }
 
-function leadRecord(row) { const metadata = valueObject(row.metadata); return { ...metadata, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: row.status, lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at }; }
+function leadRecord(row) { const metadata = valueObject(row.metadata); return { ...metadata, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: row.status, lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, created_at: row.created_at, updated_at: row.updated_at }; }
 function customerRecord(row) { const metadata=valueObject(row.metadata);return {...metadata,id:row.legacy_id||row.id,lead_id:row.lead_id_legacy||metadata.lead_id||null,full_name:row.full_name,email:row.email,phone:row.phone,whatsapp_number:row.whatsapp_number,customer_status:row.customer_status,assigned_agent_id:row.assigned_agent_id_legacy||metadata.assigned_agent_id||null,assigned_agent:row.assigned_agent||metadata.assigned_agent||'Unassigned',assigned_team_id:row.assigned_team_id_legacy||metadata.assigned_team_id||null,created_by:row.created_by_legacy||metadata.created_by||null,created_at:row.created_at,updated_at:row.updated_at}; }
 function followUpRecord(row) { const metadata=valueObject(row.metadata);const parts=localDateParts(row.due_at);return {...metadata,id:row.legacy_id||row.id,lead_id:row.lead_id_legacy||metadata.lead_id||null,customer_id:row.customer_id_legacy||metadata.customer_id||null,follow_up_type:row.follow_up_type,due_date:metadata.due_date||parts.date,due_time:metadata.due_time||parts.time,priority:row.priority,status:row.status,notes:row.notes,completed_at:row.completed_at,assigned_agent_id:row.assigned_agent_id_legacy||metadata.assigned_agent_id||null,assigned_agent:row.assigned_agent||metadata.assigned_agent||'Unassigned',assigned_team_id:row.assigned_team_id_legacy||metadata.assigned_team_id||null,created_by:row.created_by_legacy||metadata.created_by||null,created_at:row.created_at,updated_at:row.updated_at}; }
 

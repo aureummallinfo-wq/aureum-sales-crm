@@ -6,7 +6,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../../../..');
 const read = relative => fs.readFileSync(path.join(ROOT, relative), 'utf8');
 
-test('mobile record drawers expose edit and note actions', () => {
+test('record drawers expose editing and the compact follow-up note workflow', () => {
   const leads = read('frontend/features/leads/leads-module.js');
   const customers = read('frontend/features/customers/customers-module.js');
   const followups = read('frontend/features/follow-ups/followups-module.js');
@@ -16,9 +16,10 @@ test('mobile record drawers expose edit and note actions', () => {
   assert.match(leads, /id="lead-module-note-form"/);
   assert.match(customers, /data-customer-module-action="edit"/);
   assert.match(customers, /id="customer-module-note-form"/);
-  assert.match(followups, /id="followup-module-edit-form"/);
-  assert.match(followups, /data-followup-module-action="edit"/);
-  assert.match(followups, /id="followup-module-note-form"/);
+  assert.match(followups, /AureumFollowUpNoteUI.scheduleFields/);
+  assert.match(followups, /AureumFollowUpNoteUI.noteFields/);
+  assert.match(followups, /Reschedule/);
+  assert.match(followups, /'followup-module-note-form'/);
 });
 
 test('notification center is wired after the final module binding layer', () => {
