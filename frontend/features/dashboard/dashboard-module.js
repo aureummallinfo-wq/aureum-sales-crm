@@ -48,16 +48,6 @@ function dashboardPresenceStatus(record) {
   const age = Math.max(0, Date.now() - lastActivity);
   return age <= 2 * 60 * 1000 ? 'online' : age <= 15 * 60 * 1000 ? 'away' : 'offline';
 }
-function dashboardRelativeTime(value) {
-  const timestamp = Date.parse(value || '');
-  if (!Number.isFinite(timestamp)) return 'unknown';
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 function dashboardCacheKey() { return JSON.stringify([window.aureumPortalSessionKey?.() || [state.authUser?.workspace_id || '', state.authUser?.id || '', state.authUser?.team_id || ''], dashboardRole().role, dashboardRole().scope, state.dashboardDateRange, state.dashboardCustomStart || '', state.dashboardCustomEnd || '', state.dashboardRecentLeadAgentId || '', state.dashboardRecentLeadDateRange || 'all']); }
 function dashboardCacheableData(data) { return { role: data.role, scope: data.scope, dateRange: data.dateRange, summary: { ...data.summary }, leadInflow: dashboardSafeArray(data.leadInflow).map(item => ({ ...item })), leadSources: dashboardSafeArray(data.leadSources).map(item => ({ ...item })), followUpPerformance: dashboardSafeArray(data.followUpPerformance).map(item => ({ ...item })), conversionOverview: dashboardSafeArray(data.conversionOverview).map(item => ({ ...item })), agentPerformance: [], recentLeads: [], recentActivities: [], todayFollowUps: [], scopeLabel: data.scopeLabel, meta: { ...data.meta } }; }
 function dashboardReadCache(key = dashboardCacheKey()) { const entry = dashboardSummaryCache.get(key); if (!entry || entry.expiresAt <= Date.now()) { dashboardSummaryCache.delete(key); return null; } return normalizeDashboardData(entry.data); }
@@ -98,7 +88,6 @@ function dashboardSummaryKpis(summary, role) {
 
 function dashboardDateRangeLabel() { return ({ today: 'Today', this_week: 'This Week', this_month: 'This Month', last_month: 'Last Month', custom: 'Custom Range' }[state.dashboardDateRange] || 'This Month'); }
 function dashboardDateFilter() { const custom = state.dashboardDateRange === 'custom'; return `<div class="dashboard-date-filter"><label>View range <select data-dashboard-date-range aria-label="Dashboard date range"><option value="today" ${state.dashboardDateRange === 'today' ? 'selected' : ''}>Today</option><option value="this_week" ${state.dashboardDateRange === 'this_week' ? 'selected' : ''}>This Week</option><option value="this_month" ${state.dashboardDateRange === 'this_month' ? 'selected' : ''}>This Month</option><option value="last_month" ${state.dashboardDateRange === 'last_month' ? 'selected' : ''}>Last Month</option><option value="custom" ${custom ? 'selected' : ''}>Custom Range</option></select></label>${custom ? `<label>Start Date<input type="date" data-dashboard-start value="${dashboardEscape(state.dashboardCustomStart)}" /></label><label>End Date<input type="date" data-dashboard-end value="${dashboardEscape(state.dashboardCustomEnd)}" /></label><button class="btn btn-gold btn-sm" data-dashboard-apply-range>Apply</button><button class="btn btn-secondary btn-sm" data-dashboard-clear-range>Clear</button>` : ''}</div>`; }
-function dashboardFilterDate(value) { const date = new Date(value); if (Number.isNaN(date.getTime())) return false; const today = new Date(); today.setHours(0, 0, 0, 0); const start = new Date(today); const end = new Date(today); if (state.dashboardDateRange === 'today') { end.setHours(23, 59, 59, 999); } else if (state.dashboardDateRange === 'this_week') { start.setDate(today.getDate() - today.getDay()); end.setDate(start.getDate() + 6); end.setHours(23, 59, 59, 999); } else if (state.dashboardDateRange === 'last_month') { start.setMonth(today.getMonth() - 1, 1); end.setMonth(today.getMonth(), 0); end.setHours(23, 59, 59, 999); } else if (state.dashboardDateRange === 'custom') { const customStart = state.dashboardCustomStart ? new Date(`${state.dashboardCustomStart}T00:00:00`) : null; const customEnd = state.dashboardCustomEnd ? new Date(`${state.dashboardCustomEnd}T23:59:59`) : null; return (!customStart || date >= customStart) && (!customEnd || date <= customEnd); } else { return true; } return date >= start && date <= end; }
 // The API returns already-scoped and date-bounded dashboard records. Do not apply a
 // second browser-local filter: dueTime is intentionally time-only and would make
 // valid follow-ups disappear for non-default ranges.

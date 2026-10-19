@@ -248,19 +248,6 @@ function canAccess(screen) {
   return (routePermissions[screen] || []).includes(state.role);
 }
 
-function navigate(screen) {
-  if (routePaths[screen]) window.history.pushState({}, '', routePaths[screen]);
-  if (!canAccess(screen)) {
-    state.drawer = null;
-    state.deniedPath = screen;
-    state.screen = 'unauthorized';
-  } else {
-    state.drawer = null;
-    state.screen = screen;
-  }
-  render();
-}
-
 function openFollowupCount() {
   const items = Array.isArray(state.followups?.items) ? state.followups.items : [];
   return items.filter(item => !['completed', 'cancelled'].includes(String(item.status || '').trim().toLowerCase())).length;
@@ -283,26 +270,8 @@ function pageHeader(_eyebrow, title, subtitle, actions = '') { return `<div clas
 
 function kpi(label, value, foot, tone = 'up') { return `<div class="card kpi-card"><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div><div class="kpi-foot"><span class="trend-${tone}">${foot}</span><span>vs last month</span></div></div>`; }
 
-function renderDashboard() {
-  const dashboardActions = `<button class="btn btn-secondary" data-screen="reports">View reports ${icons.arrow}</button><button class="btn btn-gold" data-screen="add-lead">${icons.plus} Add new lead</button>`;
-  return pageHeader('Aureum Mall & Residences · Executive view', `Welcome back, ${roleLabels[state.role]}`, 'Track Aureum leads, follow-ups, agents, and sales performance from one calm command center.', dashboardActions) + `<section class="grid grid-4">${kpi('Total leads', '1,248', '+12%')} ${kpi('New leads', '320', '+18%')} ${kpi('Hot leads', '86', '+24%')} ${kpi('Follow-ups due', '42', '14 today', 'down')}</section><section class="grid grid-2" style="margin-top:18px"><div class="card chart-card"><div class="section-title"><div><h3>Lead inflow trend</h3><p>Monthly inquiry velocity across digital & direct channels</p></div><select class="select"><option>Last 12 months</option><option>This year</option></select></div><div class="bar-chart">${[58,72,45,66,80,55,65,75,84,100,72,88].map((v, i) => `<div class="bar-group"><div class="bar alt" style="height:${Math.max(28, v - 22)}%"></div><div class="bar" style="height:${v}%"></div></div>`).join('')}</div><div class="bar-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span></div><div class="legend"><span><i></i> Actual inflow</span><span><i class="soft"></i> Projection</span><span class="trend-up">October peak · 220 leads</span></div></div><div class="card chart-card"><div class="section-title"><div><h3>Lead sources</h3><p>Acquisition channels distribution</p></div><span class="section-link">This month ${icons.arrow}</span></div><div class="donut-wrap"><div style="position:relative"><div class="donut"></div><div class="donut-label"><strong>1,248</strong><span>Total leads</span></div></div><div class="source-list"><div class="source-row"><span class="source-name"><i></i>Website</span><b>35%</b></div><div class="source-row"><span class="source-name"><i style="background:#e4c782"></i>WhatsApp</span><b>28%</b></div><div class="source-row"><span class="source-name"><i style="background:#b6904f"></i>Facebook</span><b>18%</b></div><div class="source-row"><span class="source-name"><i style="background:#765c3a"></i>Partners</span><b>12%</b></div><div class="source-row"><span class="source-name"><i style="background:#d8cbb7"></i>Walk-in</span><b>7%</b></div></div></div></div></section><section class="grid grid-2" style="margin-top:18px"><div class="card chart-card"><div class="section-title"><div><h3>Follow-up performance</h3><p>Scheduled advisor client resolution</p></div><span class="trend-up">65.2% overall</span></div><div class="progress-row"><span>Completed</span><div class="progress-track"><div class="progress-value" style="width:65%"></div></div><b>184</b></div><div class="progress-row"><span>Pending</span><div class="progress-track"><div class="progress-value" style="width:38%;background:#e4c782"></div></div><b>56</b></div><div class="progress-row"><span>Rescheduled</span><div class="progress-track"><div class="progress-value" style="width:20%;background:#b6904f"></div></div><b>28</b></div><div class="progress-row"><span>Overdue</span><div class="progress-track"><div class="progress-value" style="width:11%;background:var(--red)"></div></div><b>14</b></div><div class="legend"><span>Response SLA: &lt; 2.4 hours</span><span class="trend-up">Target &gt; 80%</span></div></div><div class="card chart-card"><div class="section-title"><div><h3>Agent performance</h3><p>Top advisor conversion benchmark</p></div><span class="section-link" data-screen="reports">Leaderboard ${icons.arrow}</span></div>${[['Ali R.', '22.2%', 88], ['Hamza K.', '18.0%', 72], ['Sara A.', '19.0%', 76], ['Ayesha N.', '15.0%', 60], ['Bilal H.', '12.0%', 48]].map(x => `<div class="progress-row"><span>${x[0]}</span><div class="progress-track"><div class="progress-value" style="width:${x[2]}%"></div></div><b>${x[1]}</b></div>`).join('')}<div class="legend"><span class="trend-up">Top closer: Sara Ahmed</span><span>PKR 112M booked</span></div></div></section><section class="two-col" style="margin-top:18px"><div class="card table-card"><div class="table-head"><div><h3>Recent leads</h3><p class="page-subtitle">Latest prospective investor inquiries</p></div><button class="section-link" data-screen="leads">View all ${icons.arrow}</button></div>${leadTable(leadRows.slice(0, 4), false)}</div><div class="card card-pad"><div class="section-title"><div><h3>Today’s follow-ups</h3><p>14 scheduled advisor touchpoints</p></div><button class="section-link" data-screen="follow-ups">View all</button></div><div class="timeline">${followups.map((f, i) => `<div class="timeline-item"><div class="timeline-dot" style="background:${f.status === 'Overdue' ? 'var(--red)' : f.status === 'Completed' ? 'var(--green)' : 'var(--gold)'}"></div><div><div class="timeline-title">${f.time} · ${f.name}</div><div class="timeline-copy">${f.type} · ${f.copy}</div><div class="timeline-time">${badge(f.status)}</div></div></div>`).join('')}</div></div></section>`;
-}
-
 function leadTable(rows, full = true) {
   return `<div class="table-wrap"><table><thead><tr><th>Lead & contact</th><th>Interest & budget</th><th>Source</th><th>Advisor</th><th>Status</th>${full ? '<th>Next follow-up</th><th>Action</th>' : ''}</tr></thead><tbody>${rows.map((l) => `<tr><td>${person(l.name, l.initials, l.meta)}</td><td><b>${l.interest}</b><div class="person-meta">${l.budget}</div></td><td>${l.source}</td><td>${l.agent}</td><td>${badge(l.status)}</td>${full ? `<td>${l.next}</td><td><button class="table-action" data-drawer="lead" data-name="${l.name}">Open ${icons.arrow}</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`;
-}
-
-function renderLeads(my = false) {
-  const rows = my ? leadRows.filter(l => ['Ali Raza', 'Hamza Khan'].includes(l.agent)) : leadRows;
-  return pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', my ? 'Keep every assigned relationship moving with clear next actions.' : 'Manage Aureum inquiries, lead status, advisor assignment, and follow-ups.', `<button class="btn btn-secondary">${icons.filter} Filter</button>${!my ? '<button class="btn btn-gold" data-screen="add-lead">+ Add new lead</button>' : ''}`) + `<section class="card table-card"><div class="tabs">${['All Leads', 'New', 'Hot', 'Warm', 'Follow-up', 'Visit Scheduled', 'Negotiation', 'Closed Won'].map((t, i) => `<button class="tab ${i === 0 ? 'active' : ''}">${t}</button>`).join('')}</div><div class="filter-bar"><div class="search-box">${icons.search}<input placeholder="Search leads by name, phone, or email" /></div><select class="select"><option>All statuses</option><option>Hot</option><option>Follow-up</option><option>Negotiation</option></select><select class="select"><option>All sources</option><option>Website</option><option>WhatsApp</option><option>Walk-in</option></select><select class="select"><option>All advisors</option><option>Ali Raza</option><option>Hamza Khan</option></select><button class="btn btn-secondary btn-sm">Reset filters</button></div>${leadTable(rows, true)}</section>`;
-}
-
-function legacyRenderCustomers() {
-  return pageHeader('Client relationships', 'Customers', 'A single view of active Aureum buyers, investors, and high-value conversations.', '<button class="btn btn-secondary">Export list</button><button class="btn btn-gold" data-screen="add-lead">+ Add customer</button>') + `<section class="grid grid-4">${kpi('Active customers', '684', '+9%')} ${kpi('VIP accounts', '42', '+6%')} ${kpi('Due today', '18', '5 urgent', 'down')} ${kpi('Retention score', '94.2%', '+2.1%')}</section><section class="card table-card" style="margin-top:18px"><div class="filter-bar"><div class="search-box">${icons.search}<input placeholder="Search customers" /></div><select class="select"><option>All statuses</option><option>Active</option><option>VIP</option><option>At risk</option></select><select class="select"><option>All advisors</option><option>Ali Raza</option><option>Hamza Khan</option></select></div><div class="table-wrap"><table><thead><tr><th>Customer</th><th>Interest</th><th>Advisor</th><th>Status</th><th>Last activity</th><th>Next follow-up</th><th>Action</th></tr></thead><tbody>${leadRows.slice(0, 5).map(l => `<tr><td>${person(l.name, l.initials, l.meta)}</td><td>${l.interest}<div class="person-meta">${l.budget}</div></td><td>${l.agent}</td><td>${badge(l.status === 'Hot' ? 'VIP' : 'Active')}</td><td>Today · 10:20 AM</td><td>${l.next}</td><td><button class="table-action" data-drawer="customer" data-name="${l.name}">View profile ${icons.arrow}</button></td></tr>`).join('')}</tbody></table></div></section>`;
-}
-
-function renderFollowups() {
-  return pageHeader('Daily rhythm', 'Follow-ups', 'Protect the next conversation. Every reminder is a promise to the client.', '<button class="btn btn-secondary">Calendar view</button><button class="btn btn-gold">+ Schedule follow-up</button>') + `<section class="grid grid-4">${kpi('Today’s follow-ups', '14', '5 urgent', 'down')} ${kpi('Overdue', '4', 'Action required', 'down')} ${kpi('Upcoming', '28', '+8%')} ${kpi('Completed', '184', '+14%')}</section><section class="card table-card" style="margin-top:18px"><div class="filter-bar"><button class="tab active">Today</button><button class="tab">Tomorrow</button><button class="tab">This week</button><button class="tab">Overdue</button><div style="flex:1"></div><select class="select"><option>All advisors</option><option>Ali Raza</option><option>Hamza Khan</option></select><select class="select"><option>All types</option><option>Phone call</option><option>WhatsApp</option></select></div><div class="table-wrap"><table><thead><tr><th>Time</th><th>Customer</th><th>Type / purpose</th><th>Advisor</th><th>Priority</th><th>Status</th><th>Action</th></tr></thead><tbody>${followups.map(f => `<tr><td><b>${f.time}</b></td><td>${person(f.name, f.name.split(' ').map(x=>x[0]).join(''), 'Lahore')}</td><td>${f.type}<div class="person-meta">${f.copy}</div></td><td>${f.agent}</td><td>${badge(f.priority)}</td><td>${badge(f.status)}</td><td><button class="table-action" data-toast="Follow-up marked as complete">${f.status === 'Completed' ? 'View note' : 'Mark done'}</button></td></tr>`).join('')}</tbody></table></div></section>`;
 }
 
 const chatMessages = {
@@ -328,35 +297,11 @@ function renderSettings() {
   return pageHeader('Workspace control', 'Settings', 'Keep the Aureum operating system aligned with your company, permissions, and communication standards.', '<button class="btn btn-gold" data-toast="Settings saved">Save changes</button>') + `<div class="grid grid-2"><div class="card card-pad"><div class="section-title"><div><h3>Company settings</h3><p>Brand and operating identity</p></div><span class="badge badge-completed">Configured</span></div><div class="form-field"><label>Company name</label><input value="Aureum Mall & Residences" /></div><div class="form-grid"><div class="form-field"><label>Primary city</label><input value="Lahore" /></div><div class="form-field"><label>Timezone</label><select><option>Asia/Karachi</option></select></div></div><div class="form-field"><label>Workspace tagline</label><input value="More Than a Destination · A Lifestyle of Distinction" /></div></div><div class="card card-pad"><div class="section-title"><div><h3>Roles & permissions</h3><p>Access gates for the sales team</p></div><span class="badge badge-hot">3 roles</span></div>${[['Super Admin','All workspace controls','Full access'],['Sales Manager','Team pipeline & reporting','Manager access'],['Sales Agent','Assigned relationships only','Restricted']].map(x => `<div class="source-row" style="padding:13px 0;border-bottom:1px solid var(--line)"><span><b>${x[0]}</b><small style="display:block;color:var(--muted);margin-top:3px">${x[1]}</small></span><span class="badge badge-neutral">${x[2]}</span></div>`).join('')}</div><div class="card card-pad"><div class="section-title"><div><h3>Lead statuses & tags</h3><p>Keep the pipeline language consistent</p></div><button class="section-link">Edit</button></div><div class="legend">${['New','Hot','Warm','Follow-up','Negotiation','Booking','Closed Won','Lost'].map(x => badge(x)).join('')}</div></div><div class="card card-pad"><div class="section-title"><div><h3>Notifications</h3><p>Choose the moments that need attention</p></div></div>${[['Overdue follow-up alerts',true],['Daily pipeline digest',true],['New lead assignment',true],['Weekly team report',false]].map(x => `<div class="source-row" style="padding:13px 0;border-bottom:1px solid var(--line)"><span>${x[0]}</span><input type="checkbox" ${x[1] ? 'checked' : ''} style="accent-color:var(--gold)" /></div>`).join('')}</div></div>`;
 }
 
-function legacyRenderLogin() {
-  return `<div class="login-page"><section class="login-brand"><div class="brand"><div class="brand-mark">A</div><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales operations platform</div></div></div><div class="login-copy"><div class="login-badge">AUREUM SALES CRM</div><h1>Keep every customer relationship moving.</h1><p>Manage leads, customer activity, follow-ups, and team performance from one focused workspace.</p></div></section><section class="login-form-wrap"><form class="login-form" id="login-form"><div class="brand"><div class="brand-mark">A</div><div class="brand-copy"><div class="brand-title">Aureum Sales CRM</div><div class="brand-subtitle">Sales operations platform</div></div></div><div class="eyebrow">Sign in to continue</div><h2>Welcome back</h2><p class="page-subtitle" style="margin-bottom:24px">Use your company credentials to access your assigned workspace.</p><div class="form-field"><label>Work email</label><input required value="" autocomplete="username" placeholder="name@company.com" /></div><div class="form-field"><label>Password</label><input required value="" type="password" autocomplete="current-password" placeholder="Enter your password" /></div><div class="form-help"><label class="checkbox"><input type="checkbox" /> Keep me signed in for 30 days</label></div><button class="btn btn-primary" type="submit">${icons.lock} Sign in</button><p class="login-note">Access is managed by your organization. Contact your administrator if you need help signing in.</p></form></section></div>`;
-}
-
 function legacyRenderDrawer() {
   if (state.drawer === 'add-agent') return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">People & permissions</div><h2>Add new agent</h2><p class="page-subtitle">Invite an advisor into the Aureum workspace.</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="form-grid"><div class="form-field full"><label>Full name</label><input placeholder="e.g. Hira Malik" /></div><div class="form-field"><label>Email</label><input placeholder="advisor@aureum.com" /></div><div class="form-field"><label>Phone</label><input placeholder="+92 300 ..." /></div><div class="form-field"><label>Role</label><select><option>Sales Agent</option><option>Sales Manager</option></select></div><div class="form-field"><label>Team</label><select><option>Sales Team A</option><option>Sales Team A</option></select></div></div></div><div class="drawer-section"><button class="btn btn-gold" data-toast="Agent invitation prepared" data-close-drawer>Send invite</button> <button class="btn btn-secondary" data-close-drawer>Cancel</button></div></aside>`;
   const name = state.drawer === 'agent' ? (state.drawerName || 'Ali Raza') : (state.drawerName || 'Ahmed Khan');
   const isAgent = state.drawer === 'agent';
   return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">${isAgent ? 'Advisor dossier' : 'Customer relationship'}</div><h2>${name}</h2><p class="page-subtitle">${isAgent ? 'Senior Sales Advisor · Sales Team A' : 'High-intent buyer · Last active today'}</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="detail-grid"><div><div class="detail-label">Status</div>${badge(isAgent ? 'Active' : 'Hot')}</div><div><div class="detail-label">Owner</div><div class="detail-value">${isAgent ? 'Sales Manager' : 'Ali Raza'}</div></div><div><div class="detail-label">Phone</div><div class="detail-value">0321-4829100</div></div><div><div class="detail-label">Email</div><div class="detail-value">${isAgent ? 'ali.raza@aureum.com' : 'ahmed@example.com'}</div></div></div></div><div class="drawer-section"><h3>${isAgent ? 'Performance snapshot' : 'Interest profile'}</h3><div class="metric-strip">${isAgent ? '<div class="mini-stat"><div class="mini-stat-label">Assigned</div><div class="mini-stat-value">180</div></div><div class="mini-stat"><div class="mini-stat-label">Closed</div><div class="mini-stat-value">12</div></div><div class="mini-stat"><div class="mini-stat-label">Conversion</div><div class="mini-stat-value">22%</div></div>' : '<div class="mini-stat"><div class="mini-stat-label">Interest</div><div class="mini-stat-value">1 Bed</div></div><div class="mini-stat"><div class="mini-stat-label">Budget</div><div class="mini-stat-value">25M</div></div><div class="mini-stat"><div class="mini-stat-label">Source</div><div class="mini-stat-value">Web</div></div>'}</div></div><div class="drawer-section"><h3>Recent timeline</h3><div class="timeline"><div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">Payment plan requested</div><div class="timeline-copy">Advisor shared the 1 Bed Apartment plan for Sector C.</div><div class="timeline-time">Today · 10:20 AM</div></div></div><div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">Lead marked hot</div><div class="timeline-copy">Budget and purchase timeline verified by advisor.</div><div class="timeline-time">Yesterday · 04:45 PM</div></div></div><div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">First contact logged</div><div class="timeline-copy">Inbound website inquiry assigned to Ali Raza.</div><div class="timeline-time">Oct 06, 2026</div></div></div></div></div><div class="drawer-section"><button class="btn btn-gold" data-toast="Action opened">${icons.phone} ${isAgent ? 'Chat advisor' : 'Call client'}</button> <button class="btn btn-secondary" data-toast="Note composer opened">+ Add note</button></div></aside>`;
-}
-
-function legacyRender() {
-  if (state.screen === 'login') { app.innerHTML = renderLogin(); bind(); return; }
-  let content = renderDashboard();
-  if (state.screen === 'leads') content = renderLeads(false);
-  if (state.screen === 'my-leads') content = renderLeads(true);
-  if (state.screen === 'add-lead') content = renderAddLead();
-  if (state.screen === 'customers') content = renderCustomers();
-  if (state.screen === 'follow-ups') content = renderFollowups();
-  if (state.screen === 'team-chat') content = renderChat();
-  if (state.screen === 'reports') content = renderReports();
-  if (state.screen === 'agents') content = renderAgents();
-  if (state.screen === 'settings') content = renderSettings();
-  app.innerHTML = layout(content);
-  bind();
-}
-
-function renderAddLead() {
-  return pageHeader('Pipeline intake', 'Add new lead', 'Capture a new Aureum inquiry with enough context for the next best action.', '<button class="btn btn-secondary" data-screen="' + (state.role === 'SALES_AGENT' ? 'my-leads' : 'leads') + '">Cancel</button><button class="btn btn-gold" data-toast="Lead saved to registry">Save lead</button>') + `<section class="grid grid-2"><div class="card card-pad"><div class="section-title"><div><h3>Customer information</h3><p>How should we reach them?</p></div></div><div class="form-grid"><div class="form-field full"><label>Full name</label><input placeholder="e.g. Ahmed Khan" /></div><div class="form-field"><label>Phone number</label><input placeholder="0321-..." /></div><div class="form-field"><label>WhatsApp number</label><input placeholder="Same as phone" /></div><div class="form-field"><label>Email</label><input placeholder="client@example.com" /></div><div class="form-field"><label>City</label><input value="Lahore" /></div><div class="form-field full"><label>Preferred contact method</label><select><option>WhatsApp</option><option>Phone call</option><option>Email</option></select></div></div></div><div class="card card-pad"><div class="section-title"><div><h3>Requirement information</h3><p>Shape the opportunity clearly.</p></div></div><div class="form-grid"><div class="form-field"><label>Interested in</label><select><option>1 Bed Apartment</option><option>2 Bed Apartment</option><option>Commercial Shop</option><option>Corporate Office</option><option>Food Court Space</option></select></div><div class="form-field"><label>Budget</label><input placeholder="PKR 25M" /></div><div class="form-field"><label>Property type</label><select><option>1 Bed Apartment</option><option>2 Bed Apartment</option><option>Commercial</option><option>Office</option><option>Food Court Space</option><option>Other</option></select></div><div class="form-field"><label>Purpose</label><select><option>Investment</option><option>End use</option><option>Business</option></select></div><div class="form-field"><label>Buying timeline</label><select><option>Within 30 days</option><option>1–3 months</option><option>Exploring</option></select></div><div class="form-field full"><label>Preferred location</label><input placeholder="e.g. Sector C, Bahria Town" /></div></div></div><div class="card card-pad"><div class="section-title"><div><h3>CRM routing</h3><p>Make the next step visible to the team.</p></div></div><div class="form-grid"><div class="form-field"><label>Lead source</label><select><option>Website</option><option>WhatsApp</option><option>Sales partner</option><option>Walk-in</option></select></div><div class="form-field"><label>Assigned advisor</label><select><option>Ali Raza</option><option>Hamza Khan</option><option>Sara Ahmed</option></select></div><div class="form-field"><label>Status</label><select><option>New</option><option>Hot</option><option>Follow-up</option></select></div><div class="form-field"><label>Next follow-up</label><input type="date" value="2026-10-08" /></div><div class="form-field full"><label>Notes</label><textarea rows="5" placeholder="Add context for the advisor..."></textarea></div></div><div class="header-actions"><button class="btn btn-gold" data-toast="Lead saved to registry">Save lead</button><button class="btn btn-secondary" data-toast="Ready for another lead">Save & add another</button></div></div><div class="card card-pad"><div class="section-title"><div><h3>Intake guidance</h3><p>Make every handoff useful.</p></div></div><div class="timeline-copy">Capture the client’s primary motivation, who is involved in the decision, and the next promised action. High-value inquiries should always leave the intake stage with a named advisor and a dated follow-up.</div><div class="legend" style="margin-top:22px"><span>${badge('High')} High intent</span><span>${badge('New')} Needs first contact</span></div></div></section>`;
 }
 
 function customerIdForLead(leadId) {
@@ -380,25 +325,6 @@ async function openLead(id) {
   render();
 }
 
-function renderDrawer() {
-  if (state.drawer === 'customer') return renderCustomerDrawer();
-  if (state.drawer === 'followup' || state.drawer === 'create-followup') return renderFollowupDrawer();
-  if (state.drawer === 'lead') return renderLeadDrawer();
-  return legacyRenderDrawer();
-}
-
-function navigate(screen) {
-  if (routePaths[screen]) window.history.pushState({}, '', routePaths[screen]);
-  if (!canAccess(screen)) { state.drawer = null; state.deniedPath = screen; state.screen = 'unauthorized'; }
-  else { state.drawer = null; state.screen = screen; }
-  render();
-  if (screen === 'dashboard') loadDashboard();
-  if (screen === 'leads') loadLeads(false);
-  if (screen === 'my-leads') loadLeads(true);
-  if (screen === 'customers') loadCustomers();
-  if (screen === 'follow-ups') loadFollowups();
-}
-
 function bind() {
   baseBind();
   document.querySelectorAll('[data-reload-dashboard]').forEach(el => el.addEventListener('click', () => loadDashboard({ force: true })));
@@ -419,30 +345,6 @@ function bind() {
   if (leadNoteForm) leadNoteForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(leadNoteForm).entries()); try { await apiFetch(`/api/leads/${state.leadDetail.data.id}/notes`, { method: 'POST', body: JSON.stringify(data) }); await openLead(state.leadDetail.data.id); } catch (error) { showToast(error.message); } });
   const addLeadForm = document.querySelector('#add-lead-form');
   if (addLeadForm) addLeadForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(addLeadForm).entries()); try { await apiFetch('/api/leads', { method: 'POST', body: JSON.stringify(data) }); showToast('Lead saved to registry'); navigate(state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'); } catch (error) { showToast(error.message); } });
-}
-
-async function boot() {
-  const requestedScreen = screenForPath[window.location.pathname] || 'dashboard';
-  try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
-  catch { state.authUser = null; state.screen = 'login'; }
-  state.ready = true; render();
-  if (state.authUser && state.screen === 'dashboard') loadDashboard();
-  if (state.authUser && state.screen === 'leads') loadLeads(false);
-  if (state.authUser && state.screen === 'my-leads') loadLeads(true);
-  if (state.authUser && state.screen === 'customers') loadCustomers();
-  if (state.authUser && state.screen === 'follow-ups') loadFollowups();
-}
-
-function legacyBind() {
-  document.querySelectorAll('[data-screen]').forEach(el => el.addEventListener('click', () => { state.screen = el.dataset.screen; state.drawer = null; render(); }));
-  document.querySelectorAll('[data-drawer]').forEach(el => el.addEventListener('click', () => { state.drawer = el.dataset.drawer; state.drawerName = el.dataset.name || ''; render(); }));
-  document.querySelectorAll('[data-close-drawer]').forEach(el => el.addEventListener('click', () => { state.drawer = null; render(); }));
-  document.querySelectorAll('[data-toast]').forEach(el => el.addEventListener('click', () => showToast(el.dataset.toast)));
-  document.querySelectorAll('[data-channel]').forEach(el => el.addEventListener('click', () => { state.selectedChannel = el.dataset.channel; render(); }));
-  const login = document.querySelector('#login-form');
-  if (login) login.addEventListener('submit', (e) => { e.preventDefault(); state.screen = 'dashboard'; showToast('Welcome to the Aureum workspace'); });
-  const send = document.querySelector('[data-send-chat]');
-  if (send) send.addEventListener('click', () => { const input = document.querySelector('#chat-input'); if (input && input.value.trim()) { showToast('Message sent to #' + state.selectedChannel); input.value = ''; } });
 }
 
 function showToast(message) {
@@ -499,10 +401,6 @@ function renderCustomerDrawer() {
   return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Customer relationship</div><h2>${c.full_name}</h2><p class="page-subtitle">${badge(c.status)} · ${c.agent} · ${c.source}</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="header-actions"><button class="btn btn-gold btn-sm" data-customer-toast="Call opened">${icons.phone} Call</button><button class="btn btn-secondary btn-sm" data-customer-toast="WhatsApp opened">${icons.whatsapp} WhatsApp</button><button class="btn btn-secondary btn-sm" data-customer-tab="notes">+ Add note</button></div></div><div class="tabs" style="padding:0"><button class="tab ${state.customerTab === 'overview' ? 'active' : ''}" data-customer-tab="overview">Overview</button><button class="tab ${state.customerTab === 'timeline' ? 'active' : ''}" data-customer-tab="timeline">Timeline</button><button class="tab ${state.customerTab === 'notes' ? 'active' : ''}" data-customer-tab="notes">Notes</button><button class="tab ${state.customerTab === 'follow-ups' ? 'active' : ''}" data-customer-tab="follow-ups">Follow-ups</button></div><div class="drawer-section">${body}</div></aside>`;
 }
 
-function renderDrawer() {
-  return state.drawer === 'customer' ? renderCustomerDrawer() : legacyRenderDrawer();
-}
-
 function renderAccessDenied() {
   return `<div class="access-denied"><div class="access-mark">${icons.lock}</div><div class="eyebrow">Protected route</div><h1>Access Denied</h1><p>You do not have permission to view this page.</p><div class="access-path">Requested screen: <strong>${screenLabel(state.deniedPath)}</strong></div><button class="btn btn-primary" data-screen="dashboard">Return to dashboard</button></div>`;
 }
@@ -533,36 +431,6 @@ function render() {
 async function logout() {
   await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
   state.authUser = null; state.userMenu = false; state.screen = 'login'; state.ready = true; render();
-}
-
-function baseBind() {
-  document.querySelectorAll('[data-screen]').forEach(el => el.addEventListener('click', () => navigate(el.dataset.screen)));
-  document.querySelectorAll('[data-drawer]').forEach(el => el.addEventListener('click', () => { state.drawer = el.dataset.drawer; state.drawerName = el.dataset.name || ''; render(); }));
-  document.querySelectorAll('[data-close-drawer]').forEach(el => el.addEventListener('click', () => { state.drawer = null; render(); }));
-  document.querySelectorAll('[data-toast]').forEach(el => el.addEventListener('click', () => showToast(el.dataset.toast)));
-  document.querySelectorAll('[data-channel]').forEach(el => el.addEventListener('click', () => { state.selectedChannel = el.dataset.channel; render(); }));
-  document.querySelectorAll('[data-user-menu]').forEach(el => el.addEventListener('click', () => { state.userMenu = !state.userMenu; render(); }));
-  document.querySelectorAll('[data-logout]').forEach(el => el.addEventListener('click', logout));
-  const login = document.querySelector('#login-form');
-  if (login) login.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fields = login.querySelectorAll('input');
-    state.loginError = '';
-    try {
-      const result = await apiFetch('/api/auth/login', { method: 'POST', body: JSON.stringify({ identifier: fields[0].value, password: fields[1].value }) });
-      state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = 'dashboard'; state.ready = true; window.aureumEnsurePresenceHeartbeat?.(); render(); showToast('Welcome to the Aureum workspace');
-    } catch (error) { state.loginError = error.message; render(); }
-  });
-  const send = document.querySelector('[data-send-chat]');
-  if (send) send.addEventListener('click', () => { const input = document.querySelector('#chat-input'); if (input && input.value.trim()) { showToast('Message sent to #' + state.selectedChannel); input.value = ''; } });
-}
-
-async function boot() {
-  const requestedScreen = screenForPath[window.location.pathname] || 'dashboard';
-  try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
-  catch { state.authUser = null; state.screen = 'login'; }
-  state.ready = true;
-  render();
 }
 
 window.addEventListener('popstate', () => {

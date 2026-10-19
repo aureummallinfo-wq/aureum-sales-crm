@@ -666,7 +666,6 @@ function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_ad
 function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); loginAttempts.delete(`user:${target.id}`); userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at }; }
 function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences }, security: { ...systemSettings.security }, emailAccess: { ...systemSettings.email_access } }; }
 function settingSlug(name) { return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
-function settingEntityUsed(type, value) { if (type === 'status') return leads.some(item => item.status === value); if (type === 'source') return leads.some(item => item.lead_source === value); return false; }
 function notificationView(item) { return { ...item, actor: users.find(user => user.id === item.actor_user_id)?.full_name || 'Aureum workspace' }; }
 
 const WEBHOOK_SOURCE_TYPES = ['meta_lead_ads', 'facebook_form', 'instagram_form', 'website_form', 'n8n', 'zapier_placeholder', 'make_placeholder', 'custom_webhook'];
@@ -785,7 +784,6 @@ function reportLocalDateTime(date, endOfDay = false) { return new Date(`${date}T
 function reportDateBounds(params = {}) { const range = params.dateRange || 'this_month'; const today = reportCalendarDate(); const todayDate = new Date(`${today}T00:00:00Z`); let start = today; let end = today; if (range === 'yesterday') { const previous = new Date(todayDate); previous.setUTCDate(previous.getUTCDate() - 1); start = end = previous.toISOString().slice(0, 10); } else if (range === 'this_week') { const mondayOffset = (todayDate.getUTCDay() + 6) % 7; const monday = new Date(todayDate); monday.setUTCDate(monday.getUTCDate() - mondayOffset); const sunday = new Date(monday); sunday.setUTCDate(sunday.getUTCDate() + 6); start = monday.toISOString().slice(0, 10); end = sunday.toISOString().slice(0, 10); } else if (range === 'this_month' || !['today', 'last_month', 'custom'].includes(range)) { start = `${today.slice(0, 7)}-01`; const next = new Date(`${start}T00:00:00Z`); next.setUTCMonth(next.getUTCMonth() + 1); next.setUTCDate(0); end = next.toISOString().slice(0, 10); } else if (range === 'last_month') { const first = new Date(`${today.slice(0, 7)}-01T00:00:00Z`); first.setUTCMonth(first.getUTCMonth() - 1); const last = new Date(`${today.slice(0, 7)}-01T00:00:00Z`); last.setUTCDate(0); start = first.toISOString().slice(0, 10); end = last.toISOString().slice(0, 10); } else if (range === 'custom') { start = /^\d{4}-\d{2}-\d{2}$/.test(params.startDate || '') ? params.startDate : today; end = /^\d{4}-\d{2}-\d{2}$/.test(params.endDate || '') ? params.endDate : start; if (end < start) [start, end] = [end, start]; } return { startDateTime: reportLocalDateTime(start), endDateTime: reportLocalDateTime(end, true), startDate: start, endDate: end, timezone: REPORT_TIMEZONE, dateRange: range }; }
 function reportValueDate(value, fallbackTime = '00:00') { if (!value) return null; const raw = String(value); if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return reportLocalDateTime(raw); if (/^\d{4}-\d{2}-\d{2} · \d{2}:\d{2}$/.test(raw)) return reportLocalDateTime(raw.slice(0, 10), false); if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return new Date(raw); const iso = new Date(raw); return Number.isNaN(iso.getTime()) ? null : iso; }
 function reportInRange(value, bounds) { const date = reportValueDate(value); return Boolean(date && date >= bounds.startDateTime && date <= bounds.endDateTime); }
-function reportRecordInScope(user, agentId, teamId) { return Boolean(user && (!agentId || agentId === 'all' || agentId === user.id || reportUsersFor(user).some(item => item.id === agentId)) && (!teamId || teamId === 'all' || user.role === 'super_admin' || teamId === user.team_id)); }
 function reportScopedAgents(user, params) { const teamId = user.role === 'sales_manager' ? user.team_id : (params.teamId && params.teamId !== 'all' ? params.teamId : ''); const requestedAgent = params.agentId && params.agentId !== 'all' ? params.agentId : ''; return reportUsersFor(user).filter(agent => (!teamId || agent.team_id === teamId) && (!requestedAgent || agent.id === requestedAgent)); }
 function reportAgentRow(user, agent, bounds, params = {}) {
   const leadStatus = params.leadStatus && params.leadStatus !== 'all' ? params.leadStatus : '';
@@ -1230,31 +1228,6 @@ async function handle(req, res) {
     json(res, 405, { error: 'Method not allowed.' }); return;
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/users/me') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
-    if (user) json(res, 200, { users: users.filter(item => user.role === 'super_admin' || item.team_id === user.team_id).map(publicUser) });
-    return;
-  }
-
-  if (req.method === 'POST' && url.pathname === '/api/users') {
-    const user = requireRole(req, res, ['super_admin']);
-    if (user) {
-      const body = await readBody(req); const role = body.role;
-      if (!body.full_name || !body.email || !body.password || !rolePermissions[role]) { json(res, 400, { error: 'Full name, email, password, and a valid role are required' }); return; }
-      if (users.some(item => item.email.toLowerCase() === String(body.email).toLowerCase())) { json(res, 409, { error: 'Email already exists' }); return; }
-      const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: body.full_name, email: String(body.email).toLowerCase(), phone: body.phone || '', password_hash: passwordHash(body.password), role, team_id: body.team_id || null, status: body.status || 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-      users.push(created); json(res, 201, { user: publicUser(created) });
-    }
-    return;
-  }
-
-  const userMatch = url.pathname.match(/^\/api\/users\/([^/]+)(?:\/(status))?$/);
-  if (userMatch && req.method === 'PATCH') {
-    const actor = requireRole(req, res, ['super_admin']);
-    if (actor) { const target = users.find(item => item.id === userMatch[1]); if (!target) { json(res, 404, { error: 'User not found' }); return; } const body = await readBody(req); if (userMatch[2] === 'status') target.status = body.status || target.status; else { ['full_name', 'email', 'phone', 'role', 'team_id', 'status'].forEach(field => { if (body[field] !== undefined) target[field] = body[field]; }); if (body.password) target.password_hash = passwordHash(body.password); } target.updated_at = new Date().toISOString(); json(res, 200, { user: publicUser(target) }); }
-    return;
-  }
-
   if (req.method === 'GET' && url.pathname === '/api/leads') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
@@ -1464,18 +1437,6 @@ async function handle(req, res) {
       json(res,result.created ? 201 : 200,{data:followUpView(result.item),followUp:followUpView(result.item)}); return;
     }
     json(res, 405, { error: 'Method not allowed' }); return;
-  }
-
-  if (customerMatch && req.method === 'PATCH') {
-    const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerMatch[1]);
-    if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
-    if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
-    const body = await readBody(req); if (body.email !== undefined && body.email && !validateEmail(body.email)) { json(res, 422, { error: 'Enter a valid email address.' }); return; } if (body.phone !== undefined && !validatePhone(body.phone)) { json(res, 422, { error: 'Enter a valid phone number.' }); return; }
-    const editable = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'preferred_contact_method', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline'];
-    editable.forEach(field => { if (body[field] !== undefined) customer[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
-    if (body.financing_required !== undefined) customer.financing_required = Boolean(body.financing_required);
-    if (Array.isArray(body.tags)) customer.tags = body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 10);
-    addCustomerActivity(customer.id, user.id, 'Customer updated', 'Customer profile details updated'); json(res, 200, { data: customerView(customer) }); return;
   }
 
   if (req.method === 'GET' && url.pathname === '/api/chat/users') {

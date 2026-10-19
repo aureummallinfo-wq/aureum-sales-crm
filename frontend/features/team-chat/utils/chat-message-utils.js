@@ -1,6 +1,0 @@
-window.AureumChatMessageUtils = Object.freeze({
-  formatTime: value => window.AureumPreferences?.formatTime ? window.AureumPreferences.formatTime(value) : new Date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-  formatDate: value => window.AureumPreferences?.formatDate ? window.AureumPreferences.formatDate(value) : new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }),
-  isSameDay: (first, second) => new Date(first).toDateString() === new Date(second).toDateString(),
-  normalizeMessage: message => ({ ...message, body: message.body ?? message.message_text ?? '', createdAt: message.createdAt ?? message.created_at })
-});

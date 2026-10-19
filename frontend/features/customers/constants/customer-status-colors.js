@@ -1,1 +1,0 @@
-window.AureumCustomerStatusColors = { Active: 'completed', Hot: 'hot', Cold: 'neutral', 'Follow-up': 'follow', Interested: 'booking', 'Not Interested': 'neutral', 'Closed Won': 'completed', Warm: 'follow', 'Booking Interested': 'booking', 'Closed Lost': 'overdue' };
