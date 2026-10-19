@@ -881,13 +881,24 @@ function currentUser(req) {
   return users.find(user => user.id === session.userId && (!user.password_reset_at || session.expiresAt - SESSION_TTL >= user.password_reset_at)) || null;
 }
 
-function isAllowedFrontendOrigin(origin) {
-  return !origin || ALLOWED_FRONTEND_ORIGINS.has(String(origin));
+function isAllowedFrontendOrigin(origin, req) {
+  if (!origin) return true;
+  const value = String(origin);
+  if (ALLOWED_FRONTEND_ORIGINS.has(value)) return true;
+  // Each Vercel preview gets its own hostname. Same-origin requests from the
+  // current deployment are safe even when that hostname is not known ahead of time.
+  try {
+    const forwardedProto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim();
+    const protocol = forwardedProto || (req?.socket?.encrypted ? 'https' : 'http');
+    return new URL(value).origin === `${protocol}://${req?.headers?.host || ''}`;
+  } catch {
+    return false;
+  }
 }
 
 function corsHeaders(req) {
   const origin = String(req?.headers?.origin || '');
-  if (!origin || !isAllowedFrontendOrigin(origin)) return {};
+  if (!origin || !isAllowedFrontendOrigin(origin, req)) return {};
   return { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Expose-Headers': 'Retry-After, X-Request-Id', Vary: 'Origin' };
 }
 
@@ -973,7 +984,7 @@ async function handle(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   res.__aureumRequest = req;
   if (req.method === 'OPTIONS' && url.pathname.startsWith('/api/')) {
-    if (!isAllowedFrontendOrigin(req.headers.origin)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+    if (!isAllowedFrontendOrigin(req.headers.origin, req)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
     res.writeHead(204, { ...corsHeaders(req), 'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, X-Aureum-Webhook-Secret, X-Aureum-Portal-Scope', 'Access-Control-Max-Age': '600' });
     res.end();
     return;
@@ -993,7 +1004,7 @@ async function handle(req, res) {
   }
   const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
   if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
-    if (!isAllowedFrontendOrigin(req.headers.origin)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
+    if (!isAllowedFrontendOrigin(req.headers.origin, req)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
   }
 
   if (isPublicWebhook) {
