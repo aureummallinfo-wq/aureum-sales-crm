@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const policy = require('../../../../frontend/shared/crm-status-tags');
 const { notePlan } = require('../../../../backend/followup-workflow');
 const root = path.resolve(__dirname, '../../../..');
-const expected = ['New', 'Contacted', 'Hot', 'Cold', 'Follow-up', 'Visit Scheduled', 'Visit Completed', 'Negotiation', 'Closed Won', 'No Response', 'Not Interested', 'Invalid'];
+const expected = ['New', 'Contacted', 'Qualified', 'Hot', 'Warm', 'Cold', 'Follow-up', 'Visit Scheduled', 'Visit Completed', 'Meeting Scheduled', 'Negotiation', 'Booking', 'Closed Won', 'Closed Lost', 'No Response', 'Not Interested', 'Invalid'];
 
 test('lead, customer, report and follow-up forms expose exactly the approved status tags', () => {
   const window = {};
@@ -25,11 +25,11 @@ test('lead, customer, report and follow-up forms expose exactly the approved sta
 
 test('workflow validates status tags and replaces a previous status without erasing historical labels', () => {
   for (const tag of expected) assert.equal(notePlan({ followup_tag: tag, next_followup_days: 'none' }).tag, tag);
-  for (const tag of ['VIP', 'Qualified', 'Warm', 'Meeting Scheduled', 'Booking', 'Closed Lost', '<invalid>']) assert.throws(() => notePlan({ followup_tag: tag }), /valid CRM status tag/);
+  for (const tag of ['VIP', 'Active', 'Interested', 'Follow-up Needed', '<invalid>']) assert.throws(() => notePlan({ followup_tag: tag }), /valid CRM status tag/);
   assert.deepEqual(policy.withStatus(['Imported Lead', 'Hot', 'VIP'], 'Negotiation'), ['Imported Lead', 'VIP', 'Negotiation']);
   assert.deepEqual(policy.withStatus(['Imported Lead', 'New'], ['Hot', 'Follow-up', 'Visit Scheduled']), ['Imported Lead', 'Hot', 'Follow-up', 'Visit Scheduled']);
   assert.deepEqual(notePlan({ followup_tag: ['Hot', 'Follow-up'], next_followup_days: 'none' }).tags, ['Hot', 'Follow-up']);
-  assert.equal(policy.normalize('Closed Lost'), 'Not Interested');
-  assert.equal(policy.normalize('Booking'), 'Negotiation');
+  assert.equal(policy.normalize('Closed Lost'), 'Closed Lost');
+  assert.equal(policy.normalize('Booking'), 'Booking');
   assert.equal(policy.normalize('Active'), 'New');
 });

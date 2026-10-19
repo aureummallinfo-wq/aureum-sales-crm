@@ -17,7 +17,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '007_login_lockout.sql'),
   path.join(root, 'db', 'migrations', '008_customer_statuses.sql'),
   path.join(root, 'db', 'migrations', '009_shared_crm_status_tags.sql'),
-  path.join(root, 'db', 'migrations', '010_request_rate_limits.sql')
+  path.join(root, 'db', 'migrations', '010_request_rate_limits.sql'),
+  path.join(root, 'db', 'migrations', '011_expand_crm_status_tags.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 

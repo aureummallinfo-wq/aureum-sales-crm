@@ -25,7 +25,7 @@ function valueArray(value) {
 
 function normalizeTags(value) {
   const source = Array.isArray(value) ? value : String(value || '').split(/[|;,]/);
-  return [...new Set(source.map(item => String(item || '').trim()).filter(Boolean))].slice(0, 12);
+  return [...new Set(source.map(item => String(item || '').trim()).filter(Boolean))].slice(0, 20);
 }
 
 function localDateParts(value) {

@@ -37,7 +37,7 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
   const invalid = await request(`/api/customers/${customer.id}/notes`, 'POST', { note: 'Do not save.', next_followup_days: 'none', followup_tag: 'VIP' });
   assert.equal(invalid.response.status, 422);
   assert.equal((await request(`/api/leads/${lead.id}`)).body.data.status, 'Not Interested');
-  assert.equal((await request(`/api/leads/${lead.id}/status`, 'PATCH', { status: 'Closed Lost' })).response.status, 422);
+  assert.equal((await request(`/api/leads/${lead.id}/status`, 'PATCH', { status: 'Closed Lost' })).response.status, 200);
   const updated = await request(`/api/customers/${customer.id}`, 'PATCH', { tags: policy.values });
   assert.equal(updated.response.status, 200);
   assert.deepEqual((await request(`/api/leads/${lead.id}`)).body.data.tags, policy.values);
@@ -59,6 +59,7 @@ test('status migration preserves original labels and retires old definitions wit
   await db.query("INSERT INTO crm.customers(workspace_id,lead_id,full_name,customer_status) VALUES($1,$2,'Original record','Active')", [workspace.id, lead.id]);
   await db.exec(migration('009_shared_crm_status_tags.sql'));
   await db.exec(migration('009_shared_crm_status_tags.sql'));
+  await db.exec(migration('011_expand_crm_status_tags.sql'));
   const leads = (await db.query('SELECT l.metadata,s.name FROM crm.leads l JOIN crm.lead_statuses s ON s.id=l.status_id')).rows;
   assert.equal(leads.length, 1);
   assert.equal(leads[0].name, 'Not Interested');
@@ -71,5 +72,5 @@ test('status migration preserves original labels and retires old definitions wit
     const rows = (await db.query(`SELECT name FROM crm.${table} WHERE is_active=true ORDER BY array_position($1::text[],name)`, [policy.values])).rows;
     assert.deepEqual(rows.map(item => item.name), policy.values);
   }
-  assert.equal((await db.query('SELECT is_active FROM crm.lead_statuses WHERE id=$1', [old.id])).rows[0].is_active, false);
+  assert.equal((await db.query('SELECT is_active FROM crm.lead_statuses WHERE id=$1', [old.id])).rows[0].is_active, true);
 });

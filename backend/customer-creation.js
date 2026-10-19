@@ -13,7 +13,7 @@ function customerCreationPlan(input = {}, lead, now = new Date()) {
   if (!validatePhone(profile.phone) || !validatePhone(profile.whatsapp_number) || (profile.email && !validateEmail(profile.email))) throw new Error('Enter a valid phone number, WhatsApp number and email address.');
   if (input.tags !== undefined && !Array.isArray(input.tags)) throw new Error('Choose valid customer tags.');
   const inheritedTags = Array.isArray(lead.tags) ? lead.tags : [];
-  profile.tags = [...new Set((input.tags ?? inheritedTags).map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 12);
+  profile.tags = [...new Set((input.tags ?? inheritedTags).map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 20);
   const enabled = input.schedule_followup === true || input.schedule_followup === 'true' || input.schedule_followup === 'on';
   if (!enabled) return { profile, note: '', schedule: null, tag: '' };
   const note = safeText(input.note, 2000);
