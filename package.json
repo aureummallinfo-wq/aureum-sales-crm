@@ -23,6 +23,7 @@
     "@neon/config": "^1.8.6",
     "@neon/env": "^1.5.3",
     "@neondatabase/serverless": "^1.2.0",
+    "pg": "^8.16.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

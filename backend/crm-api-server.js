@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
 const { neon, neonConfig } = require('@neondatabase/serverless');
+const { createPostgresSql } = require('./db/sql-client');
 const { databaseContext, positiveInteger, createDatabaseFetch, isDatabaseUnavailable, clientAddress, hashKey, createMemoryRateStore, createNeonRateStore, ratePolicy } = require('./request-protection');
 const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeText } = require('./security-utils');
 const { syncCrmSnapshot } = require('./db/neon-state-sync');
@@ -21,10 +22,20 @@ const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
 const API_DEADLINE_MS = positiveInteger(process.env.AUREUM_API_DEADLINE_MS, 18000, 55000);
 const DATABASE_TIMEOUT_MS = Math.min(API_DEADLINE_MS, positiveInteger(process.env.AUREUM_DATABASE_TIMEOUT_MS, 10000, 30000));
-const NEON_DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-if (NEON_DATABASE_URL && neonConfig) neonConfig.fetchFunction = createDatabaseFetch(neonConfig.fetchFunction || globalThis.fetch, DATABASE_TIMEOUT_MS);
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const DATABASE_DRIVER = String(process.env.AUREUM_DATABASE_DRIVER || 'neon').trim().toLowerCase();
+const USING_NEON = DATABASE_DRIVER !== 'postgres';
+if (USING_NEON && DATABASE_URL && neonConfig) neonConfig.fetchFunction = createDatabaseFetch(neonConfig.fetchFunction || globalThis.fetch, DATABASE_TIMEOUT_MS);
 let neonConnectionError;
-const NEON_SQL = (() => { try { return NEON_DATABASE_URL ? neon(NEON_DATABASE_URL) : null; } catch (error) { neonConnectionError = error; return null; } })();
+const NEON_SQL = (() => {
+  try {
+    if (!DATABASE_URL) return null;
+    return USING_NEON ? neon(DATABASE_URL) : createPostgresSql(DATABASE_URL);
+  } catch (error) {
+    neonConnectionError = error;
+    return null;
+  }
+})();
 const NEON_REPOSITORY = NEON_SQL ? createNeonRepository(NEON_SQL) : null;
 const LOCAL_REQUEST_BUDGETS = createMemoryRateStore();
 const REQUEST_BUDGETS = NEON_SQL ? createNeonRateStore(NEON_SQL, { onCleanupError: error => console.error('CRM rate-limit cleanup failed:', error.code || error.name) }) : createMemoryRateStore();
