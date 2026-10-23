@@ -1,4 +1,4 @@
-const { neon } = require('@neondatabase/serverless');
+const { createDatabaseSql, resolveDatabaseDriver } = require('../backend/db/sql-client');
 
 const connectionString = String(process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || '').trim();
 const n8nUrl = String(process.env.N8N_WEBHOOK_URL || '').trim();
@@ -11,7 +11,7 @@ if (!n8nUrl) {
   process.exit(0);
 }
 
-const sql = neon(connectionString);
+const sql = createDatabaseSql(connectionString, { driver: resolveDatabaseDriver() });
 
 async function claimBatch() {
   return sql.query(`WITH candidates AS (

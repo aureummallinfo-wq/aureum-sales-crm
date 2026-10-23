@@ -70,7 +70,7 @@ function createNeonRateStore(sql, { now = Date.now, onCleanupError = () => {} } 
   let nextCleanup = 0;
   return {
     async consume(key, limit, windowSeconds = 60) {
-      // One atomic counter per identity/policy, shared by all Vercel instances.
+      // One atomic counter per identity/policy, shared by all API instances.
       // The database clock prevents host clock differences from resetting it.
       const rows = await sql.query(`INSERT INTO crm.request_rate_limits AS budget (key_hash, request_count, window_ends)
         VALUES ($1, 1, now() + $2 * interval '1 second')

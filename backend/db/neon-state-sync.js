@@ -40,14 +40,13 @@ async function syncCrmSnapshot(sql, snapshot, options = {}) {
   const workspaceLegacyId = options.workspaceLegacyId || 'workspace_default';
   const result = { workspace: workspaceLegacyId, users: 0, teams: 0, leads: 0, customers: 0, followUps: 0, chat: 0, notifications: 0, webhooks: 0 };
 
-  // Neon HTTP transactions require a synchronous callback that returns a
-  // fixed query array. This reconciliation intentionally performs ordered
-  // idempotent upserts instead, so it remains compatible with the serverless
-  // driver while the route modules move to repository transactions.
+  // The reconciliation intentionally performs ordered idempotent upserts so
+  // it works with both the direct PostgreSQL and serverless SQL adapters while
+  // the route modules move to repository transactions.
   const tx = sql;
     const workspaceRows = await query(tx, 'SELECT id FROM crm.workspaces WHERE legacy_id = $1 AND is_active = true LIMIT 1', [workspaceLegacyId]);
     const workspaceId = workspaceRows[0]?.id;
-    if (!workspaceId) throw new Error(`CRM workspace ${workspaceLegacyId} is missing; run the Neon migration first.`);
+    if (!workspaceId) throw new Error(`CRM workspace ${workspaceLegacyId} is missing; run the database migration first.`);
 
     const teamIds = new Map();
     for (const team of Array.isArray(snapshot.teams) ? snapshot.teams : []) {

@@ -58,7 +58,7 @@ function userPresenceStatus(user, now = Date.now()) {
 }
 
 function createNeonRepository(sql) {
-  if (!sql) throw new Error('A Neon SQL client is required.');
+  if (!sql) throw new Error('A database SQL client is required.');
   const pipeline = createFollowUpPipeline(sql, resolveUserId, resolveTeamId);
 
   async function workspaceId(legacyId = 'workspace_default') {

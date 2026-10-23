@@ -1,11 +1,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { neon } = require('@neondatabase/serverless');
+const { createDatabaseSql, resolveDatabaseDriver } = require('../backend/db/sql-client');
 
 const connectionString = String(process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || '').trim();
 if (!connectionString) throw new Error('DATABASE_URL_UNPOOLED or DATABASE_URL is required.');
 
-const sql = neon(connectionString);
+const sql = createDatabaseSql(connectionString, { driver: resolveDatabaseDriver() });
 const root = path.resolve(__dirname, '..');
 const schemaPaths = [
   path.join(root, 'db', 'migrations', '001_aureum_crm_schema.sql'),

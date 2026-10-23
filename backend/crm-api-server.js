@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { URL } = require('node:url');
-const { neon, neonConfig } = require('@neondatabase/serverless');
 const { createPostgresSql } = require('./db/sql-client');
 const { databaseContext, positiveInteger, createDatabaseFetch, isDatabaseUnavailable, clientAddress, hashKey, createMemoryRateStore, createNeonRateStore, ratePolicy } = require('./request-protection');
 const { canViewOwnedRecord, validateEmail, validatePhone, validateIsoDate, safeText } = require('./security-utils');
@@ -23,16 +22,36 @@ const ROOT = path.resolve(__dirname, '..');
 const API_DEADLINE_MS = positiveInteger(process.env.AUREUM_API_DEADLINE_MS, 18000, 55000);
 const DATABASE_TIMEOUT_MS = Math.min(API_DEADLINE_MS, positiveInteger(process.env.AUREUM_DATABASE_TIMEOUT_MS, 10000, 30000));
 const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
-const DATABASE_DRIVER = String(process.env.AUREUM_DATABASE_DRIVER || 'neon').trim().toLowerCase();
-const USING_NEON = DATABASE_DRIVER !== 'postgres';
-if (USING_NEON && DATABASE_URL && neonConfig) neonConfig.fetchFunction = createDatabaseFetch(neonConfig.fetchFunction || globalThis.fetch, DATABASE_TIMEOUT_MS);
-let neonConnectionError;
+const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const IS_VERCEL_PREVIEW = String(process.env.VERCEL_ENV || '').trim().toLowerCase() === 'preview';
+const IS_PRODUCTION_RUNTIME = NODE_ENV === 'production' && !IS_VERCEL_PREVIEW;
+const DATABASE_DRIVER = String(process.env.AUREUM_DATABASE_DRIVER || (NODE_ENV === 'production' ? 'postgres' : 'neon')).trim().toLowerCase();
+const USING_NEON = DATABASE_DRIVER === 'neon';
+let neon;
+let neonConfig;
+let databaseConnectionError;
+if (!['postgres', 'neon'].includes(DATABASE_DRIVER)) databaseConnectionError = new Error(`Unsupported AUREUM_DATABASE_DRIVER: ${DATABASE_DRIVER || '(empty)'}. Use postgres or neon.`);
+if (IS_PRODUCTION_RUNTIME && DATABASE_DRIVER !== 'postgres') databaseConnectionError = new Error('Production requires AUREUM_DATABASE_DRIVER=postgres. Neon is development-only.');
+if ((IS_PRODUCTION_RUNTIME || IS_VERCEL_PREVIEW) && !DATABASE_URL) databaseConnectionError = new Error('A deployed runtime requires DATABASE_URL for its configured PostgreSQL service.');
+if (IS_PRODUCTION_RUNTIME && DATABASE_URL) {
+  try {
+    const databaseHost = new URL(DATABASE_URL).hostname.toLowerCase();
+    if (databaseHost === 'neon.tech' || databaseHost.endsWith('.neon.tech')) databaseConnectionError = new Error('Production DATABASE_URL must point to the VPS PostgreSQL service, not Neon.');
+  } catch {
+    // The PostgreSQL client reports malformed connection strings during readiness.
+  }
+}
+if (USING_NEON && !databaseConnectionError) {
+  ({ neon, neonConfig } = require('@neondatabase/serverless'));
+  if (DATABASE_URL && neonConfig) neonConfig.fetchFunction = createDatabaseFetch(neonConfig.fetchFunction || globalThis.fetch, DATABASE_TIMEOUT_MS);
+}
 const NEON_SQL = (() => {
   try {
+    if (databaseConnectionError) return null;
     if (!DATABASE_URL) return null;
     return USING_NEON ? neon(DATABASE_URL) : createPostgresSql(DATABASE_URL);
   } catch (error) {
-    neonConnectionError = error;
+    databaseConnectionError = error;
     return null;
   }
 })();
@@ -46,17 +65,17 @@ let NEON_WORKSPACE_ID = null;
 let RELATIONAL_API = null;
 const NEON_STATE_ID = 'default';
 const NEON_WORKSPACE_LEGACY_ID = String(process.env.AUREUM_WORKSPACE_ID || 'workspace_default').trim();
-// The local CRM runs as a single API process, so keep user-created records in a
-// small atomic JSON store. Test servers use random ports and remain in-memory;
-// production deployments can opt in explicitly with AUREUM_PERSISTENCE=1.
+// Local development can run as a single API process with a small atomic JSON
+// store. Test servers use random ports and remain in-memory; production always
+// requires the configured relational database.
 const RUNNING_LOCAL_SERVER = require.main === module;
-const PERSISTENCE_ENABLED = process.env.NODE_ENV !== 'test' && (process.env.AUREUM_PERSISTENCE === '1' || (RUNNING_LOCAL_SERVER && PORT === 4173));
+const PERSISTENCE_ENABLED = NODE_ENV !== 'test' && NODE_ENV !== 'production' && (process.env.AUREUM_PERSISTENCE === '1' || (RUNNING_LOCAL_SERVER && PORT === 4173));
 const PERSISTENCE_FILE = process.env.AUREUM_PERSISTENCE_FILE || path.join(ROOT, 'backend', '.data', 'crm-persistence.json');
 const SESSION_TTL = 8 * 60 * 60 * 1000;
 const LOGIN_MAX_FAILED_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
-const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173,https://aureum-sales-crm.vercel.app,https://aureum-sales-crm-web.vercel.app,https://aureum-sales-crm-frontend.vercel.app').split(',').map(value => value.trim()).filter(Boolean));
+const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173').split(',').map(value => value.trim()).filter(Boolean));
 const loginAttempts = new Map();
 const revokedSessions = new Map();
 const tasks = [];
@@ -633,7 +652,7 @@ function applyStoredState(saved) {
 
 function persistState() {
   if (NEON_SQL) {
-    persistNeonState().catch(error => console.error('Neon persistence write failed:', error.message));
+    persistNeonState().catch(error => console.error('Database persistence write failed:', error.message));
     return;
   }
   if (!PERSISTENCE_ENABLED) return;
@@ -1004,7 +1023,7 @@ async function handle(req, res) {
   if (url.pathname === '/api/health/live' && req.method === 'GET') { json(res, 200, { status: 'ok' }); return; }
   const localBudget = await LOCAL_REQUEST_BUDGETS.consume(hashKey(['ingress', clientAddress(req, process.env.VERCEL === '1')]), 3000);
   if (!localBudget.allowed) { json(res, 429, { error: 'Too many requests. Please wait before trying again.', code: 'RATE_LIMITED' }, { 'Retry-After': String(localBudget.retryAfter) }); return; }
-  // Pages and assets must stay available while Neon is unavailable. Only API
+  // Pages and assets must stay available while the database is unavailable. Only API
   // requests depend on database initialization, including session validation.
   try {
     await ensureDatabaseReady();
@@ -1191,7 +1210,7 @@ async function handle(req, res) {
     if (handled !== false) { req.__aureumRelationalHandled = true; return; }
   }
 
-  // Neon is the system of record. If a request reaches this point in Neon
+  // The relational database is the system of record. If a request reaches this point
   // mode, never fall through to the legacy in-memory compatibility routes.
   // A missing migration must be visible as an API error rather than returning
   // stale seed data that looks like a successful database response.
@@ -1954,7 +1973,7 @@ async function handle(req, res) {
 }
 
 async function initializeDatabase() {
-  if (neonConnectionError) throw neonConnectionError;
+  if (databaseConnectionError) throw databaseConnectionError;
   if (!NEON_SQL) {
     hydratePersistentState();
     return;
@@ -1964,15 +1983,15 @@ async function initializeDatabase() {
     ADD COLUMN IF NOT EXISTS failed_login_attempts integer NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS locked_until timestamptz`);
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId(NEON_WORKSPACE_LEGACY_ID);
-  if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing from Neon; run pnpm run db:migrate first.');
+  if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing; run the database migration before starting the API.');
   RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword, temporaryPasswordExpiry, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE });
-  // The normalized crm schema is authoritative whenever Neon is configured.
+  // The normalized crm schema is authoritative whenever a database is configured.
   // Do not hydrate the legacy compatibility snapshot here: doing so can load
   // stale users/records and overwrite newer relational data during a cold
   // Vercel instance startup. The compatibility routes remain available only
-  // for no-Neon/test mode; Neon requests are handled by the repository or
+  // for local/test mode; database-backed requests are handled by the repository or
   // fail closed rather than reading the in-process seed.
-  console.log('Aureum CRM connected to Neon PostgreSQL');
+  console.log(`Aureum CRM connected to ${DATABASE_DRIVER === 'postgres' ? 'VPS PostgreSQL' : 'Neon PostgreSQL'}`);
 }
 
 const DATABASE_RETRY_DELAY_MS = 5000;
