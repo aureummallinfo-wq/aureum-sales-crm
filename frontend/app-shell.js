@@ -364,11 +364,80 @@ function isOverdueSidebarItem(item) {
 }
 
 const sidebarBadgeDescriptions = { leads: 'new leads today', 'my-leads': 'new leads today', 'follow-ups': 'overdue follow-ups', tasks: 'unfinished tasks', 'team-chat': 'unread messages' };
+const sidebarSeenLeadsStoragePrefix = 'aureum.crm.sidebar-seen-leads.v1:';
 let sidebarBadgeSession = '';
 let sidebarBadgeTimer = null;
 let sidebarBadgeRefreshTimer = null;
 let sidebarBadgeLoading = null;
 let sidebarBadgeRefreshPending = false;
+let sidebarSeenLeadScope = '';
+let sidebarSeenLeadIds = new Set();
+const sidebarLeadSnapshots = { leads: null, 'my-leads': null };
+
+function sidebarStorage() {
+  try { return window.localStorage || (typeof localStorage !== 'undefined' ? localStorage : null); }
+  catch (_) { return null; }
+}
+
+function sidebarSeenLeadStorageKey() { return `${sidebarSeenLeadsStoragePrefix}${portalUserScope(state.authUser)}`; }
+
+function loadSidebarSeenLeads() {
+  const scope = sidebarSeenLeadStorageKey();
+  if (sidebarSeenLeadScope === scope) return;
+  sidebarSeenLeadScope = scope;
+  sidebarSeenLeadIds = new Set();
+  try {
+    const stored = sidebarStorage()?.getItem(sidebarSeenLeadStorageKey());
+    const parsed = stored ? JSON.parse(stored) : [];
+    const ids = Array.isArray(parsed) ? parsed : parsed?.ids;
+    if (Array.isArray(ids)) sidebarSeenLeadIds = new Set(ids.map(item => String(item || '')).filter(Boolean).slice(-500));
+  } catch (_) { /* local storage can be unavailable or contain an old value */ }
+}
+
+function persistSidebarSeenLeads() {
+  try { sidebarStorage()?.setItem(sidebarSeenLeadStorageKey(), JSON.stringify([...sidebarSeenLeadIds].slice(-500))); }
+  catch (_) { /* read state still works for this tab when storage is blocked */ }
+}
+
+function sidebarLeadKey(item) {
+  if (item && typeof item === 'object') {
+    const id = item.id || item.legacy_id || item.lead_id;
+    if (id) return String(id);
+    const fingerprint = [item.created_at || item.createdAt, item.full_name || item.name, item.phone].map(value => String(value || '').trim().toLowerCase()).join('|');
+    return fingerprint.replace(/^\|+$/, '') || '';
+  }
+  return String(item || '');
+}
+
+function isUnreadSidebarLead(item) {
+  const key = sidebarLeadKey(item);
+  return isLeadCreatedToday(item) && Boolean(key) && !sidebarSeenLeadIds.has(key);
+}
+
+function updateLeadSidebarCounts() {
+  for (const id of ['leads', 'my-leads']) if (Array.isArray(sidebarLeadSnapshots[id])) state.sidebarCounts[id] = sidebarLeadSnapshots[id].filter(isUnreadSidebarLead).length;
+  updateSidebarBadges();
+}
+
+function markSidebarLeadsSeen(items) {
+  loadSidebarSeenLeads();
+  let changed = false;
+  for (const item of Array.isArray(items) ? items : [items]) {
+    if (!item || !isLeadCreatedToday(item)) continue;
+    const key = sidebarLeadKey(item);
+    if (key && !sidebarSeenLeadIds.has(key)) { sidebarSeenLeadIds.add(key); changed = true; }
+  }
+  if (changed) persistSidebarSeenLeads();
+  updateLeadSidebarCounts();
+}
+
+function markSidebarLeadSeen(itemOrId) {
+  loadSidebarSeenLeads();
+  const item = itemOrId && typeof itemOrId === 'object' ? itemOrId : (state.leads?.items || []).find(lead => String(lead.id) === String(itemOrId)) || { id: itemOrId };
+  const key = sidebarLeadKey(item);
+  if (key && !sidebarSeenLeadIds.has(key)) { sidebarSeenLeadIds.add(key); persistSidebarSeenLeads(); }
+  updateLeadSidebarCounts();
+}
 
 function isOpenSidebarItem(item) {
   return !item.completed_at && !['completed', 'cancelled'].includes(String(item.lifecycle_status || item.status || '').trim().toLowerCase());
@@ -417,6 +486,10 @@ function resetSidebarBadges() {
   sidebarBadgeSession = '';
   sidebarBadgeTimer = sidebarBadgeRefreshTimer = sidebarBadgeLoading = null;
   sidebarBadgeRefreshPending = false;
+  sidebarSeenLeadScope = '';
+  sidebarSeenLeadIds = new Set();
+  sidebarLeadSnapshots.leads = null;
+  sidebarLeadSnapshots['my-leads'] = null;
 }
 
 function ensureSidebarBadges() {
@@ -425,6 +498,7 @@ function ensureSidebarBadges() {
   if (sidebarBadgeSession === session) return;
   resetSidebarBadges();
   sidebarBadgeSession = session;
+  loadSidebarSeenLeads();
   queueSidebarBadgeRefresh(false);
   sidebarBadgeTimer = window.setInterval(() => {
     if (!document.hidden) refreshSidebarCounts();
@@ -462,7 +536,13 @@ function observeSidebarResponse(path, method, body) {
   // Filtered lists must never replace the full navigation count.
   if (method === 'GET' && id) {
     if (id === 'team-chat') state.sidebarCounts[id] = Number(body.data?.total) || 0;
-    else if (Array.isArray(body.data)) state.sidebarCounts[id] = body.data.filter(item => id === 'leads' || id === 'my-leads' ? isLeadCreatedToday(item) : id === 'follow-ups' ? isOverdueSidebarItem(item) : isOpenSidebarItem(item)).length;
+    else if (Array.isArray(body.data)) {
+      if (id === 'leads' || id === 'my-leads') {
+        loadSidebarSeenLeads();
+        sidebarLeadSnapshots[id] = body.data;
+        state.sidebarCounts[id] = body.data.filter(isUnreadSidebarLead).length;
+      } else state.sidebarCounts[id] = body.data.filter(item => id === 'follow-ups' ? isOverdueSidebarItem(item) : isOpenSidebarItem(item)).length;
+    }
     updateSidebarBadges();
   }
   const marksChatRead = method === 'GET' && /\/api\/chat\/.*[?&]markRead=1(?:&|$)/.test(path);
@@ -470,7 +550,7 @@ function observeSidebarResponse(path, method, body) {
   if ((method !== 'GET' && method !== 'HEAD' && /^\/api\/(?:leads|customers|follow-ups|tasks|chat)(?:\/|\?|$)/.test(path)) || marksChatRead) queueSidebarBadgeRefresh();
 }
 
-window.AureumSidebarBadges = { observeResponse: observeSidebarResponse, reset: resetSidebarBadges };
+window.AureumSidebarBadges = { observeResponse: observeSidebarResponse, reset: resetSidebarBadges, markLeadSeen: markSidebarLeadSeen, markLeadsSeen: markSidebarLeadsSeen };
 window.addEventListener('focus', () => { if (!document.hidden) { ensureSidebarBadges(); queueSidebarBadgeRefresh(); } });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { ensureSidebarBadges(); queueSidebarBadgeRefresh(); } });
 
@@ -535,6 +615,7 @@ function renderLeadDrawer() {
 }
 
 async function openLead(id) {
+  window.AureumSidebarBadges?.markLeadSeen((state.leads?.items || []).find(item => String(item.id) === String(id)) || id);
   state.drawer = 'lead'; state.leadDetail = null; render();
   try { const [detail, activity] = await Promise.all([apiFetch(`/api/leads/${id}`), apiFetch(`/api/leads/${id}/activity`)]); state.leadDetail = { data: detail.data, activity: activity.data || [] }; }
   catch (error) { state.leadDetail = { error: error.message }; }
@@ -833,7 +914,11 @@ async function loadLeads(my = false, force = false) {
   state.leads = { loading: true, error: '', items: state.leads.items || [] }; render();
   const agentId = !my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) ? String(state.leadFilters?.agentId || '') : '';
   const endpoint = my || !agentId ? (my ? '/api/leads/my' : '/api/leads') : `/api/leads?agentId=${encodeURIComponent(agentId)}`;
-  try { const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force }); state.leads = { loading: false, error: '', items: result.data || [] }; }
+  try {
+    const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
+    state.leads = { loading: false, error: '', items: result.data || [] };
+    if (state.screen === (my ? 'my-leads' : 'leads')) window.AureumSidebarBadges?.markLeadsSeen(state.leads.items);
+  }
   catch (error) { state.leads = { loading: false, error: error.message, items: state.leads.items || [] }; }
   render();
 }

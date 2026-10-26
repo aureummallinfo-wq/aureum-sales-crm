@@ -76,6 +76,27 @@ test('sidebar counts overdue follow-ups and today\'s new leads on every screen',
   assert.equal(app.requests.some(request => request.url === '/api/leads'), false);
 });
 
+test('opening the lead list marks today\'s new leads seen until another lead arrives', async () => {
+  const app = portal('SALES_MANAGER');
+  await app.refresh();
+  assert.equal(app.state.sidebarCounts['my-leads'], 1);
+
+  app.state.screen = 'my-leads';
+  app.context.render = () => {};
+  await app.context.loadLeads(true, true);
+  assert.equal(app.state.sidebarCounts['my-leads'], 0);
+  assert.equal(app.state.sidebarCounts.leads, 0);
+
+  await app.context.apiFetch('/api/leads/my');
+  assert.equal(app.state.sidebarCounts['my-leads'], 0);
+
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+  const today = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  app.data['/api/leads/my'] = [...app.data['/api/leads/my'], { id: 'lead-new', status: 'New', created_at: `${today}T10:00:00+05:00` }];
+  await app.context.apiFetch('/api/leads/my', { force: true });
+  assert.equal(app.state.sidebarCounts['my-leads'], 1);
+});
+
 test('filtered task and lead responses cannot change the overall navigation counts', async () => {
   const app = portal('SALES_MANAGER');
   await app.refresh();
