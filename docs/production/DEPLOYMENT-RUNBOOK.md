@@ -74,6 +74,13 @@ Use `GET /api/health/live` for process liveness (no database dependency) and `GE
 5. Verify `/api/health/ready`, login, role boundaries, `/api/reports`, `/api/settings/webhooks`, and a signed public webhook request against the production URL.
 6. Run the outbox worker on a scheduler or n8n polling/trigger workflow. Treat `crm.outbox_events` as the durable source and use `idempotency_key` for retries.
 
+For databases already migrated through `012_opportunity_closure.sql`, apply
+`013_reconcile_legacy_not_interested.sql` in the same release. It is idempotent:
+legacy Not Interested opportunities are canonicalized to Closed Lost,
+their active reminders are cancelled, and the customer, completed history, notes,
+and audit records remain searchable. It does not create a new database or delete
+customer records.
+
 Vercel may continue to create previews for feature branches. Preview deployments must use an isolated database and must never share the production VPS credentials.
 
 ## Current known blockers
