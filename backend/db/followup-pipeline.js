@@ -57,7 +57,7 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
       coalesce((SELECT jsonb_agg(value) FROM jsonb_array_elements(CASE WHEN jsonb_typeof(metadata->'tags')='array' THEN metadata->'tags' ELSE '[]'::jsonb END)
         WHERE NOT ($19::jsonb ? (value #>> '{}'))),'[]'::jsonb) || $18::jsonb) END`;
     const result = await sql.query(`WITH context AS (
-        SELECT l.id AS lead_id,c.id AS customer_id,
+        SELECT l.id AS lead_id,c.id AS customer_id,l.lifecycle_version,
           coalesce(c.assigned_agent_id,l.assigned_agent_id,$4::uuid) AS agent_id,
           coalesce(c.assigned_team_id,l.assigned_team_id,$5::uuid) AS team_id
         FROM crm.leads l LEFT JOIN crm.customers c ON c.lead_id=l.id AND c.workspace_id=l.workspace_id AND c.deleted_at IS NULL
@@ -73,9 +73,9 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         SELECT $14,customer_id,$4,$7 FROM context WHERE $3::uuid IS NOT NULL RETURNING id,created_at
       ), candidate AS (
         SELECT f.* FROM crm.follow_ups f JOIN context c ON (f.lead_id=c.lead_id OR f.customer_id=c.customer_id)
-        WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND f.assigned_agent_id=c.agent_id
+        WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND NOT f.cancelled_by_closure AND f.assigned_agent_id=c.agent_id
           AND f.assigned_team_id IS NOT DISTINCT FROM c.team_id AND (f.customer_id IS NULL OR f.customer_id=c.customer_id) AND (f.lead_id IS NULL OR f.lead_id=c.lead_id) AND (f.status IN ('Pending','Overdue','Rescheduled','Missed') OR ($13::uuid IS NOT NULL AND NOT $8 AND $9::timestamptz IS NULL) OR ($8 AND $9::timestamptz IS NOT NULL AND f.status IN ('Completed','Cancelled') AND f.metadata->>'consolidated_into' IS NULL))
-          AND ($13::uuid IS NULL OR f.id=$13::uuid)
+          AND (c.lifecycle_version=0 OR f.status NOT IN ('Completed','Cancelled')) AND ($13::uuid IS NULL OR f.id=$13::uuid)
           AND ($8::boolean OR ($13::uuid IS NOT NULL AND $9::timestamptz IS NULL) OR (f.status IN ('Pending','Overdue','Rescheduled') AND f.due_at<=now() AND $9::timestamptz IS NOT NULL))
           AND ($6='super_admin' OR ($6='sales_manager' AND f.assigned_team_id=$5::uuid) OR f.assigned_agent_id=$4::uuid)
         ORDER BY CASE WHEN f.status IN ('Completed','Cancelled') THEN 1 ELSE 0 END, CASE WHEN f.status NOT IN ('Completed','Cancelled') THEN f.due_at END, f.updated_at DESC,f.id LIMIT 1 FOR UPDATE OF f
@@ -95,7 +95,7 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         WHERE f.id IN (SELECT id FROM candidate) RETURNING f.id,f.status
       ), next_followup AS (
         INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,priority,status,notes,metadata,created_by)
-        SELECT $1,coalesce('followup_customer_' || c.customer_id::text,'followup_lead_' || c.lead_id::text,$15::text),c.lead_id,c.customer_id,coalesce(old.assigned_agent_id,c.agent_id),coalesce(old.assigned_team_id,c.team_id),
+        SELECT $1,coalesce('followup_customer_' || c.customer_id::text,'followup_lead_' || c.lead_id::text,$15::text) || CASE WHEN c.lifecycle_version>0 THEN '_v' || c.lifecycle_version::text ELSE '' END,c.lead_id,c.customer_id,coalesce(old.assigned_agent_id,c.agent_id),coalesce(old.assigned_team_id,c.team_id),
           coalesce(old.follow_up_type,'General Follow-up'),$9::timestamptz,coalesce(old.priority,'Medium'),'Rescheduled',$7,
           jsonb_build_object('due_date',$10::text,'due_time',$11::text,'source','contact-note','outcome','Contacted','contacted_at',now(),'note_id',$14::text) || $12::jsonb,$4
         FROM context c LEFT JOIN candidate old ON true WHERE $8 AND $9::timestamptz IS NOT NULL AND NOT EXISTS (SELECT 1 FROM changed)

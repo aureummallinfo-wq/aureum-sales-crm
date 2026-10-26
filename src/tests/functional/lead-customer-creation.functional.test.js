@@ -118,6 +118,7 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   const db = new PGlite();
   t.after(() => db.close());
   await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/002_production_crm_schema.sql'), 'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''));
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
   const sql = { query: async (text, params) => (await db.query(text, params)).rows };
   const repository = createNeonRepository(sql);
   const [workspace] = await sql.query("INSERT INTO crm.workspaces (name,legacy_id) VALUES ('Customer test','test') RETURNING id");

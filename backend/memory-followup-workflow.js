@@ -25,12 +25,13 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
   }
 
   function schedule(user, customer, input) {
+    if (['Closed Lost','Not Interested'].includes(customer.customer_status)) throw new Error('Closed opportunity cannot have active follow-ups');
     const related = followUps.filter(item => (item.customer_id === customer.id || (!item.customer_id && item.lead_id === customer.lead_id)) && canViewFollowUp(user,item));
     let item = uniqueFollowUps(related)[0];
     const created = !item;
     const now = new Date().toISOString();
     if (!item) {
-      item = { id: `followup_customer_${customer.id}`, customer_id: customer.id, lead_id: customer.lead_id,
+      item = { id: followUps.some(f=>f.customer_id===customer.id && f.cancelled_by_closure) ? `followup_${crypto.randomUUID()}` : `followup_customer_${customer.id}`, customer_id: customer.id, lead_id: customer.lead_id,
         assigned_agent_id: customer.assigned_agent_id, assigned_agent: customer.assigned_agent, assigned_team_id: customer.assigned_team_id,
         customer_name: customer.full_name, customer_phone: customer.phone, created_by: user.id, created_at: now, status: 'Pending' };
       followUps.unshift(item);
@@ -54,10 +55,14 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
   }
 
   function saveNote(user, { leadId, customerId, followUpId, note, input = {} }) {
-    const plan = notePlan(input);
+    let plan = notePlan(input);
     const customer = customers.find(item => item.id === customerId || (leadId && item.lead_id === leadId));
     const lead = leads.find(item => item.id === (leadId || customer?.lead_id));
-    const related = followUps.filter(item => ((customer && item.customer_id === customer.id) || (lead && item.lead_id === lead.id)) && canViewFollowUp(user,item));
+    if (['Closed Lost','Not Interested'].includes(lead?.status || customer?.customer_status)) {
+      if(input.next_followup_days && input.next_followup_days!=='none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
+      plan={...plan,schedule:null};
+    }
+    const related = followUps.filter(item => !item.cancelled_by_closure && ((customer && item.customer_id === customer.id) || (lead && item.lead_id === lead.id)) && canViewFollowUp(user,item));
     const noteOnly = Boolean(followUpId && !plan.contacted && !plan.schedule);
     const candidates = related.filter(item => (!followUpId || item.id === followUpId) && (noteOnly || !['Completed','Cancelled'].includes(item.status) || (plan.contacted && plan.schedule && !item.consolidated_into)) && (noteOnly || plan.contacted || (plan.schedule && dates.isFollowUpOverdue(item))));
     candidates.sort((a,b) => { const closed=item=>['Completed','Cancelled'].includes(item.status); if(closed(a)!==closed(b))return closed(a)?1:-1; return closed(a) ? String(b.updated_at||'').localeCompare(a.updated_at||'') : dates.toInstant(a.due_date,a.due_time)-dates.toInstant(b.due_date,b.due_time); });

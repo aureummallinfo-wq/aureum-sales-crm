@@ -1,6 +1,7 @@
 (function () {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
-  function fields({ contacted = false, callNote = false } = {}) {
+  function fields({ contacted = false, callNote = false, closed = false } = {}) {
+    if(closed) return noteFields() + '<input type="hidden" name="next_followup_days" value="none" /><input type="hidden" name="customer_contacted" value="false" /><p class="form-hint">This opportunity is Closed Lost. Notes and history remain available. Choose an active status to reactivate it before scheduling a new follow-up.</p>';
     return `<div class="form-field"><label>${callNote ? 'Call note / customer response' : 'Note'}<textarea name="note" rows="4" maxlength="2000" required placeholder="What did the customer say? What happens next?"></textarea></label></div>
       ${contacted ? '<input type="hidden" name="customer_contacted" value="true" />' : '<div class="form-field"><label>Activity type<select name="customer_contacted"><option value="false">Internal note</option><option value="true">Customer contacted</option></select></label></div>'}
       <div class="form-grid"><div class="form-field"><label>Next contact<select name="next_followup_days" data-next-contact><option value="1">Tomorrow</option><option value="2" selected>In 2 days</option><option value="3">In 3 days</option><option value="5">In 5 days</option><option value="7">In 7 days</option><option value="10">In 10 days</option><option value="custom">Choose a date</option><option value="none">No next follow-up</option></select></label></div>

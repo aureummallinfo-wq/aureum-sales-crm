@@ -31,6 +31,7 @@ screenForPath['/access-denied'] = 'unauthorized';
 const API_REQUEST_TIMEOUT_MS = 20000;
 const API_CACHE = new Map();
 const API_INFLIGHT = new Map();
+let apiDataRevision = 0;
 let portalSessionRevision = 0;
 function portalUserScope(user) {
   return JSON.stringify([user?.workspace_id || user?.workspaceId || '', user?.id || user?.db_id || '', user?.role || '', user?.team_id || '']);
@@ -42,6 +43,7 @@ function apiCacheKey(path, requestOptions = {}) {
   return `${portalSessionKey()}:${method}:${apiUrl(path)}`;
 }
 function apiInvalidateCache(pathPrefix = '') {
+  apiDataRevision += 1;
   const prefix = String(pathPrefix || '');
   for (const key of API_CACHE.keys()) {
     if (!prefix || key.includes(apiUrl(prefix))) API_CACHE.delete(key);
@@ -50,6 +52,7 @@ function apiInvalidateCache(pathPrefix = '') {
 window.apiInvalidateCache = apiInvalidateCache;
 async function apiFetch(path, options = {}) {
   const sessionKey = portalSessionKey();
+  const dataRevision = apiDataRevision;
   const { cacheTtl = 0, force = false, ...requestOptions } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
   const cacheable = method === 'GET' && Number(cacheTtl) > 0;
@@ -110,10 +113,22 @@ async function apiFetch(path, options = {}) {
       error.requestId = response.headers?.get('x-request-id') || body.requestId || '';
       throw error;
     }
+    // A GET started before a successful mutation must never repaint old data.
+    if (method === 'GET' && dataRevision !== apiDataRevision) return apiFetch(path,{...options,force:true});
     if (cacheable) API_CACHE.set(key, { expiresAt: Date.now() + Number(cacheTtl), body });
     if (method !== 'GET' && method !== 'HEAD') {
       apiInvalidateCache();
       window.invalidateDashboardCache?.();
+      const record=body.data;
+      if (record && ['Closed Lost','Not Interested'].includes(record.customer_status || record.status)) {
+        const customerPath=/\/customers\//.test(path);
+        const leadId=customerPath ? record.lead_id : record.id;
+        const customerId=customerPath ? record.id : record.customer_id;
+        if(state.followups?.items) state.followups.items=state.followups.items.filter(f=>f.lead_id!==leadId && (!customerId || f.customer_id!==customerId));
+        for(const item of state.leads?.items || []) if(item.id===leadId) Object.assign(item,{status:'Closed Lost',next_follow_up_at:null});
+        for(const item of state.customers?.items || []) if(item.id===customerId || item.lead_id===leadId) Object.assign(item,{customer_status:'Closed Lost',status:'Closed Lost',next_follow_up_at:null});
+        window.dispatchEvent(new CustomEvent('aureum:opportunity-closed',{detail:{leadId,customerId}}));
+      }
     }
     window.AureumSidebarBadges?.observeResponse(path, method, body);
     return body;

@@ -40,6 +40,7 @@ test('database concurrent schedules, contact notes, and customer conversion reus
   const db = new PGlite();
   t.after(() => db.close());
   await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/002_production_crm_schema.sql'),'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;',''));
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
   await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/003_workspace_settings.sql'),'utf8'));
   let barrierEnabled = false;
   let arrivals = 0;

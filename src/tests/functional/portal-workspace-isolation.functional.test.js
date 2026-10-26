@@ -36,6 +36,7 @@ test('workspace sessions and follow-ups remain separate with matching legacy ide
   t.after(() => db.close());
   const schema = fs.readFileSync(path.join(__dirname, '../../../db/migrations/002_production_crm_schema.sql'), 'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', '');
   await db.exec(schema);
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
   await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/003_workspace_settings.sql'), 'utf8'));
   const sql = { query: async (text, params) => (await db.query(text, params)).rows };
   const repository = createNeonRepository(sql);

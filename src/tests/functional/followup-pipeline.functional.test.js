@@ -11,6 +11,7 @@ test('contact pipeline persists one reminder, note history, and latest activity 
   t.after(() => db.close());
   const schema = fs.readFileSync(path.join(__dirname,'../../../db/migrations/002_production_crm_schema.sql'),'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;','');
   await db.exec(schema);
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
   const sql = { query: async (text,params) => (await db.query(text,params)).rows };
   const repository = createNeonRepository(sql);
   const [workspace] = await sql.query("INSERT INTO crm.workspaces (name,legacy_id) VALUES ('Pipeline test','test') RETURNING id");

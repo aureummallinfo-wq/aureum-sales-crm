@@ -40,7 +40,7 @@ function uniqueFollowUps(items) {
   const scopeKey = (item, id) => `${item.workspace_id || ''}:${id}`;
   const leadCustomers = new Map(items.filter(item=>item.lead_id && item.customer_id).map(item=>[scopeKey(item,item.lead_id),item.customer_id]));
   for (const item of items) {
-    if (item.consolidated_into || item.metadata?.consolidated_into) continue;
+    if (item.cancelled_by_closure || item.metadata?.cancelled_by_closure || item.consolidated_into || item.metadata?.consolidated_into) continue;
     const customerId=item.customer_id || leadCustomers.get(scopeKey(item,item.lead_id));
     const key = scopeKey(item, customerId ? `customer:${customerId}` : item.lead_id ? `lead:${item.lead_id}` : `followup:${item.id}`);
     const current = groups.get(key);

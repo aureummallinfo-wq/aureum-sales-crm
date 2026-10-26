@@ -33,6 +33,7 @@ function createPostgresSql(connectionString) {
   });
   const sql = (strings, ...values) => taggedQuery(pool, strings, values);
   sql.query = (text, values = []) => pool.query(text, values).then(result => result.rows);
+  sql.pool = pool;
   sql.end = () => pool.end();
   return sql;
 }
