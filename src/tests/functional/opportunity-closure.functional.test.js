@@ -12,6 +12,7 @@ test('opportunity closure is atomic, scoped, idempotent and preserves history', 
   for (const file of ['002_production_crm_schema.sql','003_workspace_settings.sql','012_opportunity_closure.sql']) {
     await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations',file),'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;',''));
   }
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/014_edit_saved_notes.sql'),'utf8'));
   const sql = {query: async (text,params) => (await db.query(text,params)).rows};
   const repo = createNeonRepository(sql);
   const [w] = await sql.query("INSERT INTO crm.workspaces(name,legacy_id) VALUES('Isolated closure test','closure') RETURNING id");

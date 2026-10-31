@@ -62,6 +62,9 @@ test('managers and admins can issue an agent temporary password once, with enfor
 
   const created = await post('/api/users', admin, { fullName: 'Other Team Agent', email: 'other-team@example.test', phone: '03001234567', role: 'sales_agent', teamId: 'team_b', status: 'Active', temporaryPassword: 'OtherTeam123!', sendAccessEmail: false });
   assert.equal(created.response.status, 201);
+  const generatedEmail = await post('/api/users', admin, { fullName: 'Asma Mehar', phone: '03001234568', role: 'sales_agent', teamId: 'team_a', status: 'Active', temporaryPassword: 'AsmaGenerated123!', sendAccessEmail: false });
+  assert.equal(generatedEmail.response.status, 201);
+  assert.equal(generatedEmail.body.user.email, 'asma@aureum.com');
   const otherUrl = `/api/users/${created.body.user.id}/reset-password`;
   assert.equal((await post(otherUrl, manager)).response.status, 403);
   assert.equal((await post(otherUrl, admin)).response.status, 200);

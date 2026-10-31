@@ -46,6 +46,7 @@ test('database concurrent schedules, contact notes, and customer conversion reus
   let arrivals = 0;
   let release;
   const barrier = new Promise(resolve => { release = resolve; });
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/014_edit_saved_notes.sql'),'utf8'));
   const sql = { query: async (text,params) => {
     const rows = (await db.query(text,params)).rows;
     if (barrierEnabled && text.startsWith('SELECT id,legacy_id FROM crm.follow_ups')) {

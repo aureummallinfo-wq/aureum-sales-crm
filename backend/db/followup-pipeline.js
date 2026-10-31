@@ -131,10 +131,10 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         UNION ALL SELECT id,$4,$16,$7,$12::jsonb FROM next_followup
       ), lead_activity AS (
         INSERT INTO crm.lead_activities (lead_id,actor_user_id,activity_type,description,metadata)
-        SELECT lead_id,$4,$16,$7,$12::jsonb FROM context
+        SELECT lead_id,$4,$16,$7,$12::jsonb || jsonb_build_object('note_id',$14::text) FROM context
       ), customer_activity AS (
         INSERT INTO crm.customer_activities (customer_id,actor_user_id,activity_type,description,metadata)
-        SELECT customer_id,$4,$16,$7,$12::jsonb FROM context WHERE customer_id IS NOT NULL
+        SELECT customer_id,$4,$16,$7,$12::jsonb || jsonb_build_object('note_id',$14::text) FROM context WHERE customer_id IS NOT NULL
       ), touch_lead AS (
         UPDATE crm.leads SET metadata=metadata || $12::jsonb || ${tagMetadata},
           last_contacted_at=CASE WHEN $8 THEN now() ELSE last_contacted_at END,updated_at=now()

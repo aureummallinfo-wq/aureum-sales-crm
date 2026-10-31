@@ -617,7 +617,7 @@ function renderLeadDrawer() {
 async function openLead(id) {
   window.AureumSidebarBadges?.markLeadSeen((state.leads?.items || []).find(item => String(item.id) === String(id)) || id);
   state.drawer = 'lead'; state.leadDetail = null; render();
-  try { const [detail, activity] = await Promise.all([apiFetch(`/api/leads/${id}`), apiFetch(`/api/leads/${id}/activity`)]); state.leadDetail = { data: detail.data, activity: activity.data || [] }; }
+  try { const [detail, activity, notes] = await Promise.all([apiFetch(`/api/leads/${id}`), apiFetch(`/api/leads/${id}/activity`), apiFetch(`/api/leads/${id}/notes`)]); state.leadDetail = { data: detail.data, activity: activity.data || [], notes: notes.data || [] }; }
   catch (error) { state.leadDetail = { error: error.message }; }
   render();
 }

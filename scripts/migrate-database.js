@@ -20,7 +20,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '010_request_rate_limits.sql'),
   path.join(root, 'db', 'migrations', '011_expand_crm_status_tags.sql'),
   path.join(root, 'db', 'migrations', '012_opportunity_closure.sql'),
-  path.join(root, 'db', 'migrations', '013_reconcile_legacy_not_interested.sql')
+  path.join(root, 'db', 'migrations', '013_reconcile_legacy_not_interested.sql'),
+  path.join(root, 'db', 'migrations', '014_edit_saved_notes.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 

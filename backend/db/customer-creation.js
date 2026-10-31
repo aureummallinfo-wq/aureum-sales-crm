@@ -44,15 +44,15 @@ async function insertLeadCustomer(sql, { workspace, lead, leadId, actor, actorId
       SELECT * FROM reused_reminder UNION ALL SELECT * FROM inserted_reminder
     ), customer_note AS (
       INSERT INTO crm.customer_notes (customer_id,author_user_id,note)
-      SELECT id,$5,$16 FROM new_customer WHERE $14::timestamptz IS NOT NULL
+      SELECT id,$5,$16 FROM new_customer WHERE $14::timestamptz IS NOT NULL RETURNING id
     ), customer_activity AS (
-      INSERT INTO crm.customer_activities (customer_id,actor_user_id,activity_type,description)
-      SELECT id,$5,'Customer profile created',$18 FROM new_customer
-      UNION ALL SELECT id,$5,'Follow-up scheduled',$16 FROM new_customer WHERE $14::timestamptz IS NOT NULL
+      INSERT INTO crm.customer_activities (customer_id,actor_user_id,activity_type,description,metadata)
+      SELECT id,$5,'Customer profile created',$18,'{}'::jsonb FROM new_customer
+      UNION ALL SELECT id,$5,'Follow-up scheduled',$16,jsonb_build_object('note_id',(SELECT id::text FROM customer_note)) FROM new_customer WHERE $14::timestamptz IS NOT NULL
     ), lead_activity AS (
-      INSERT INTO crm.lead_activities (lead_id,actor_user_id,activity_type,description)
-      SELECT lead_id,$5,'Customer profile created',$18 FROM new_customer
-      UNION ALL SELECT lead_id,$5,'Follow-up scheduled',$16 FROM new_customer WHERE $14::timestamptz IS NOT NULL
+      INSERT INTO crm.lead_activities (lead_id,actor_user_id,activity_type,description,metadata)
+      SELECT lead_id,$5,'Customer profile created',$18,'{}'::jsonb FROM new_customer
+      UNION ALL SELECT lead_id,$5,'Follow-up scheduled',$16,jsonb_build_object('note_id',(SELECT id::text FROM customer_note)) FROM new_customer WHERE $14::timestamptz IS NOT NULL
     ), reminder_activity AS (
       INSERT INTO crm.follow_up_activities (follow_up_id,actor_user_id,activity_type,description)
       SELECT id,$5,'Follow-up scheduled',$16 FROM reminder
