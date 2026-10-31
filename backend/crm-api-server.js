@@ -276,7 +276,7 @@ function addLeadActivity(leadId, userId, activityType, description, metadata = {
 function findLead(id) { return leads.find(lead => lead.id === id); }
 
 function ensureCustomerForLead(user, lead) {
-  if (!lead) return null;
+  if (!lead || statusTags.isTerminal(lead.status, lead.tags)) return null;
   const existing = customers.find(item => item.lead_id === lead.id);
   if (existing) return existing;
   const now = new Date().toISOString();
@@ -318,7 +318,7 @@ function ensureCustomerForLead(user, lead) {
 }
 
 function syncTaggedLeadFollowUp(user, lead) {
-  if (!lead) return;
+  if (!lead || statusTags.isTerminal(lead.status, lead.tags)) return;
   const tagged = (lead.tags || []).some(tag => String(tag).trim().toLowerCase() === 'follow-up' || String(tag).trim().toLowerCase() === 'follow-up needed');
   const existing = followUps.find(item => item.lead_id === lead.id && !item.consolidated_into);
   if (!tagged) return;
@@ -1446,7 +1446,9 @@ async function handle(req, res) {
       if (!canViewCustomer(user, existing)) { json(res, 403, { error: 'Linked customer is outside your ownership scope' }); return; }
       json(res, 200, { data: customerView(existing), created: false }); return;
     }
+    if (statusTags.isTerminal(lead.status, lead.tags)) { json(res, 422, { error: 'Closed opportunities do not create customer profiles.' }); return; }
     const customer = ensureCustomerForLead(user, lead);
+    if (!customer) { json(res, 422, { error: 'Closed opportunities do not create customer profiles.' }); return; }
     // Creation inherits the lead's ownership; the caller cannot reassign it through this form.
     Object.assign(customer, plan.profile, { assigned_agent_id: lead.assigned_agent_id, assigned_agent: lead.assigned_agent, assigned_team_id: lead.assigned_team_id });
     let reminder = null;
@@ -1493,7 +1495,7 @@ async function handle(req, res) {
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
         if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
         const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 20) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
-        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
+        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); if (!statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
       } catch (error) { json(res, 400, { error: error.message }); }
     }
     return;

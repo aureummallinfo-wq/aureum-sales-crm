@@ -32,4 +32,7 @@ test('workflow validates status tags and replaces a previous status without eras
   assert.equal(policy.normalize('Closed Lost'), 'Closed Lost');
   assert.equal(policy.normalize('Booking'), 'Booking');
   assert.equal(policy.normalize('Active'), 'New');
+  assert.equal(policy.isTerminal('Not Interested', []), true);
+  assert.equal(policy.isTerminal('New', ['Closed Lost']), true);
+  assert.equal(policy.isTerminal('New', ['Hot']), false);
 });

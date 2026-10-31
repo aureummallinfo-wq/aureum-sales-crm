@@ -7,11 +7,16 @@
     return values.find(item => item.toLowerCase() === text.toLowerCase()) || legacy[text] || fallback;
   }
   function isValid(value) { return values.includes(value); }
+  function isTerminal(status, tags) {
+    const terminal = new Set(['closed lost', 'not interested']);
+    return [status, ...(Array.isArray(tags) ? tags : [])]
+      .some(value => terminal.has(String(value || '').trim().toLowerCase()));
+  }
   function withStatus(tags, selected) {
     const choices = Array.isArray(selected) ? selected : [selected];
     return [...new Set([...(Array.isArray(tags) ? tags : []).filter(tag => !values.includes(tag)), ...choices.filter(isValid)])];
   }
-  const api = Object.freeze({ values, legacy, colors, normalize, isValid, withStatus });
+  const api = Object.freeze({ values, legacy, colors, normalize, isValid, isTerminal, withStatus });
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.AureumCRMStatusTags = api;
 }(typeof window === 'object' ? window : globalThis));

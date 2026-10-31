@@ -8,65 +8,53 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 const schedule = { schedule_followup: true, note: 'Discuss the payment plan next week.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up' };
 
-test('lead drawer customer creation API validates, preserves ownership, and prevents duplicates', async t => {
+test('new leads auto-create customer profiles except Not Interested and Closed Lost', async t => {
   const api = await startApiServer(t);
   const cookie = await api.login('adan@aureum.com');
   const request = (url, method = 'GET', body, auth = cookie) => api.request(url, { method, headers: { cookie: auth, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const createdLead = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial', city: 'Lahore', tags: ['Investor'] });
-  const lead = createdLead.body.data;
-  assert.equal(lead.customer_id, null);
-  const endpoint = `/api/leads/${lead.id}/customer`;
-  const unauth = await api.request(endpoint, { method: 'POST' });
-  assert.equal(unauth.response.status, 401);
-  for (const invalid of [
-    { ...schedule, next_due_date: '2099-02-30' },
-    { ...schedule, next_due_date: '2020-01-01' },
-    { ...schedule, note: '' },
-    { ...schedule, followup_tag: 'Invented tag' },
-    { full_name: '' }, { phone: 'bad' }, { email: 'bad' }
-  ]) {
-    assert.equal((await request(endpoint, 'POST', invalid)).response.status, 422);
-    assert.equal((await request(`/api/leads/${lead.id}`)).body.data.customer_id, null);
-  }
-  const colleague = await api.login('saqib@aureum.com', 'Rao@1234');
-  assert.equal((await request(endpoint, 'POST', schedule, colleague)).response.status, 403);
-  const result = await request(endpoint, 'POST', { ...schedule, full_name: 'Reviewed customer name', city: 'Islamabad', tags: ['Investor'], assigned_agent_id: 'usr_004', customer_contacted: true });
-  assert.equal(result.response.status, 201);
-  assert.equal(result.body.created, true);
-  assert.ok(result.body.follow_up_id);
-  const profile = (await request(`/api/customers/${result.body.data.id}`)).body;
-  assert.equal(profile.data.full_name, 'Reviewed customer name');
-  assert.equal(profile.data.phone, lead.phone);
-  assert.equal(profile.data.city, 'Islamabad');
+  const normal = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial', city: 'Lahore', tags: ['Investor'] });
+  assert.equal(normal.response.status, 201);
+  const lead = normal.body.data;
+  assert.ok(lead.customer_id);
+  const profile = (await request(`/api/customers/${lead.customer_id}`)).body;
   assert.equal(profile.data.lead_id, lead.id);
-  assert.equal(profile.data.assigned_agent_id, lead.assigned_agent_id);
-  assert.equal(profile.data.last_contacted_at, lead.last_contacted_at);
-  assert.deepEqual(profile.data.tags, ['Investor', 'Follow-up']);
-  assert.equal(profile.notes[0].note, schedule.note);
-  const followups = (await request('/api/follow-ups/my')).body.data.filter(item => item.customer_id === profile.data.id);
-  assert.equal(followups.length, 1);
-  assert.equal(followups[0].status, 'Pending');
-  assert.equal(followups[0].due_date, schedule.next_due_date);
-  assert.equal(followups[0].due_time, schedule.next_due_time);
-  assert.equal(followups[0].followup_tag, schedule.followup_tag);
-  const updatedLead = (await request(`/api/leads/${lead.id}`)).body.data;
-  assert.equal(updatedLead.customer_id, profile.data.id);
-  assert.equal(updatedLead.status, lead.status);
-  assert.equal(updatedLead.last_contacted_at, lead.last_contacted_at);
-  const retry = await request(endpoint, 'POST', { ...schedule, full_name: 'Do not overwrite' });
+  assert.equal(profile.data.city, 'Lahore');
+  assert.deepEqual(profile.data.tags, ['Investor']);
+  const retry = await request(`/api/leads/${lead.id}/customer`, 'POST', { schedule_followup: false });
   assert.equal(retry.response.status, 200);
   assert.equal(retry.body.created, false);
-  assert.equal(retry.body.data.id, profile.data.id);
-  assert.equal(retry.body.data.full_name, 'Reviewed customer name');
-  assert.equal((await request(`/api/customers/${profile.data.id}`)).body.notes.length, 1);
-  assert.equal((await request('/api/follow-ups/my')).body.data.filter(item => item.customer_id === profile.data.id).length, 1);
-  const plain = (await request('/api/leads', 'POST', { full_name: 'Customer only', phone: '+923001234568', interested_in: 'Commercial' })).body.data;
-  const plainCustomer = await request(`/api/leads/${plain.id}/customer`, 'POST', { schedule_followup: false });
-  assert.equal(plainCustomer.response.status, 201);
-  const plainDetail = (await request(`/api/customers/${plainCustomer.body.data.id}`)).body;
-  assert.equal(plainDetail.notes.length, 0);
-  assert.equal(plainDetail.followUps.length, 0);
-  assert.equal(plainDetail.data.last_contacted_at, plain.last_contacted_at);
+  assert.equal(retry.body.data.id, lead.customer_id);
+
+  for (const [index, status] of ['Not Interested', 'Closed Lost'].entries()) {
+    const closed = await request('/api/leads', 'POST', { full_name: `Closed intake ${index}`, phone: `+9230012345${80 + index}`, interested_in: 'Commercial', status, tags: ['Follow-up', status] });
+    assert.equal(closed.response.status, 201);
+    assert.equal(closed.body.data.customer_id, null);
+    const blocked = await request(`/api/leads/${closed.body.data.id}/customer`, 'POST', {});
+    assert.equal(blocked.response.status, 422);
+    assert.equal((await request('/api/follow-ups/my')).body.data.some(item => item.lead_id === closed.body.data.id), false);
+  }
+});
+
+test('Neon lead intake auto-links normal leads and skips terminal statuses/tags', async t => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/002_production_crm_schema.sql'), 'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/012_opportunity_closure.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/014_edit_saved_notes.sql'), 'utf8'));
+  const sql = { query: async (text, params) => (await db.query(text, params)).rows };
+  const repository = createNeonRepository(sql);
+  const [workspace] = await sql.query("INSERT INTO crm.workspaces (name,legacy_id) VALUES ('Intake test','intake') RETURNING id");
+  const [team] = await sql.query("INSERT INTO crm.teams (workspace_id,legacy_id,name) VALUES ($1,'team','Team') RETURNING id", [workspace.id]);
+  await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Advisor','test','sales_agent',$2)", [workspace.id, team.id]);
+  const actor = { id: 'agent', role: 'sales_agent', team_id: 'team', full_name: 'Advisor', workspace_id: workspace.id };
+  const create = input => repository.createLead({ workspaceId: workspace.id, actor, lead: { full_name: input.full_name, phone: input.phone, interested_in: 'Commercial', status: input.status || 'New', tags: input.tags || [], lead_source: 'Manual Entry', assigned_agent_id: 'agent', assigned_team_id: 'team' } });
+  const normal = await create({ full_name: 'Auto customer', phone: '+923001234590' });
+  assert.ok(normal.customer_id);
+  const tagClosed = await create({ full_name: 'Terminal tag', phone: '+923001234591', tags: ['Not Interested'] });
+  assert.equal(tagClosed.customer_id, null);
+  const statusClosed = await create({ full_name: 'Terminal status', phone: '+923001234592', status: 'Closed Lost' });
+  assert.equal(statusClosed.customer_id, null);
+  await assert.rejects(repository.createCustomerFromLead(workspace.id, tagClosed.id, actor), /Closed opportunities/);
 });
 
 test('all CRM portals create one linked customer from an owned lead', async t => {
@@ -93,11 +81,13 @@ test('all CRM portals create one linked customer from an owned lead', async t =>
     assert.equal(leadResult.response.status, 201);
     const lead = leadResult.body.data;
     const endpoint = `/api/leads/${lead.id}/customer`;
+    assert.ok(lead.customer_id);
 
     const created = await request(endpoint, 'POST', { schedule_followup: false });
-    assert.equal(created.response.status, 201);
-    assert.equal(created.body.created, true);
+    assert.equal(created.response.status, 200);
+    assert.equal(created.body.created, false);
     assert.equal(created.body.data.lead_id, lead.id);
+    assert.equal(created.body.data.id, lead.customer_id);
 
     const retry = await request(endpoint, 'POST', { full_name: 'Must not duplicate', schedule_followup: false });
     assert.equal(retry.response.status, 200);

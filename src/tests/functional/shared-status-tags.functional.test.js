@@ -20,7 +20,8 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
   assert.equal(leadResult.response.status, 201);
   const lead = leadResult.body.data;
   const converted = await request(`/api/leads/${lead.id}/customer`, 'POST', {});
-  assert.equal(converted.response.status, 201);
+  assert.equal(converted.response.status, 200);
+  assert.equal(converted.body.created, false);
   const customer = converted.body.data;
   const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
   const saved = await request(`/api/customers/${customer.id}/notes`, 'POST', { note: 'Customer confirmed a site visit.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-10-24', next_due_time: '14:30', followup_tags: selected });

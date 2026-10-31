@@ -531,7 +531,7 @@ function createNeonRepository(sql) {
 
   async function syncLeadFollowUpTag(workspace, actor, lead) {
     try {
-    if (!lead?.id || ['Closed Lost','Not Interested'].includes(lead.status)) return;
+    if (!lead?.id || statusTags.isTerminal(lead.status, lead.tags)) return;
     const tags = normalizeTags(lead.tags).map(item => item.toLowerCase());
     const tagged = (tags.includes('follow-up') || tags.includes('follow-up needed'));
     const leadId = await resolveLeadId(workspace, lead.id);
@@ -571,7 +571,12 @@ function createNeonRepository(sql) {
     const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id);
     const statusRows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.status || 'New']); const sourceRows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.lead_source || 'Manual Entry']);
     const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, JSON.stringify(lead)]);
-    const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId); await syncLeadFollowUpTag(workspace, actor, created); return created;
+     const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId);
+     // New leads become customer profiles immediately unless the intake status/tag
+     // explicitly closes the opportunity. Keep this server-side so imports and
+     // non-browser clients follow the same rule as the lead form.
+     if (!statusTags.isTerminal(created.status, created.tags)) await convertLeadToCustomer(workspace, legacyId, actor);
+     await syncLeadFollowUpTag(workspace, actor, await getLead(workspace, legacyId)); return getLead(workspace, legacyId);
   }
 
   function closureRequested(patch, current) {
@@ -658,22 +663,42 @@ function createNeonRepository(sql) {
     if (activityType === 'Note added') {
       const current=await getLead(workspace,identifier);
       const input=metadata.note_input || {};
-      const closed=['Closed Lost','Not Interested'].includes(current.status);
+      const closed=statusTags.isTerminal(current.status,current.tags);
       if(closed && input.next_followup_days && input.next_followup_days !== 'none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
       const plan = notePlan(closed ? {...input,next_followup_days:'none'} : input);
-      if (plan.contacted && plan.schedule) await convertLeadToCustomer(workspace,identifier,actor);
+      if (!closed && plan.contacted && plan.schedule) await convertLeadToCustomer(workspace,identifier,actor);
       return pipeline.saveNote(workspace,actor,{leadId:id,note:description,plan});
     }
     return pipeline.recordActivity(workspace,actor,{leadId:id,type:activityType,description,metadata});
   }
 
-  async function convertLeadToCustomer(workspace, identifier, actor) { const lead = await getLead(workspace, identifier); if (!lead) return null; const leadId = await resolveLeadId(workspace, identifier); const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]); if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id); const legacyId = `customer_${crypto.randomUUID()}`; await sql.query(`INSERT INTO crm.customers (workspace_id, legacy_id, lead_id, full_name, email, phone, whatsapp_number, customer_status, assigned_agent_id, assigned_team_id, created_by, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [workspace, legacyId, leadId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.status === 'Closed Won' ? 'Closed Won' : lead.status === 'Hot' ? 'Hot' : lead.status === 'Follow-up' ? 'Follow-up' : 'Active', await resolveUserId(workspace, lead.assigned_agent_id), await resolveTeamId(workspace, lead.assigned_team_id), await resolveUserId(workspace, actor.id), JSON.stringify(lead)]); const customerId=await resolveCustomerId(workspace,legacyId); await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId }); await enqueueOutbox(workspace,'customer_created','customer',customerId,{legacy_id:legacyId,lead_id:identifier}); return getCustomer(workspace, legacyId); }
+  async function convertLeadToCustomer(workspace, identifier, actor) {
+    const lead = await getLead(workspace, identifier);
+    if (!lead) return null;
+    if (statusTags.isTerminal(lead.status, lead.tags)) throw new Error('Closed opportunities do not create customer profiles.');
+    const leadId = await resolveLeadId(workspace, identifier);
+    const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]);
+    if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id);
+    const legacyId = `customer_${crypto.randomUUID()}`;
+    await sql.query(`INSERT INTO crm.customers (workspace_id, legacy_id, lead_id, full_name, email, phone, whatsapp_number, customer_status, assigned_agent_id, assigned_team_id, created_by, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`, [workspace, legacyId, leadId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.status === 'Closed Won' ? 'Closed Won' : lead.status === 'Hot' ? 'Hot' : lead.status === 'Follow-up' ? 'Follow-up' : 'Active', await resolveUserId(workspace, lead.assigned_agent_id), await resolveTeamId(workspace, lead.assigned_team_id), await resolveUserId(workspace, actor.id), JSON.stringify(lead)]);
+    const customerId = await resolveCustomerId(workspace, legacyId);
+    await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId });
+    await enqueueOutbox(workspace, 'customer_created', 'customer', customerId, { legacy_id: legacyId, lead_id: identifier });
+    return getCustomer(workspace, legacyId);
+  }
 
   const customerSelect = `SELECT c.*, l.legacy_id AS lead_id_legacy, au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent, t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy FROM crm.customers c LEFT JOIN crm.leads l ON l.id = c.lead_id LEFT JOIN crm.users au ON au.id = c.assigned_agent_id LEFT JOIN crm.teams t ON t.id = c.assigned_team_id LEFT JOIN crm.users cu ON cu.id = c.created_by`;
 
   async function createCustomerFromLead(workspace, identifier, actor, input = {}) {
     const lead = await getLead(workspace, identifier);
     if (!lead || !canViewOwnedRecord(actor, lead)) throw new Error('Lead is outside your ownership scope.');
+    if (statusTags.isTerminal(lead.status, lead.tags)) {
+      const existingRows = await sql.query('SELECT coalesce(legacy_id,id::text) AS id FROM crm.customers WHERE workspace_id=$1 AND lead_id=$2 AND deleted_at IS NULL LIMIT 1', [workspace, await resolveLeadId(workspace, identifier)]);
+      if (!existingRows[0]) throw new Error('Closed opportunities do not create customer profiles.');
+      const customer = await getCustomer(workspace, existingRows[0].id);
+      if (!customer || !canViewOwnedRecord(actor, customer)) throw new Error('The linked customer is unavailable in your scope.');
+      return { customer, created: false, follow_up_id: null };
+    }
     const plan = customerCreationPlan(input, lead);
     const leadId = await resolveLeadId(workspace, identifier);
     const result = await insertLeadCustomer(sql, { workspace, lead, leadId, actor, plan,
@@ -810,7 +835,7 @@ function createNeonRepository(sql) {
     if ((input.customer_id && !customer) || (input.lead_id && !lead)) return null;
     if (customer && lead && customer.lead_id !== lead.id) return null;
     const parent = customer || lead;
-    if (['Closed Lost','Not Interested'].includes(parent?.customer_status || parent?.status)) throw new Error('Closed opportunity cannot have active follow-ups');
+    if (statusTags.isTerminal(parent?.customer_status || parent?.status, parent?.tags)) throw new Error('Closed opportunity cannot have active follow-ups');
     if (!canViewOwnedRecord(actor, parent) || !parent.assigned_agent_id) return null;
     if (input.assigned_agent_id && input.assigned_agent_id !== parent.assigned_agent_id) return null;
     const agent = await findUser(workspace, parent.assigned_agent_id);
