@@ -37,6 +37,9 @@ jobs:
       - name: Run syntax checks
         run: pnpm check
 
+      - name: Check VPS deployment script
+        run: shellcheck scripts/deploy-vps-release.sh
+
       - name: Run tests
         run: pnpm test
 
