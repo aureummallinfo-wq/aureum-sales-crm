@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { startApiServer } = require('../helpers/api-test-server');
 
 test('dashboard date ranges recalculate metrics and preserve user scope', async t => {
-  const api = await startApiServer(t);
+  const api = await startApiServer(t, { env: { AUREUM_TEST_REPORT_DATE: '2026-10-09' } });
   const manager = await api.login('dua@aureum.com');
   const agent = await api.login('adan@aureum.com');
 
