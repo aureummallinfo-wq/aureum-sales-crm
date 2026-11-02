@@ -6,12 +6,20 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.resolve(__dirname, '../../../../frontend/runtime-config.js'), 'utf8');
 
-test('each deployment sends API requests to its own origin by default', () => {
-  for (const hostname of ['localhost', '127.0.0.1', 'aureum-sales-crm.vercel.app', 'aureum-sales-preview-team.vercel.app', 'crm.example.test']) {
+test('Vercel production hosts use the VPS API while previews stay same-origin', () => {
+  const expectedHosts = new Map([
+    ['localhost', 'localhost'],
+    ['127.0.0.1', '127.0.0.1'],
+    ['aureum-sales-crm.vercel.app', 'crm.aureummall.info'],
+    ['aureum-sales-crm-frontend.vercel.app', 'crm.aureummall.info'],
+    ['aureum-sales-preview-team.vercel.app', 'aureum-sales-preview-team.vercel.app'],
+    ['crm.example.test', 'crm.example.test']
+  ]);
+  for (const [hostname, expectedHost] of expectedHosts) {
     const window = { location: { hostname } };
     vm.runInNewContext(source, { window });
     const endpoint = new URL(`${window.__AUREUM_API_BASE_URL__}/api/auth/me`, `https://${hostname}`);
-    assert.equal(endpoint.hostname, hostname);
+    assert.equal(endpoint.hostname, expectedHost);
     assert.equal(endpoint.pathname, '/api/auth/me');
   }
 });
