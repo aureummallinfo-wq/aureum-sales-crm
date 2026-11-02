@@ -76,7 +76,20 @@ const SESSION_TTL = 8 * 60 * 60 * 1000;
 const LOGIN_MAX_FAILED_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
-const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173').split(',').map(value => value.trim()).filter(Boolean));
+const DEFAULT_FRONTEND_ORIGINS = [
+  'http://127.0.0.1:4173',
+  'http://localhost:4173',
+  'https://aureum-sales-crm.vercel.app',
+  'https://aureum-sales-crm-frontend.vercel.app',
+  'https://aureum-sales-crm-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-frontend-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-git-main-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-frontend-git-main-aureummallinfo-6133.vercel.app'
+];
+const ALLOWED_FRONTEND_ORIGINS = new Set([
+  ...DEFAULT_FRONTEND_ORIGINS,
+  ...String(process.env.AUREUM_FRONTEND_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)
+]);
 const loginAttempts = new Map();
 const revokedSessions = new Map();
 const tasks = [];
