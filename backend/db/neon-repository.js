@@ -500,10 +500,12 @@ function createNeonRepository(sql) {
     LEFT JOIN crm.lead_sources src ON src.id = l.source_id LEFT JOIN crm.users au ON au.id = l.assigned_agent_id
     LEFT JOIN crm.teams t ON t.id = l.assigned_team_id LEFT JOIN crm.users cu ON cu.id = l.created_by`;
 
-  async function listLeads({ workspaceId: workspace, user, status, search, source, agentId, imported, allSalesManagerLeads = false }) {
+  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, allSalesManagerLeads = false }) {
     const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push(`ls.name = $${params.length}`); }
     if (source) { params.push(source); conditions.push(`src.name = $${params.length}`); }
+    if (interest) { params.push(interest); conditions.push(`l.interested_in = $${params.length}`); }
+    if (priority) { params.push(priority); conditions.push(`l.priority = $${params.length}`); }
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push(`l.assigned_agent_id = $${params.length}`); }
     if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
     if (imported === 'true' || imported === 'imported' || imported === 'webhook') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE`);

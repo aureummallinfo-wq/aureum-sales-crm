@@ -1,8 +1,8 @@
 export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent';
 export type CustomerStatus = "New" | "Contacted" | "Hot" | "Cold" | "Follow-up" | "Visit Scheduled" | "Visit Completed" | "Negotiation" | "Closed Won" | "No Response" | "Not Interested" | "Invalid";
-export type CustomerSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Sales Partner' | 'Walk-in' | 'Referral' | 'Manual Entry';
-export type CustomerPriority = 'High' | 'Medium' | 'Low';
-export type PropertyInterest = '1 Bed Apartment' | '2 Bed Apartment' | 'Commercial Shop' | 'Corporate Office' | 'Food Court Space';
+export type CustomerSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Instagram' | 'Sales Partner' | 'Walk-in' | 'Referral' | 'Manual Entry';
+export type CustomerPriority = 'High' | 'Medium' | 'Low' | 'VIP';
+export type PropertyInterest = '1 Bed Apartment' | '2 Bed Apartment' | 'Commercial' | 'Office' | 'Food Court Space' | 'Other' | 'Commercial Shop' | 'Corporate Office';
 export type PreferredContactMethod = 'Phone' | 'WhatsApp' | 'Email';
 export type CustomerPurpose = 'Investment' | 'Personal Use' | 'Business' | 'Other';
 export type BuyingTimeline = 'Immediate' | '1 Month' | '3 Months' | '6 Months' | 'Not Sure';

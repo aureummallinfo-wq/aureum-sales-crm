@@ -7,7 +7,8 @@
   const tagOptions = options.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const priorities = options.priorities || ['High', 'Medium', 'Low'];
   const userNames = { usr_001: 'Malik Raza', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };
-  state.customerModule = state.customerModule || { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' } };
+  state.customerModule = state.customerModule || { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' } };
+  state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '', ...(state.customerModule.filters || {}) };
   state.customerModule.editing = Boolean(state.customerModule.editing);
   const statuses = Array.isArray(state.customerModule.statuses) && state.customerModule.statuses.length ? state.customerModule.statuses : defaultStatuses;
   if (!state.customerModule.statusesLoaded && typeof apiFetch === 'function') {
@@ -24,11 +25,14 @@
   const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const field = (item, key, fallback = '—') => item && item[key] !== undefined && item[key] !== null && item[key] !== '' ? item[key] : fallback;
   const title = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+  const canonicalInterest = value => ({ 'Commercial Shop': 'Commercial', 'Corporate Office': 'Office' }[String(value || '').trim()] || String(value || '').trim());
   const customerName = customer => field(customer, 'full_name', field(customer, 'fullName', 'Customer'));
   const customerStatus = customer => field(customer, 'customer_status', field(customer, 'status', 'New'));
   const customerSource = customer => field(customer, 'lead_source', field(customer, 'source', 'Manual Entry'));
   const customerInterest = customer => field(customer, 'interested_in', field(customer, 'interest'));
+  const customerAgentId = customer => String(customer?.assigned_agent_id || customer?.assignedAgentId || customer?.agent_id || customer?.agentId || '');
   const customerAgent = customer => field(customer, 'assigned_agent', field(customer, 'agent', 'Unassigned'));
+  const hasScheduledFollowUp = customer => { const value = customer?.next_follow_up_at ?? customer?.next; return Boolean(value && !['Not scheduled', '—'].includes(String(value))); };
   const initials = customer => field(customer, 'initials', String(customerName(customer)).split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase());
   const currentCustomer = () => state.customerDetail?.data || null;
   const statusBadge = status => typeof badge === 'function' ? badge(status) : `<span class="badge badge-neutral">${escape(status)}</span>`;
@@ -56,8 +60,12 @@
       if (filters.status && customerStatus(customer) !== filters.status) return false;
       if (filters.source && customerSource(customer) !== filters.source) return false;
       if (filters.city && String(customer.city || '') !== filters.city) return false;
-      if (filters.interestedIn && customerInterest(customer) !== filters.interestedIn) return false;
+      if (filters.interestedIn && canonicalInterest(customerInterest(customer)) !== canonicalInterest(filters.interestedIn)) return false;
       if (filters.priority && String(customer.priority || '') !== filters.priority) return false;
+      if (filters.agentId) {
+        const agentId = customerAgentId(customer);
+        if (filters.agentId === '__unassigned__' ? agentId : agentId !== String(filters.agentId)) return false;
+      }
       return true;
     });
   }
@@ -68,6 +76,16 @@
     const active = state.customerModule.filters?.status || '';
     const tabs = [['All Customers', ''], ...statuses.map(status => [status, status])];
     return `<div class="customer-status-tabs" role="tablist">${tabs.map(([label, value]) => `<button class="customer-status-tab ${active === value ? 'active' : ''}" data-customer-module-tab="${escape(value)}" role="tab" aria-selected="${active === value}">${escape(label)}</button>`).join('')}</div>`;
+  }
+
+  function customerAgentFilterOptions(all) {
+    if (state.role === 'SALES_AGENT') return '';
+    const records = [...new Map(all.map(customer => {
+      const id = customerAgentId(customer);
+      return [id || '__unassigned__', [id || '__unassigned__', id ? customerAgent(customer) : 'Unassigned']];
+    })).values()].sort((left, right) => String(left[1]).localeCompare(String(right[1])));
+    const selected = String(state.customerModule.filters?.agentId || '');
+    return `<select class="select" data-customer-module-agent aria-label="Filter by assigned agent"><option value="">All agents</option>${records.map(([id, name]) => `<option value="${escape(id)}" ${selected === id ? 'selected' : ''}>${escape(name)}</option>`).join('')}</select>`;
   }
 
   function actionMenu(customer) {
@@ -88,13 +106,16 @@
     if (state.customers?.error && !state.customers.items?.length) return renderCustomerError();
     const all = (state.customers?.items || []).map(normalizeCustomer);
     const items = visibleCustomers();
-    const active = all.filter(customer => !['Closed Won', 'Not Interested', 'Invalid'].includes(customerStatus(customer))).length;
-    const hot = all.filter(customer => customerStatus(customer) === 'Hot').length;
-    const due = all.filter(customer => field(customer, 'next_follow_up_at', field(customer, 'next')) !== 'Not scheduled').length;
-    const booking = all.filter(customer => customerStatus(customer) === 'Negotiation').length;
-    const closed = all.filter(customer => customerStatus(customer) === 'Closed Won').length;
+    const active = items.filter(customer => !['Closed Won', 'Not Interested', 'Invalid'].includes(customerStatus(customer))).length;
+    const hot = items.filter(customer => customerStatus(customer) === 'Hot').length;
+    const due = items.filter(hasScheduledFollowUp).length;
+    const booking = items.filter(customer => customerStatus(customer) === 'Negotiation').length;
+    const closed = items.filter(customer => customerStatus(customer) === 'Closed Won').length;
+    const filtered = items.length !== all.length;
+    const scopeDetail = filtered ? 'Matches active filters' : (state.role === 'SALES_AGENT' ? 'Assigned to me' : state.role === 'SALES_MANAGER' ? 'Team customers' : 'Company-wide book');
     const cityOptions = [...new Set(all.map(customer => customer.city).filter(Boolean))].sort();
-    return pageHeader('Client relationships', 'Customers', state.role === 'SALES_AGENT' ? 'Work only the customer relationships assigned to your advisor account.' : state.role === 'SALES_MANAGER' ? 'Review the team customer book, activity, and next commercial action.' : 'Review the complete Aureum customer book, activity, and next commercial action.', `<button class="btn btn-secondary" data-customer-module-export>Export CSV</button><button class="btn btn-secondary" data-customer-module-reload>Refresh</button><button class="btn btn-secondary" data-screen="${state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'}">Open leads</button>`) + `<section class="grid grid-4 customer-summary-grid">${summaryCard('Total Customers', all.length, state.role === 'SALES_AGENT' ? 'Assigned to me' : state.role === 'SALES_MANAGER' ? 'Team customers' : 'Company-wide book')}${summaryCard('Active Customers', active, 'Relationships in motion', 'green')}${summaryCard('Hot Customers', hot, hot ? 'High intent' : 'No hot customers', hot ? 'hot' : '')}${summaryCard('Follow-ups Due', due, due ? 'Review next actions' : 'Nothing scheduled', due ? 'warm' : '')}${summaryCard('Negotiation', booking, 'Commercial opportunity', booking ? 'booking' : '')}${summaryCard('Closed Customers', closed, 'Won customer history', 'green')}</section><section class="card table-card customer-registry-card"><div class="customer-registry-head"><div><h2>Customer registry</h2><p>${items.length} of ${all.length} visible records · access is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SUPER_ADMIN' ? 'Company scope' : state.role === 'SALES_MANAGER' ? 'Team scope' : 'Assigned only'}</span></div>${customerStatusTabs()}<div class="customer-filter-bar"><label class="customer-search-field"><span aria-hidden="true">⌕</span><input data-customer-module-search value="${escape(state.customerModule.filters?.search || '')}" placeholder="Search name, phone, WhatsApp, email…" aria-label="Search customers" /></label><select class="select" data-customer-module-source aria-label="Filter by source">${selectOptions(sources, state.customerModule.filters?.source || '', 'All sources')}</select><select class="select" data-customer-module-city aria-label="Filter by city">${selectOptions(cityOptions, state.customerModule.filters?.city || '', 'All cities')}</select><select class="select" data-customer-module-interest aria-label="Filter by interest">${selectOptions(interests, state.customerModule.filters?.interestedIn || '', 'All interests')}</select><select class="select" data-customer-module-priority aria-label="Filter by priority">${selectOptions(priorities, state.customerModule.filters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset</button></div><div class="table-wrap customer-table-wrap"><table class="customer-data-table"><thead><tr><th>Customer name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Assigned agent</th><th>Status / tags</th><th>Last activity</th><th>Next follow-up</th><th>Actions</th></tr></thead><tbody>${tableRows(items)}</tbody></table></div></section>`;
+    const agentFilter = customerAgentFilterOptions(all);
+    return pageHeader('Client relationships', 'Customers', state.role === 'SALES_AGENT' ? 'Work only the customer relationships assigned to your advisor account.' : state.role === 'SALES_MANAGER' ? 'Review the team customer book, activity, and next commercial action.' : 'Review the complete Aureum customer book, activity, and next commercial action.', `<button class="btn btn-secondary" data-customer-module-export>Export CSV</button><button class="btn btn-secondary" data-customer-module-reload>Refresh</button><button class="btn btn-secondary" data-screen="${state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'}">Open leads</button>`) + `<section class="grid grid-4 customer-summary-grid">${summaryCard('Total Customers', items.length, scopeDetail)}${summaryCard('Active Customers', active, active ? (filtered ? 'Matches active filters' : 'Relationships in motion') : 'No active customers', 'green')}${summaryCard('Hot Customers', hot, hot ? (filtered ? 'Matches active filters' : 'High intent') : 'No hot customers', hot ? 'hot' : '')}${summaryCard('Follow-ups Due', due, due ? (filtered ? 'Matches active filters' : 'Review next actions') : 'Nothing scheduled', due ? 'warm' : '')}${summaryCard('Negotiation', booking, filtered ? 'Matches active filters' : 'Commercial opportunity', booking ? 'booking' : '')}${summaryCard('Closed Customers', closed, filtered ? 'Matches active filters' : 'Won customer history', 'green')}</section><section class="card table-card customer-registry-card"><div class="customer-registry-head"><div><h2>Customer registry</h2><p>${items.length} of ${all.length} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SUPER_ADMIN' ? 'Company scope' : state.role === 'SALES_MANAGER' ? 'Team scope' : 'Assigned only'}</span></div>${customerStatusTabs()}<div class="customer-filter-bar"><label class="customer-search-field"><span aria-hidden="true">⌕</span><input data-customer-module-search value="${escape(state.customerModule.filters?.search || '')}" placeholder="Search name, phone, WhatsApp, email…" aria-label="Search customers" /></label><select class="select" data-customer-module-source aria-label="Filter by source">${selectOptions(sources, state.customerModule.filters?.source || '', 'All sources')}</select><select class="select" data-customer-module-city aria-label="Filter by city">${selectOptions(cityOptions, state.customerModule.filters?.city || '', 'All cities')}</select><select class="select" data-customer-module-interest aria-label="Filter by interest">${selectOptions(interests, state.customerModule.filters?.interestedIn || '', 'All interests')}</select><select class="select" data-customer-module-priority aria-label="Filter by priority">${selectOptions(priorities, state.customerModule.filters?.priority || '', 'All priorities')}</select>${agentFilter}<button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset</button></div><div class="table-wrap customer-table-wrap"><table class="customer-data-table"><thead><tr><th>Customer name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Assigned agent</th><th>Status / tags</th><th>Last activity</th><th>Next follow-up</th><th>Actions</th></tr></thead><tbody>${tableRows(items)}</tbody></table></div></section>`;
   }
 
   function detailItem(label, value) { return `<div><div class="detail-label">${escape(label)}</div><div class="detail-value">${escape(value ?? '—')}</div></div>`; }
@@ -154,7 +175,7 @@
     const open = event.target.closest('[data-customer-module-open]'); if (open) { event.preventDefault(); openCustomer(open.dataset.customerModuleOpen); return; }
     const tab = event.target.closest('[data-customer-module-tab]'); if (tab) { state.customerModule.filters.status = tab.dataset.customerModuleTab || ''; render(); return; }
     const drawerTab = event.target.closest('[data-customer-module-drawer-tab]'); if (drawerTab) { state.customerModule.tab = drawerTab.dataset.customerModuleDrawerTab; render(); return; }
-    const reset = event.target.closest('[data-customer-module-reset]'); if (reset) { state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '' }; render(); return; }
+    const reset = event.target.closest('[data-customer-module-reset]'); if (reset) { state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' }; render(); return; }
     const reload = event.target.closest('[data-customer-module-reload]'); if (reload) refreshCustomers();
     const exportButton = event.target.closest('[data-customer-module-export]'); if (exportButton) exportCustomers();
     const action = event.target.closest('[data-customer-module-action]'); if (action) { event.preventDefault(); customerAction(action.dataset.customerModuleAction, action.dataset.customerId); }
@@ -170,7 +191,7 @@
       if (!enabled) other.value = '';
       return;
     }
-    const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority]')) render(); });
+    const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-agent]')) filters.agentId = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority], [data-customer-module-agent]')) render(); });
   document.addEventListener('submit', event => {
     const form = event.target;
     if (form.matches('#customer-module-note-form')) { event.preventDefault(); const id = currentCustomer()?.id; const data = Object.fromEntries(new FormData(form).entries()); if (!id) return; apiFetch(`/api/customers/${id}/notes`, { method: 'POST', body: JSON.stringify(data) }).then(() => { showToast('Customer note added'); return openCustomer(id); }).then(refreshCustomers).catch(error => showToast(`Unable to add note: ${error.message}`)); }

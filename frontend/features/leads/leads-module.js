@@ -22,6 +22,7 @@
   const valueOf = (lead, key, fallback = '—') => lead && lead[key] !== undefined && lead[key] !== null && lead[key] !== '' ? lead[key] : fallback;
   const initials = lead => valueOf(lead, 'initials', String(valueOf(lead, 'full_name', 'Lead')).split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase());
   const titleCase = value => String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+  const canonicalInterest = value => ({ 'Commercial Shop': 'Commercial', 'Corporate Office': 'Office' }[String(value || '').trim()] || String(value || '').trim());
   const currentLead = () => state.leadDetail?.data || null;
   const linkedCustomerId = lead => lead.customer_id !== undefined ? lead.customer_id : window.AureumCustomerIntegrations?.getCustomerFromLeadId?.(lead.id)?.id;
   const canManage = () => ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role);
@@ -157,7 +158,12 @@
       if (q && !haystack.includes(q)) return false;
       if (filters.status && lead.status !== filters.status) return false;
       if (filters.source && (lead.lead_source || lead.source) !== filters.source) return false;
-      if (filters.propertyType && lead.property_type !== filters.propertyType) return false;
+      // The screen label is "Interested in" and the table renders
+      // `interested_in`; never use the separate property_type field for this
+      // filter. Keep the old propertyType key as a read-only compatibility
+      // fallback for a state object restored from an older session.
+      const interestFilter = filters.interest || filters.propertyType;
+      if (interestFilter && canonicalInterest(lead.interested_in) !== canonicalInterest(interestFilter)) return false;
       if (filters.priority && lead.priority !== filters.priority) return false;
       if (filters.agentId && String(lead.assigned_agent_id || '') !== String(filters.agentId)) return false;
       return true;
@@ -205,10 +211,15 @@
     if (state.leads?.loading && !state.leads.items?.length) return leadsLoading(my);
     if (state.leads?.error && !state.leads.items?.length) return leadsError(my);
     const items = leadModuleItems(my);
-    const total = Array.isArray(state.leads?.items) ? state.leads.items.length : 0;
-    const hot = (state.leads?.items || []).filter(lead => lead.status === 'Hot').length;
-    const followUp = (state.leads?.items || []).filter(lead => lead.status === 'Follow-up').length;
-    const due = (state.leads?.items || []).filter(lead => lead.next_follow_up_at && lead.next_follow_up_at !== 'Not scheduled').length;
+    const scopeTotal = Array.isArray(state.leads?.items) ? state.leads.items.length : 0;
+    // Summary cards describe the same filtered view as the table. The
+    // registry sentence below still exposes the unfiltered permitted scope.
+    const total = items.length;
+    const hot = items.filter(lead => lead.status === 'Hot').length;
+    const followUp = items.filter(lead => lead.status === 'Follow-up').length;
+    const due = items.filter(lead => lead.next_follow_up_at && lead.next_follow_up_at !== 'Not scheduled').length;
+    const filtered = total !== scopeTotal;
+    const scopeDetail = filtered ? 'Matches active filters' : (my ? 'Ownership-scoped view' : 'Company / team registry');
     // Keep lead intake available from the management registry and primary
     // navigation, but keep My Leads focused on the assigned pipeline.
     const addAction = !my && canCreateLead() ? '<button class="btn btn-gold" data-screen="add-lead">+ Add new lead</button>' : '';
@@ -216,7 +227,7 @@
     const search = escape(state.leadFilters?.q || '');
     const tableHeaders = my ? '<th>Lead name</th><th>Phone / WhatsApp</th><th>Interested in</th><th>Budget</th><th>Status</th><th>Status tags</th><th>Next follow-up</th><th>Last contacted</th><th>Actions</th>' : '<th>Lead name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Source</th><th>Assigned agent</th><th>Status</th><th>Tags</th><th>Next follow-up</th><th>Created date</th><th>Last contacted</th><th>Actions</th>';
     const agentFilter = !my && isManager() ? `<select class="select" data-leads-agent aria-label="Filter by assigned agent">${agentFilterOptions(state.leadFilters?.agentId || '')}</select>` : '';
-    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, my ? 'Ownership-scoped view' : 'Company / team registry')}${summaryCard('Hot leads', hot, hot ? 'Prioritize today' : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? 'Conversation in motion' : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? 'Review before end of day' : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${total} visible records · data is scoped to your role.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-property aria-label="Filter by property type">${selectOptions(propertyTypes, state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, scopeDetail)}${summaryCard('Hot leads', hot, hot ? (filtered ? 'Matches active filters' : 'Prioritize today') : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? (filtered ? 'Matches active filters' : 'Conversation in motion') : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? (filtered ? 'Matches active filters' : 'Review before end of day') : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${scopeTotal} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div><div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
     return page + renderImportDialog();
   }
 
@@ -376,7 +387,7 @@
     const tab = event.target.closest('[data-leads-tab]');
     if (tab) { event.preventDefault(); state.leadFilters.status = tab.dataset.leadsTab || ''; render(); return; }
     const reset = event.target.closest('[data-leads-reset]');
-    if (reset) { state.leadFilters = { q: '', status: '', source: '', propertyType: '', priority: '', agentId: '' }; if (state.screen === 'leads') refreshLeads(); else render(); return; }
+    if (reset) { state.leadFilters = { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '' }; if (state.screen === 'leads') refreshLeads(); else render(); return; }
     const action = event.target.closest('[data-leads-action]');
     if (action) { event.preventDefault(); leadModuleAction(action.dataset.leadsAction, action.dataset.leadId); return; }
     const drawerTab = event.target.closest('[data-lead-drawer-tab]');
@@ -411,10 +422,10 @@
     if (input.matches('[data-import-duplicates]') && state.leadModule.importDialog) { state.leadModule.importDialog.duplicateMode = input.value === 'allow' ? 'allow' : 'skip'; return; }
     if (input.matches('[data-interest-select]')) { syncOtherInterestField(input.closest('form')); return; }
     if (input.matches('[data-leads-source]')) state.leadFilters.source = input.value;
-    if (input.matches('[data-leads-property]')) state.leadFilters.propertyType = input.value;
+    if (input.matches('[data-leads-interest]') || input.matches('[data-leads-property]')) { state.leadFilters.interest = input.value; state.leadFilters.propertyType = ''; }
     if (input.matches('[data-leads-priority]')) state.leadFilters.priority = input.value;
     if (input.matches('[data-leads-agent]')) { state.leadFilters.agentId = input.value; refreshLeads(); return; }
-    if (input.matches('[data-leads-source], [data-leads-property], [data-leads-priority]')) render();
+    if (input.matches('[data-leads-source], [data-leads-interest], [data-leads-property], [data-leads-priority]')) render();
   });
   document.addEventListener('submit', event => {
     const form = event.target;
