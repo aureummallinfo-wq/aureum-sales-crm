@@ -21,7 +21,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '011_expand_crm_status_tags.sql'),
   path.join(root, 'db', 'migrations', '012_opportunity_closure.sql'),
   path.join(root, 'db', 'migrations', '013_reconcile_legacy_not_interested.sql'),
-  path.join(root, 'db', 'migrations', '014_edit_saved_notes.sql')
+  path.join(root, 'db', 'migrations', '014_edit_saved_notes.sql'),
+  path.join(root, 'db', 'migrations', '015_meta_crm_feedback.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -243,6 +244,12 @@ async function importProductionState() {
 }
 
 (async () => {
+  // This re-runs every migration and upserts records from the legacy state
+  // snapshot, which overwrites live CRM data. Releases use
+  // scripts/apply-schema-migrations.js instead.
+  if (!DRY_RUN && process.env.NODE_ENV === 'production' && process.env.AUREUM_ALLOW_LEGACY_IMPORT !== 'true') {
+    throw new Error('migrate-database.js is a legacy import tool and is disabled in production. Use scripts/apply-schema-migrations.js for schema changes.');
+  }
   if (DRY_RUN) {
     console.log(JSON.stringify({ dryRun: true, migrations: schemaPaths.map(file => path.relative(root, file)) }));
     return;
