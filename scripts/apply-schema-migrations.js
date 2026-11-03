@@ -26,6 +26,7 @@ const option = name => (args.find(arg => arg.startsWith(`--${name}=`)) || '').sp
 
 // Objects the deployed code queries directly, with the file that creates them.
 const REQUIRED_OBJECTS = [
+  ['010_request_rate_limits.sql', 'table', 'crm.request_rate_limits'],
   ['012_opportunity_closure.sql', 'column', 'leads', 'lifecycle_version'],
   ['012_opportunity_closure.sql', 'column', 'follow_ups', 'cancelled_by_closure'],
   ['012_opportunity_closure.sql', 'column', 'outbox_events', 'cancelled_at'],
@@ -73,9 +74,10 @@ async function ledger(client) {
   return new Set(rows.map(row => row.name));
 }
 
-async function checkObjects(client) {
+async function checkObjects(client, through = '') {
   const missing = [];
   for (const [source, kind, name, column] of REQUIRED_OBJECTS) {
+    if (through && source.slice(0, 3) > through) continue;
     let present;
     if (kind === 'column') present = (await client.query("SELECT 1 FROM information_schema.columns WHERE table_schema='crm' AND table_name=$1 AND column_name=$2", [name, column])).rows.length > 0;
     else if (kind === 'table') present = (await client.query('SELECT to_regclass($1) IS NOT NULL AS present', [name])).rows[0].present;
@@ -106,6 +108,9 @@ async function baseline(client, through) {
   if (!/^\d{3}$/.test(through)) throw new Error('--baseline-through needs a three-digit migration number, for example 013.');
   if ((await ledger(client)).size) throw new Error('crm.schema_migrations already has entries; a baseline can only be recorded once.');
   const files = migrationFiles().filter(name => name.slice(0, 3) <= through);
+  if (!files.length || files[files.length - 1].slice(0, 3) !== through) throw new Error(`No migration file exists for baseline ${through}.`);
+  const missing = await checkObjects(client, through);
+  if (missing.length) throw new Error(`Cannot baseline through ${through}; required objects are missing: ${missing.join('; ')}`);
   await client.query('BEGIN');
   for (const name of files) await client.query('INSERT INTO crm.schema_migrations (name, checksum, baseline) VALUES ($1, $2, true)', [name, checksum(name)]);
   await client.query('COMMIT');
