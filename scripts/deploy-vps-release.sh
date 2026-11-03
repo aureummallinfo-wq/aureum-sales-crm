@@ -48,6 +48,20 @@ run_gate() {
   docker run "${gate_args[@]}" "$image_name" node scripts/apply-schema-migrations.js "$@"
 }
 
+backup_database() {
+  local backup_command="${AUREUM_DB_BACKUP_COMMAND:-}"
+  if [[ -z "$backup_command" && -x "$release_dir/scripts/backup-vps-postgres.sh" ]]; then
+    backup_command="bash '$release_dir/scripts/backup-vps-postgres.sh' '$container_name'"
+  fi
+  test -n "$backup_command" || die 'Migrations are pending but no database backup command is available.'
+  bash -c "$backup_command" || die 'Database backup failed; nothing was migrated.'
+}
+
+backup_and_apply() {
+  backup_database
+  run_gate --apply || die 'Schema migration failed; the running container was not changed.'
+}
+
 gate_status=0
 run_gate --status || gate_status=$?
 case "$gate_status" in
@@ -55,12 +69,13 @@ case "$gate_status" in
     echo 'Database schema is current.'
     ;;
   3)
-    test -n "${AUREUM_DB_BACKUP_COMMAND:-}" || die 'Migrations are pending but AUREUM_DB_BACKUP_COMMAND is not set; refusing to migrate without a backup.'
-    bash -c "$AUREUM_DB_BACKUP_COMMAND" || die 'Database backup failed; nothing was migrated.'
-    run_gate --apply || die 'Schema migration failed; the running container was not changed.'
+    backup_and_apply
     ;;
   4)
-    die 'The database has no migration baseline. Record it once with --baseline-through before deploying.'
+    test -n "${AUREUM_SCHEMA_BASELINE_THROUGH:-}" || die 'The database has no migration baseline. Set AUREUM_SCHEMA_BASELINE_THROUGH only after confirming the existing schema.'
+    backup_database
+    run_gate "--baseline-through=${AUREUM_SCHEMA_BASELINE_THROUGH}" || die 'The existing schema did not pass the baseline verification; nothing was migrated.'
+    run_gate --apply || die 'Schema migration failed; the running container was not changed.'
     ;;
   *)
     die "Schema status check failed (exit ${gate_status})."

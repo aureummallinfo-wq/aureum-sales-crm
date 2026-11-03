@@ -42,7 +42,7 @@ function gateRunner(db) {
 test('schema gate applies only unrecorded migrations and never rewrites lead timestamps', async t => {
   const db = new PGlite(); t.after(() => db.close());
   const load = file => db.exec(fs.readFileSync(path.join(root, 'db/migrations', file), 'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''));
-  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql']) await load(file);
+  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '010_request_rate_limits.sql', '012_opportunity_closure.sql']) await load(file);
   const [w] = (await db.query("INSERT INTO crm.workspaces(name,legacy_id) VALUES('Gate test','gate') RETURNING id")).rows;
   for (const name of ['New', 'Closed Lost', 'Not Interested']) await db.query('INSERT INTO crm.lead_statuses(workspace_id,name,slug) VALUES($1,$2,$3)', [w.id, name, name.toLowerCase().replace(' ', '-')]);
   await load('013_reconcile_legacy_not_interested.sql');
@@ -60,6 +60,14 @@ test('schema gate applies only unrecorded migrations and never rewrites lead tim
   await t.test('apply refuses to run before a baseline is recorded', async () => {
     assert.equal((await gate('--apply')).exit, 4);
     assert.equal((await db.query('SELECT to_regclass($1) AS t', ['crm.note_revisions'])).rows[0].t, null);
+  });
+
+  await t.test('baseline refuses to bless a database missing an earlier required object', async () => {
+    await db.exec('DROP TABLE crm.request_rate_limits');
+    const result = await gate('--baseline-through=013');
+    assert.equal(result.exit, 1);
+    assert.match(result.body, /Cannot baseline through 013/);
+    await load('010_request_rate_limits.sql');
   });
 
   await t.test('after a baseline only the requested pending files run', async () => {

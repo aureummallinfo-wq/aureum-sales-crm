@@ -69,7 +69,7 @@ Use `GET /api/health/live` for process liveness (no database dependency) and `GE
 
 1. Build a Docker image from the reviewed Git commit and tag it with that commit SHA.
 2. Take a PostgreSQL backup before changing the running service.
-3. Apply migrations with `scripts/apply-schema-migrations.js` using the direct PostgreSQL connection; do not run schema changes from a request handler. `scripts/deploy-vps-release.sh` does this automatically in the new image before switching containers, and refuses to migrate unless `AUREUM_DB_BACKUP_COMMAND` (a command that writes a PostgreSQL backup) is set in the deploy user's environment.
+3. Apply migrations with `scripts/apply-schema-migrations.js` using the direct PostgreSQL connection; do not run schema changes from a request handler. `scripts/deploy-vps-release.sh` does this automatically in the new image before switching containers. It uses `AUREUM_DB_BACKUP_COMMAND` when configured, otherwise `scripts/backup-vps-postgres.sh` creates and validates a custom-format PostgreSQL dump in `/opt/aureum-sales-crm/backups` before any baseline or migration is recorded.
    Never run `pnpm db:migrate` against production: it re-runs every migration, including files that rewrite records, and upserts the legacy `aureum_crm_state` snapshot over live data. It is disabled when `NODE_ENV=production`.
 4. Recreate the CRM container with the explicit production environment, including `AUREUM_DATABASE_DRIVER=postgres` and `DATABASE_URL`.
 5. Verify `/api/health/ready`, login, role boundaries, `/api/reports`, `/api/settings/webhooks`, and a signed public webhook request against the production URL.
@@ -77,7 +77,7 @@ Use `GET /api/health/live` for process liveness (no database dependency) and `GE
 
 ### Schema migration gate
 
-`crm.schema_migrations` records which files have run. An existing database needs a one-time baseline naming the last migration it already has, for example after confirming 013 is present: `node scripts/apply-schema-migrations.js --baseline-through=013`. Then:
+`crm.schema_migrations` records which files have run. An existing database needs a one-time baseline naming the last migration it already has, for example after confirming 013 is present: `node scripts/apply-schema-migrations.js --baseline-through=013`. The command refuses to record the baseline when a required object from that range is missing. Automated VPS deployment performs the same guarded baseline only when `AUREUM_SCHEMA_BASELINE_THROUGH` is explicitly set. Then:
 
 - `--status` lists applied and pending files, required objects that are missing, and aggregate row counts (no record contents). Exit code 3 means files are pending; 4 means no baseline.
 - `--apply` applies pending files in order, each in its own transaction, and prints row counts before and after. `--through=014` stops after that file.
