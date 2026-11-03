@@ -37,6 +37,37 @@ docker build \
   --tag "$image_name" \
   "$release_dir"
 
+# Schema gate: the release's code must not serve traffic against an older schema.
+# It runs in the new image with the live container's environment, applies only
+# migrations not yet recorded in crm.schema_migrations, and needs a backup first.
+gate_args=(--rm --network "$network_mode")
+for env_value in "${env_values[@]}"; do
+  [[ -n "$env_value" ]] && gate_args+=(--env "$env_value")
+done
+run_gate() {
+  docker run "${gate_args[@]}" "$image_name" node scripts/apply-schema-migrations.js "$@"
+}
+
+gate_status=0
+run_gate --status || gate_status=$?
+case "$gate_status" in
+  0)
+    echo 'Database schema is current.'
+    ;;
+  3)
+    test -n "${AUREUM_DB_BACKUP_COMMAND:-}" || die 'Migrations are pending but AUREUM_DB_BACKUP_COMMAND is not set; refusing to migrate without a backup.'
+    bash -c "$AUREUM_DB_BACKUP_COMMAND" || die 'Database backup failed; nothing was migrated.'
+    run_gate --apply || die 'Schema migration failed; the running container was not changed.'
+    ;;
+  4)
+    die 'The database has no migration baseline. Record it once with --baseline-through before deploying.'
+    ;;
+  *)
+    die "Schema status check failed (exit ${gate_status})."
+    ;;
+esac
+run_gate --require-current || die 'Schema verification failed; the running container was not changed.'
+
 docker rm -f "$candidate_name" >/dev/null 2>&1 || true
 docker rm -f "$backup_name" >/dev/null 2>&1 || true
 
