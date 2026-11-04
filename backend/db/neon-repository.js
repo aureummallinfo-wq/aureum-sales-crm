@@ -198,8 +198,9 @@ function createNeonRepository(sql) {
   async function updateLastActivity(userIdentifier) {
     const userId = await resolveUserId(workspace, userIdentifier);
     if (!userId) return null;
-    await sql.query('UPDATE crm.users SET last_activity_at = now(), updated_at = now() WHERE id = $1', [userId]);
-    return findUser(workspace, userIdentifier);
+    const rows = await sql.query('UPDATE crm.users SET last_activity_at = now(), updated_at = now() WHERE id = $1 RETURNING id, legacy_id, status, last_login_at, last_activity_at', [userId]);
+    const row = rows[0];
+    return row ? { id: row.legacy_id || row.id, db_id: row.id, status: row.status, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at } : null;
   }
 
   async function listUsers(workspace, actor) {
@@ -519,7 +520,7 @@ function createNeonRepository(sql) {
     if (imported === 'true' || imported === 'imported' || imported === 'webhook') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE`);
     if (imported === 'unassigned') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE AND l.assigned_agent_id IS NULL`);
     if (imported === 'webhook') conditions.push(`l.metadata->>'webhook_connection_id' IS NOT NULL`);
-    const rows = await sql.query(`${leadSelect} WHERE ${conditions.join(' AND ')} ORDER BY l.created_at DESC`, params); return rows.map(leadRecord);
+    const rows = await sql.query(`${leadSelect} WHERE ${conditions.join(' AND ')} ORDER BY l.created_at DESC, l.id DESC`, params); return rows.map(leadRecord);
   }
 
   async function findLeadDuplicate(workspace, { phone = '', email = '' } = {}) {

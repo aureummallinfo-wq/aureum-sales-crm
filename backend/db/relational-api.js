@@ -153,7 +153,8 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (req.method === 'POST' && pathname === '/api/presence/heartbeat') {
       if (!user) return unauthenticated(res);
       const updated = await repository.updateLastActivity(user.id);
-      return json(res, 200, { data: { userId: user.id, presenceStatus: presenceStatus(updated || user), lastActivityAt: updated?.last_activity_at || new Date().toISOString() } });
+      const current = { ...user, ...(updated || {}) };
+      return json(res, 200, { data: { userId: current.id, presenceStatus: presenceStatus(current), lastActivityAt: current.last_activity_at || new Date().toISOString() } });
     }
 
     if (req.method === 'PATCH' && pathname === '/api/presence/status') {

@@ -103,7 +103,7 @@
     const teams = state.leadModule.teams || [];
     const agents = (state.leadModule.agents || []).filter(item => item.status === 'Active' || item.status === 'active' || !item.status);
     const teamOptions = `<option value="">Choose a team</option>${teams.map(team => `<option value="${escape(team.id || team.legacy_id)}">${escape(team.name || team.team_name || team.id)}</option>`).join('')}`;
-    return `<div class="import-dialog-backdrop" data-bulk-assignment-close><section class="import-dialog bulk-assignment-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-assignment-title" onclick="event.stopPropagation()"><div class="drawer-header"><div><div class="eyebrow">Lead ownership</div><h2 id="bulk-assignment-title">Assign ${dialog.count} selected lead${dialog.count === 1 ? '' : 's'}</h2><p class="page-subtitle">Choose a team queue, then optionally give the leads to one advisor.</p></div><button class="drawer-close" type="button" data-bulk-assignment-close aria-label="Close assignment dialog">×</button></div><form id="bulk-assignment-form"><div class="form-grid"><div class="form-field"><label for="bulk-assignment-team">Team</label><select id="bulk-assignment-team" name="assigned_team_id" required>${teamOptions}</select><small class="form-hint">Team-only assignment keeps the leads in the manager queue.</small></div><div class="form-field"><label for="bulk-assignment-agent">Sales agent</label><select id="bulk-assignment-agent" name="assigned_agent_id"><option value="">Team queue — assign later</option>${agents.map(agent => `<option value="${escape(agent.id)}">${escape(agent.full_name || agent.fullName || agent.name)}${agent.team_name ? ` · ${escape(agent.team_name)}` : ''}</option>`).join('')}</select><small class="form-hint">An agent assignment makes the leads appear in that agent’s My Leads.</small></div></div><div class="drawer-action-row"><button class="btn btn-secondary" type="button" data-bulk-assignment-close>Cancel</button><button class="btn btn-gold" type="submit">Assign selected leads</button></div></form></section></div>`;
+    return `<div class="import-dialog-backdrop" data-bulk-assignment-close><section class="import-dialog bulk-assignment-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-assignment-title" onclick="event.stopPropagation()"><div class="drawer-header"><div><div class="eyebrow">Lead ownership</div><h2 id="bulk-assignment-title">Assign ${dialog.count} selected lead${dialog.count === 1 ? '' : 's'}</h2><p class="page-subtitle">Choose a team queue or an advisor. An advisor’s team is used automatically.</p></div><button class="drawer-close" type="button" data-bulk-assignment-close aria-label="Close assignment dialog">×</button></div><form id="bulk-assignment-form"><div class="form-grid"><div class="form-field"><label for="bulk-assignment-team">Team queue <span class="form-hint">(optional when assigning an advisor)</span></label><select id="bulk-assignment-team" name="assigned_team_id">${teamOptions}</select><small class="form-hint">Team-only assignment keeps the leads in the manager queue.</small></div><div class="form-field"><label for="bulk-assignment-agent">Sales agent</label><select id="bulk-assignment-agent" name="assigned_agent_id"><option value="">Team queue — assign later</option>${agents.map(agent => `<option value="${escape(agent.id)}">${escape(agent.full_name || agent.fullName || agent.name)}${agent.team_name ? ` · ${escape(agent.team_name)}` : ''}</option>`).join('')}</select><small class="form-hint">An agent assignment makes the leads appear in that agent’s My Leads.</small></div></div><div class="drawer-action-row"><button class="btn btn-secondary" type="button" data-bulk-assignment-close>Cancel</button><button class="btn btn-gold" type="submit">Assign selected leads</button></div></form></section></div>`;
   };
 
   const importHeaderAliases = { name: 'full_name', full_name: 'full_name', fullname: 'full_name', phone: 'phone', phone_number: 'phone', mobile: 'phone', whatsapp: 'whatsapp_number', whatsapp_number: 'whatsapp_number', email: 'email', city: 'city', area: 'area', locality: 'area', interested_in: 'interested_in', interest: 'interested_in', property: 'interested_in', property_type: 'property_type', budget: 'budget', preferred_location: 'preferred_location', purpose: 'purpose', buying_timeline: 'buying_timeline', lead_source: 'lead_source', source: 'lead_source', priority: 'priority', status: 'status', assigned_agent_id: 'assigned_agent_id', financing_required: 'financing_required', tags: 'tags', tag: 'tags' };
@@ -164,7 +164,7 @@
     const selected = [...selectedLeadIds()];
     if (!selected.length) return;
     const data = Object.fromEntries(new FormData(form).entries());
-    if (!data.assigned_team_id) { showToast('Choose a team first.'); return; }
+    if (!data.assigned_team_id && !data.assigned_agent_id) { showToast('Choose a team or an active advisor.'); return; }
     form.dataset.saving = 'true';
     const button = form.querySelector('button[type="submit"]');
     if (button) button.disabled = true;
@@ -201,6 +201,10 @@
       if (filters.priority && lead.priority !== filters.priority) return false;
       if (filters.agentId && String(lead.assigned_agent_id || '') !== String(filters.agentId)) return false;
       return true;
+    }).sort((left, right) => {
+      const leftTime = Date.parse(left.created_at || left.createdAt || '') || 0;
+      const rightTime = Date.parse(right.created_at || right.createdAt || '') || 0;
+      return rightTime - leftTime;
     }) : [];
   }
 

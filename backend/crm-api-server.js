@@ -894,7 +894,7 @@ function reportAgentDetailFor(user, agentId, searchParams) { const response = re
 
 function json(res, status, payload, headers = {}) {
   if (res.writableEnded) return;
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...corsHeaders(res.__aureumRequest), ...headers });
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'", ...corsHeaders(res.__aureumRequest), ...headers });
   res.end(JSON.stringify(payload));
 }
 
@@ -1050,14 +1050,14 @@ function staticFile(res, pathname) {
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     if (!path.extname(filePath)) {
       const shell = path.join(ROOT, 'frontend', 'index.html');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
       fs.createReadStream(shell).pipe(res);
       return;
     }
     res.writeHead(404); res.end('Not found'); return;
   }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
-  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
+  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
   fs.createReadStream(filePath).pipe(res);
 }
 
@@ -1221,7 +1221,7 @@ async function handle(req, res) {
     if (user) {
       if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
         const updated = await NEON_REPOSITORY.updateLastActivity(user.id);
-        const current = updated || user;
+        const current = { ...user, ...(updated || {}) };
         const manual = String(current.presence_status || '').trim().toLowerCase();
         const presenceStatus = ['online', 'away', 'offline'].includes(manual)
           ? `${manual.slice(0, 1).toUpperCase()}${manual.slice(1)}`
@@ -1435,6 +1435,7 @@ async function handle(req, res) {
       if (imported === 'true' || imported === 'imported') data = data.filter(lead => lead.is_imported);
       if (imported === 'unassigned') data = data.filter(lead => lead.is_imported && !lead.assigned_agent_id);
       if (imported === 'webhook') data = data.filter(lead => lead.is_imported && lead.webhook_connection_id);
+      data.sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
       json(res, 200, { scope: 'all', requestedBy: user.role, data: data.map(leadView) });
     }
     return;
@@ -1442,7 +1443,10 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/leads/my') {
     const user = requireAuth(req, res);
-    if (user) json(res, 200, { scope: 'my', requestedBy: user.role, data: leads.filter(lead => lead.assigned_agent_id === user.id).map(leadView) });
+    if (user) {
+      const data = leads.filter(lead => lead.assigned_agent_id === user.id).sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
+      json(res, 200, { scope: 'my', requestedBy: user.role, data: data.map(leadView) });
+    }
     return;
   }
 

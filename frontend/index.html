@@ -7,17 +7,7 @@
     <title>Aureum Sales CRM</title>
     <link rel="icon" type="image/png" href="/assets/aureum-logo.png" />
     <link rel="apple-touch-icon" href="/assets/aureum-logo.png" />
-    <script>
-      (function () {
-        try {
-          var saved = JSON.parse(localStorage.getItem('aureum.crm.preferences.v1') || '{}');
-          var theme = ['light', 'dark', 'system'].includes(saved.theme) ? saved.theme : 'light';
-          var dark = theme === 'dark' || (theme === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        } catch (_) { document.documentElement.dataset.theme = 'light'; document.documentElement.style.colorScheme = 'light'; }
-      }());
-    </script>
+    <script src="/theme-init.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap" rel="stylesheet" />

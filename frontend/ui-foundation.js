@@ -73,7 +73,7 @@
       dropdown.className = 'tag-dropdown';
       const labelElement = select.labels?.[0] || select.closest('.form-field')?.querySelector('label');
       const label = [...(labelElement?.childNodes || [])].filter(node => node.nodeType === 3).map(node => node.textContent).join(' ').trim() || 'Status tags';
-      dropdown.innerHTML = `<summary aria-label="${escape(label)}"><span data-tag-summary></span><span aria-hidden="true">⌄</span></summary><div class="tag-dropdown-options" role="group" aria-label="${escape(label)} options">${[...select.options].map(option => `<label class="tag-dropdown-option"><input type="checkbox" value="${escape(option.value)}" ${option.selected ? 'checked' : ''} /><span>${escape(option.textContent)}</span></label>`).join('')}</div>`;
+      dropdown.innerHTML = `<summary aria-label="${escape(label)}"><span data-tag-summary></span><span aria-hidden="true">⌄</span></summary><div class="tag-dropdown-options" role="group" aria-label="${escape(label)} options">${[...select.options].map((option, index) => { const inputId = `${select.id || select.name || 'tag-select'}-option-${index}`; const inputName = `${select.name || 'tag'}-option`; return `<label class="tag-dropdown-option" for="${escape(inputId)}"><input id="${escape(inputId)}" name="${escape(inputName)}" type="checkbox" value="${escape(option.value)}" aria-label="${escape(option.textContent)}" ${option.selected ? 'checked' : ''} /><span>${escape(option.textContent)}</span></label>`; }).join('')}</div>`;
       select.hidden = true;
       select.after(dropdown);
       const summary = dropdown.querySelector('[data-tag-summary]');
