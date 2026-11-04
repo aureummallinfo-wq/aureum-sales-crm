@@ -914,6 +914,11 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 .customer-note-head strong { color: var(--gold); font-size: 10px; text-transform: uppercase; }
 .customer-note-head span, .customer-note time { color: var(--muted); font-size: 11px; line-height: 1.5; }
 .customer-note p { margin: 7px 0; color: var(--ink); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.saved-note-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
+.saved-note-meta time, .saved-note-edited { min-width: 0; overflow-wrap: anywhere; }
+.saved-note-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.saved-note-actions .btn { margin: 0; }
+.saved-note-feedback { margin-top: 10px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .drawer .form-hint { margin: 10px 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .customer-detail-drawer #customer-module-note-form { display: grid; gap: 8px; }
 .customer-detail-drawer #customer-module-note-form label { color: var(--muted); font-size: 10px; font-weight: 700; }
