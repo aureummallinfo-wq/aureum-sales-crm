@@ -100,7 +100,9 @@ const failedWebhookLeads = [];
 const rolePermissions = {
   super_admin: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
   sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
-  sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
+  sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password'],
+  hr: ['dashboard', 'tasks', 'team-chat', 'my-account', 'change-password'],
+  project_manager: ['dashboard', 'tasks', 'team-chat', 'reports', 'my-account', 'change-password']
 };
 
 const dashboardByRole = {
@@ -138,6 +140,8 @@ const dashboardByRole = {
     todayFollowUps: [{ time: '10:00 AM', customer: 'Ahmed Khan', type: 'Phone call', agent: 'Ali Raza', status: 'Pending' }, { time: '03:00 PM', customer: 'Zoya Tariq', type: 'Plan review', agent: 'Ali Raza', status: 'Overdue' }, { time: '05:00 PM', customer: 'Hira Malik', type: 'WhatsApp', agent: 'Ali Raza', status: 'Completed' }]
   }
 };
+dashboardByRole.hr = { ...dashboardByRole.sales_agent, scopeLabel: 'People operations overview' };
+dashboardByRole.project_manager = { ...dashboardByRole.super_admin, scopeLabel: 'Company-wide operations' };
 
 function passwordHash(password, salt = 'aureum-local-demo') {
   return crypto.scryptSync(password, salt, 64).toString('hex');
@@ -158,7 +162,7 @@ const CRM_TIMEZONE = 'Asia/Karachi';
 const USER_INVITE_STATUSES = ['Not Sent', 'Pending', 'Sent', 'Accepted', 'Expired', 'Failed'];
 const USER_ACTIVITY_STATUSES = ['Online', 'Offline', 'Away'];
 const USER_STATUS_LABELS = { active: 'Active', inactive: 'Inactive', pending: 'Pending', suspended: 'Suspended' };
-const USER_ROLE_LABELS = { super_admin: 'Super Admin', sales_manager: 'Sales Manager', sales_agent: 'Sales Agent' };
+const USER_ROLE_LABELS = { super_admin: 'Super Admin', sales_manager: 'Sales Manager', sales_agent: 'Sales Agent', hr: 'HR', project_manager: 'Project Manager' };
 const teams = [
   { id: 'team_a', name: 'Sales Team A', description: 'Primary Lahore sales desk', manager_id: 'usr_002' }
 ];
@@ -270,8 +274,9 @@ function temporaryPasswordExpiry() { return new Date(Date.now() + (Number(system
 function passwordPolicySatisfied(password) { const policy = systemSettings.security || {}; const value = String(password || ''); return value.length >= Math.max(8, Number(policy.minimum_password_length) || 8) && (!policy.require_uppercase || /[A-Z]/.test(value)) && (!policy.require_lowercase || /[a-z]/.test(value)) && (!policy.require_number || /[0-9]/.test(value)) && (!policy.require_special_character || /[^A-Za-z0-9]/.test(value)); }
 function userAuditView(item) { return { ...item, createdAt: item.created_at, actorUserId: item.actor_user_id, actorName: users.find(user => user.id === item.actor_user_id)?.full_name || item.actor_name || 'Aureum workspace' }; }
 
+function reportingScopeUser(user) { return user?.role === 'project_manager' ? { ...user, role: 'super_admin' } : user; }
 function canViewLead(user, lead) {
-  return canViewOwnedRecord(user, lead, 'assigned_agent_id', 'assigned_team_id');
+  return canViewOwnedRecord(reportingScopeUser(user), lead, 'assigned_agent_id', 'assigned_team_id');
 }
 
 function leadView(lead) {
@@ -348,7 +353,7 @@ function syncTaggedLeadFollowUp(user, lead) {
   followUps.unshift(item); followUpActivities.set(item.id, []); addFollowUpActivity(item, user.id, 'Follow-up scheduled', `${item.follow_up_type} scheduled from the Follow-up status tag.`); addFollowUpNotification(item, 'follow_up_due'); customer.next_follow_up_at = `${dueDate} · ${dueTime}`; customerFollowUps.set(customer.id, [{ id: item.id, type: item.follow_up_type, due_date: `${dueDate} · ${dueTime}`, agent: item.assigned_agent, status: 'Pending', note: item.notes }, ...(customerFollowUps.get(customer.id) || [])]);
 }
 
-function canViewCustomer(user, customer) { return canViewOwnedRecord(user, customer); }
+function canViewCustomer(user, customer) { return canViewOwnedRecord(reportingScopeUser(user), customer); }
 
 function customerView(customer) {
   return { ...customer, meta: `${customer.phone} · ${customer.city}`, interest: customer.interested_in, budget: customer.budget, status: customer.customer_status, source: customer.lead_source, agent: customer.assigned_agent, next: customer.next_follow_up_at, last_activity: customer.last_activity_description || '', last_activity_at: customer.last_activity_at || customer.updated_at };
@@ -398,7 +403,7 @@ function canViewFollowUp(user, item, includeClosed = false) {
   if (!customer || (item.lead_id && item.lead_id !== customer.lead_id)
     || item.assigned_agent_id !== customer.assigned_agent_id || item.assigned_team_id !== customer.assigned_team_id) return false;
   if (!includeClosed && statusTags.isTerminal(customer.customer_status, customer.tags)) return false;
-  return canViewOwnedRecord(user,item) && canViewCustomer(user,customer);
+  return canViewOwnedRecord(reportingScopeUser(user),item) && canViewCustomer(user,customer);
 }
 
 function refreshFollowUpStatuses() {
@@ -521,9 +526,10 @@ function dashboardAgentPerformance(user, bounds) {
 function dashboardForUser(user, searchParams = new URLSearchParams()) {
   refreshFollowUpStatuses();
   const bounds = reportDateBounds(Object.fromEntries(searchParams.entries()));
-  const visibleLeads = leads.filter(item => canViewLead(user, item) && reportInRange(item.created_at || item.updated_at, bounds));
-  const visibleCustomers = customers.filter(item => canViewCustomer(user, item) && reportInRange(item.created_at || item.updated_at, bounds));
-  const visibleFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => canViewFollowUp(user, item) && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds));
+  const dashboardUser = user.role === 'project_manager' ? { ...user, role: 'super_admin' } : user;
+  const visibleLeads = leads.filter(item => canViewLead(dashboardUser, item) && reportInRange(item.created_at || item.updated_at, bounds));
+  const visibleCustomers = customers.filter(item => canViewCustomer(dashboardUser, item) && reportInRange(item.created_at || item.updated_at, bounds));
+  const visibleFollowUps = uniqueFollowUps(followUps.map(followUpView)).filter(item => canViewFollowUp(dashboardUser, item) && reportInRange(`${item.due_date}T${item.due_time || '00:00'}:00+05:00`, bounds));
   const completed = visibleFollowUps.filter(item => isCompletedFollowUp(item)).length;
   const overdue = visibleFollowUps.filter(item => item.status === 'Overdue').length;
   const pending = visibleFollowUps.filter(item => ['Pending', 'Rescheduled', 'Contacted'].includes(item.status) && !item.completed_at).length;
@@ -538,7 +544,7 @@ function dashboardForUser(user, searchParams = new URLSearchParams()) {
   const recentLeads = [...visibleLeads].filter(item => !assignedAgentId || item.assigned_agent_id === assignedAgentId).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8).map(item => ({ id: item.id, name: item.full_name, initials: item.initials, phone: item.phone, source: item.lead_source, interest: item.interested_in, assignedAgentId: item.assigned_agent_id, agent: item.assigned_agent, status: item.status, created: item.created_at }));
   const base = dashboardByRole[user.role] || dashboardByRole.sales_agent;
   const summary = { totalLeads, newLeads: visibleLeads.filter(item => item.status === 'New').length, hotLeads: visibleLeads.filter(item => ['Hot', 'Negotiation'].includes(item.status)).length, followUpsDue: pending, overdueFollowUps: overdue, activeCustomers: visibleCustomers.filter(item => !['Closed Won', 'Closed Lost', 'Not Interested', 'Invalid'].includes(item.customer_status)).length, closedDeals: closed, conversionRate: totalLeads ? Number(((closed / totalLeads) * 100).toFixed(1)) : 0, bookingVolume: dashboardBookingVolume(visibleLeads) };
-  return { ...base, scopeLabel: user.role === 'super_admin' ? 'Company-wide data' : user.role === 'sales_manager' ? `${userTeamName(user.team_id)} · Team data` : 'My data only', summary, leadInflow: dashboardLeadInflow(visibleLeads, bounds), leadSources, conversionOverview, agentPerformance: user.role === 'sales_agent' ? null : dashboardAgentPerformance(user, bounds), todayFollowUps, recentLeads, followUpPerformance: [{ name: 'Completed', value: completed }, { name: 'Pending', value: pending }, { name: 'Overdue', value: overdue }, { name: 'Missed', value: visibleFollowUps.filter(item => item.status === 'Missed').length }, { name: 'Rescheduled', value: visibleFollowUps.filter(item => item.status === 'Rescheduled').length }], dateRange: bounds.dateRange, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, startDate: bounds.startDate, endDate: bounds.endDate } };
+  return { ...base, scopeLabel: user.role === 'super_admin' ? 'Company-wide data' : user.role === 'project_manager' ? 'Company-wide operations' : user.role === 'sales_manager' ? `${userTeamName(user.team_id)} · Team data` : user.role === 'hr' ? 'People operations overview' : 'My data only', summary, leadInflow: dashboardLeadInflow(visibleLeads, bounds), leadSources, conversionOverview, agentPerformance: ['sales_agent', 'hr'].includes(user.role) ? null : dashboardAgentPerformance(dashboardUser, bounds), todayFollowUps, recentLeads, followUpPerformance: [{ name: 'Completed', value: completed }, { name: 'Pending', value: pending }, { name: 'Overdue', value: overdue }, { name: 'Missed', value: visibleFollowUps.filter(item => item.status === 'Missed').length }, { name: 'Rescheduled', value: visibleFollowUps.filter(item => item.status === 'Rescheduled').length }], dateRange: bounds.dateRange, meta: { generatedAt: new Date().toISOString(), timezone: REPORT_TIMEZONE, startDate: bounds.startDate, endDate: bounds.endDate } };
 }
 
 const chatChannels = [
@@ -757,7 +763,7 @@ function addActivityLog(actorUserId, entityType, entityId, actionType, descripti
 function addUserAudit(targetId, actorId, action, description) { const entry = { id: crypto.randomUUID(), user_id: targetId, action, description, actor_user_id: actorId, actor_name: users.find(user => user.id === actorId)?.full_name || 'Aureum workspace', created_at: new Date().toISOString() }; userAuditLogs.set(targetId, [entry, ...(userAuditLogs.get(targetId) || [])]); addActivityLog(actorId, 'user', targetId, action, description); return entry; }
 function userDetailPayload(actor, target) { return { user: userManagementView(actor, target), auditLogs: (userAuditLogs.get(target.id) || []).map(userAuditView).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }; }
 function normalizeUserStatus(value) { const raw = String(value || '').trim(); return ({ Active: 'active', Inactive: 'inactive', Pending: 'pending', Suspended: 'suspended', active: 'active', inactive: 'inactive', pending: 'pending', suspended: 'suspended' })[raw] || 'active'; }
-function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
+function canCreateManagedUser(actor, role) { return Boolean(actor && ['sales_manager', 'sales_agent', 'hr', 'project_manager'].includes(role) && (actor.role === 'super_admin' || (actor.role === 'sales_manager' && role === 'sales_agent'))); }
 function canManageTeam(actor, teamId) { return Boolean(actor?.role === 'super_admin' || (actor?.role === 'sales_manager' && (!teamId || teamId === actor.team_id))); }
 function sendUserAccessEmail(actor, target, action = 'access_email_sent') { const temporaryPassword = generateTemporaryPassword(); target.password_hash = passwordHash(temporaryPassword); target.must_change_password = true; target.has_temporary_password = true; target.temporary_password_expires_at = temporaryPasswordExpiry(); target.invite_status = 'Sent'; target.access_email_sent_at = new Date().toISOString(); target.updated_at = new Date().toISOString(); loginAttempts.delete(`user:${target.id}`); userInvites.set(target.id, { userId: target.id, passwordHash: target.password_hash, sentAt: target.access_email_sent_at, status: 'sent', expiresAt: target.temporary_password_expires_at }); addUserAudit(target.id, actor.id, action, `${action === 'password_reset' ? 'Temporary password reset' : 'Access email sent'} for ${target.full_name}.`); return { success: true, status: 'sent', message: 'Access email sent successfully.', sentAt: target.access_email_sent_at }; }
 function settingsView() { return { company: { ...systemSettings.company }, preferences: { ...systemSettings.preferences }, security: { ...systemSettings.security }, emailAccess: { ...systemSettings.email_access } }; }
@@ -848,7 +854,7 @@ function groupView(user, group) {
 function chatAttachmentView(attachment) { const uploader = users.find(item => item.id === attachment.uploaded_by); return { ...attachment, fileName: attachment.file_name, fileType: attachment.file_type, fileSize: attachment.file_size, uploadedBy: attachment.uploaded_by, uploadedByName: uploader?.full_name || 'Aureum user', uploadedAt: attachment.uploaded_at }; }
 function chatLinkView(link) { const sharer = users.find(item => item.id === link.shared_by); return { ...link, sharedBy: link.shared_by, sharedByName: sharer?.full_name || 'Aureum user', sharedAt: link.shared_at }; }
 
-function reportUsersFor(user) { return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id)); }
+function reportUsersFor(user) { const companyScope = ['super_admin', 'project_manager'].includes(user.role); return users.filter(item => ['sales_agent', 'sales_manager'].includes(item.role) && (companyScope || item.team_id === user.team_id)); }
 function reportRowsFor(user) {
   return reportUsersFor(user).map(agent => {
     const agentLeads = leads.filter(lead => lead.assigned_agent_id === agent.id);
@@ -863,7 +869,7 @@ function reportRowsFor(user) {
   });
 }
 
-function agentInScope(actor, target) { return Boolean(actor && target && ['super_admin'].includes(actor.role) || actor && target && actor.role === 'sales_manager' && target.team_id === actor.team_id); }
+function agentInScope(actor, target) { return Boolean(actor && target && ['super_admin', 'project_manager'].includes(actor.role) || actor && target && actor.role === 'sales_manager' && target.team_id === actor.team_id); }
 function agentView(actor, target) { const row = reportRowsFor(actor).find(item => item.id === target.id) || {}; return { ...publicUser(target), ...row }; }
 
 const REPORT_TIMEZONE = 'Asia/Karachi';
@@ -1778,15 +1784,15 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/chat/unread-counts') { const user = requireAuth(req, res); if (user) { const channels = Object.fromEntries(chatChannels.filter(channel => canViewChannel(user, channel)).map(channel => [channel.id, chatUnreadCount(user, channel.id, chatMessages.get(channel.id) || [], chatDefaultUnread[channel.id] || 0)])); const groups = Object.fromEntries(groupChats.filter(group => canAccessGroup(user, group)).map(group => [group.id, chatUnreadCount(user, group.id, groupMessages.get(group.id) || [], (groupMessages.get(group.id) || []).filter(message => message.sender_id !== user.id).length)])); const direct = {}; const total = [...Object.values(channels), ...Object.values(groups), ...Object.values(direct)].reduce((sum, value) => sum + Number(value || 0), 0); json(res, 200, { data: { total, channels, groups, direct } }); } return; }
 
   if (req.method === 'GET' && url.pathname === '/api/reports/summary') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const report = reportResponseFor(user, url.searchParams); json(res, 200, { scope: report.scope, data: report.summary, meta: report.meta }); } return;
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) { const report = reportResponseFor(user, url.searchParams); json(res, 200, { scope: report.scope, data: report.summary, meta: report.meta }); } return;
   }
-  if (req.method === 'GET' && url.pathname === '/api/reports/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const report = reportResponseFor(user, url.searchParams); json(res, 200, { data: report.agentReports, meta: report.meta }); } return; }
+  if (req.method === 'GET' && url.pathname === '/api/reports/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) { const report = reportResponseFor(user, url.searchParams); json(res, 200, { data: report.agentReports, meta: report.meta }); } return; }
   const reportAgentDetailMatch = url.pathname.match(/^\/api\/reports\/agents\/([^/]+)$/);
-  if (reportAgentDetailMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const detail = reportAgentDetailFor(user, reportAgentDetailMatch[1], url.searchParams); if (!detail) { json(res, 404, { error: 'Agent report not found in your permitted scope' }); return; } json(res, 200, { data: detail }); } return; }
+  if (reportAgentDetailMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) { const detail = reportAgentDetailFor(user, reportAgentDetailMatch[1], url.searchParams); if (!detail) { json(res, 404, { error: 'Agent report not found in your permitted scope' }); return; } json(res, 200, { data: detail }); } return; }
   const reportAgentMatch = url.pathname.match(/^\/api\/reports\/agents\/([^/]+)(?:\/(leads|follow-ups|customers|activity))?$/);
-  if (reportAgentMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === reportAgentMatch[1]); if (!target) { json(res, 404, { error: 'Agent not found' }); return; } if (!agentInScope(user, target)) { json(res, 403, { error: 'Access denied — agent is outside your reporting scope' }); return; } const tab = reportAgentMatch[2]; if (tab === 'leads') { json(res, 200, { data: leads.filter(item => item.assigned_agent_id === target.id).map(leadView) }); return; } if (tab === 'follow-ups') { json(res, 200, { data: followUps.filter(item => item.assigned_agent_id === target.id).map(followUpView) }); return; } if (tab === 'customers') { json(res, 200, { data: customers.filter(item => item.assigned_agent_id === target.id).map(customerView) }); return; } if (tab === 'activity') { json(res, 200, { data: userActivities.get(target.id) || [] }); return; } json(res, 200, { data: agentView(user, target) }); return; }
+  if (reportAgentMatch && req.method === 'GET') { const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); const target = users.find(item => item.id === reportAgentMatch[1]); if (!target) { json(res, 404, { error: 'Agent not found' }); return; } if (!agentInScope(user, target)) { json(res, 403, { error: 'Access denied — agent is outside your reporting scope' }); return; } const tab = reportAgentMatch[2]; if (tab === 'leads') { json(res, 200, { data: leads.filter(item => item.assigned_agent_id === target.id).map(leadView) }); return; } if (tab === 'follow-ups') { json(res, 200, { data: followUps.filter(item => item.assigned_agent_id === target.id).map(followUpView) }); return; } if (tab === 'customers') { json(res, 200, { data: customers.filter(item => item.assigned_agent_id === target.id).map(customerView) }); return; } if (tab === 'activity') { json(res, 200, { data: userActivities.get(target.id) || [] }); return; } json(res, 200, { data: agentView(user, target) }); return; }
   if (req.method === 'POST' && url.pathname === '/api/reports/export') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']);
     if (user) {
       const body = await readBody(req);
       const allowedTypes = ['agent_report', 'lead_report', 'customer_report', 'followup_report', 'conversion_report'];
@@ -1800,10 +1806,10 @@ async function handle(req, res) {
     }
     return;
   }
-  if (req.method === 'GET' && url.pathname.match(/^\/api\/reports\/export\/(pdf|excel)$/)) { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const rows = reportRowsFor(user); const csv = ['Agent,Role,Assigned Leads,Follow-ups Completed,Overdue Follow-ups,Closed Deals,Conversion Rate', ...rows.map(row => [row.name, row.role, row.assignedLeads, row.followUpsCompleted, row.overdueFollowUps, row.closedDeals, row.conversionRate].join(','))].join('\n'); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aureum-agent-report.csv"' }); res.end(csv); } return; }
+  if (req.method === 'GET' && url.pathname.match(/^\/api\/reports\/export\/(pdf|excel)$/)) { const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) { const rows = reportRowsFor(user); const csv = ['Agent,Role,Assigned Leads,Follow-ups Completed,Overdue Follow-ups,Closed Deals,Conversion Rate', ...rows.map(row => [row.name, row.role, row.assignedLeads, row.followUpsCompleted, row.overdueFollowUps, row.closedDeals, row.conversionRate].join(','))].join('\n'); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aureum-agent-report.csv"' }); res.end(csv); } return; }
 
   if (req.method === 'GET' && url.pathname === '/api/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportUsersFor(user).map(target => agentView(user, target)) }); return; }
-  if (req.method === 'POST' && url.pathname === '/api/agents') { const actor = requireRole(req, res, ['super_admin', 'sales_manager']); if (actor) { const body = await readBody(req); const role = body.role || 'sales_agent'; if (!body.full_name || !body.email || !body.password || !['sales_agent', 'sales_manager'].includes(role) || (actor.role === 'sales_manager' && role !== 'sales_agent')) { json(res, 400, { error: 'Name, email, password, and an allowed role are required' }); return; } if (users.some(item => item.email === String(body.email).toLowerCase())) { json(res, 409, { error: 'Email already exists' }); return; } const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: body.full_name, email: String(body.email).toLowerCase(), phone: body.phone || '', password_hash: passwordHash(body.password), role, team_id: actor.role === 'sales_manager' ? actor.team_id : body.team_id || null, status: body.status || 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; users.push(created); userActivities.set(created.id, [{ id: crypto.randomUUID(), activity_type: 'Agent created', description: `${created.full_name} added to the workspace.`, created_at: new Date().toISOString() }]); json(res, 201, { data: agentView(actor, created) }); } return; }
+  if (req.method === 'POST' && url.pathname === '/api/agents') { const actor = requireRole(req, res, ['super_admin', 'sales_manager']); if (actor) { const body = await readBody(req); const role = body.role || 'sales_agent'; if (!body.full_name || !body.email || !body.password || !['sales_agent', 'sales_manager', 'hr', 'project_manager'].includes(role) || (actor.role === 'sales_manager' && role !== 'sales_agent')) { json(res, 400, { error: 'Name, email, password, and an allowed role are required' }); return; } if (users.some(item => item.email === String(body.email).toLowerCase())) { json(res, 409, { error: 'Email already exists' }); return; } const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: body.full_name, email: String(body.email).toLowerCase(), phone: body.phone || '', password_hash: passwordHash(body.password), role, team_id: actor.role === 'sales_manager' ? actor.team_id : body.team_id || null, status: body.status || 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; users.push(created); userActivities.set(created.id, [{ id: crypto.randomUUID(), activity_type: 'Staff user created', description: `${created.full_name} added to the workspace as ${USER_ROLE_LABELS[created.role]}.`, created_at: new Date().toISOString() }]); json(res, 201, { data: agentView(actor, created) }); } return; }
   const agentMatch = url.pathname.match(/^\/api\/agents\/([^/]+)(?:\/(status|team|leads|follow-ups|customers|activity))?$/);
   if (agentMatch) { const actor = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === agentMatch[1]); if (!target) { json(res, 404, { error: 'Agent not found' }); return; } if (!agentInScope(actor, target)) { json(res, 403, { error: 'Access denied — agent is outside your management scope' }); return; } const action = agentMatch[2]; if (req.method === 'GET') { if (action === 'leads') { json(res, 200, { data: leads.filter(item => item.assigned_agent_id === target.id).map(leadView) }); return; } if (action === 'follow-ups') { json(res, 200, { data: followUps.filter(item => item.assigned_agent_id === target.id).map(followUpView) }); return; } if (action === 'customers') { json(res, 200, { data: customers.filter(item => item.assigned_agent_id === target.id).map(customerView) }); return; } if (action === 'activity') { json(res, 200, { data: userActivities.get(target.id) || [] }); return; } json(res, 200, { data: agentView(actor, target) }); return; } if (req.method === 'PATCH') { const body = await readBody(req); if (action === 'status') target.status = body.status || target.status; else if (action === 'team') { if (actor.role !== 'super_admin') { json(res, 403, { error: 'Only Super Admin can change teams' }); return; } target.team_id = body.team_id || null; } else { if (actor.role === 'sales_manager' && (target.role !== 'sales_agent' || body.role === 'super_admin')) { json(res, 403, { error: 'Managers can only edit team sales agents' }); return; } ['full_name', 'email', 'phone', 'role', 'team_id', 'status'].forEach(field => { if (body[field] !== undefined) target[field] = body[field]; }); if (body.password) target.password_hash = passwordHash(body.password); } target.updated_at = new Date().toISOString(); userActivities.set(target.id, [{ id: crypto.randomUUID(), activity_type: 'Agent updated', description: `${target.full_name} profile was updated.`, created_at: new Date().toISOString() }, ...(userActivities.get(target.id) || [])]); json(res, 200, { data: agentView(actor, target) }); return; } json(res, 405, { error: 'Method not allowed' }); return; }
 
@@ -1907,8 +1913,8 @@ async function handle(req, res) {
       addActivityLog(user.id, 'settings', 'email-access', 'Email settings updated', 'Access email and password reset templates were updated.'); json(res, 200, { data: systemSettings.email_access }); return;
     }
     if (req.method === 'GET' && url.pathname === '/api/settings/permissions') {
-      const roleKey = { super_admin: 'SUPER_ADMIN', sales_manager: 'SALES_MANAGER', sales_agent: 'SALES_AGENT' };
-      const data = permissionCatalog.map(([key, label]) => ({ key, label, super_admin: key === 'settings.manage' || key.startsWith('settings') ? true : true, sales_manager: ['dashboard.view', 'leads.view_all', 'leads.view_own', 'leads.create', 'leads.assign', 'customers.view', 'followups.manage', 'chat.use', 'reports.view', 'agents.manage'].includes(key), sales_agent: ['dashboard.view', 'leads.view_own', 'leads.create', 'customers.view', 'followups.manage', 'chat.use'].includes(key) }));
+      const roleKey = { super_admin: 'SUPER_ADMIN', sales_manager: 'SALES_MANAGER', sales_agent: 'SALES_AGENT', hr: 'HR', project_manager: 'PROJECT_MANAGER' };
+      const data = permissionCatalog.map(([key, label]) => ({ key, label, super_admin: true, sales_manager: ['dashboard.view', 'leads.view_all', 'leads.view_own', 'leads.create', 'leads.assign', 'customers.view', 'followups.manage', 'chat.use', 'reports.view', 'agents.manage'].includes(key), sales_agent: ['dashboard.view', 'leads.view_own', 'leads.create', 'customers.view', 'followups.manage', 'chat.use'].includes(key), hr: ['dashboard.view', 'chat.use'].includes(key), project_manager: ['dashboard.view', 'chat.use', 'reports.view'].includes(key) }));
       json(res, 200, { roles: roleKey, data }); return;
     }
     if (req.method === 'PATCH' && url.pathname === '/api/settings/permissions') { addActivityLog(user.id, 'settings', 'permissions', 'Permission settings reviewed', 'Fixed Phase 1 role permissions were reviewed.'); json(res, 200, { data: { message: 'Phase 1 role permissions are fixed by policy.' } }); return; }
@@ -2029,19 +2035,19 @@ async function handle(req, res) {
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/reports/leads') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).leadReport });
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).leadReport });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/reports/customers') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).customerReport });
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).customerReport });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/reports/follow-ups') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).followUpReport });
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).followUpReport });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/reports/conversion-overview') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).charts.conversionOverview });
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) json(res, 200, { data: reportResponseFor(user, url.searchParams).charts.conversionOverview });
     return;
   }
   if (req.method === 'GET' && url.pathname === '/api/settings') {
@@ -2066,7 +2072,7 @@ async function handle(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/dashboard/agent-performance') {
-    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']);
     if (user) { const dashboard = dashboardForUser(user, url.searchParams); json(res, 200, { scope: dashboard.scopeLabel, data: dashboard.agentPerformance }); }
     return;
   }

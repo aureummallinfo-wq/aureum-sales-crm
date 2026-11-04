@@ -6,7 +6,7 @@ Scope: Final SQA, smoke testing, functional testing, unit testing, browser QA, s
 
 ## Objectives
 
-- Verify the final role model: `super_admin`, `sales_manager`, and `sales_agent`.
+- Verify the final role model: `super_admin`, `sales_manager`, `sales_agent`, `hr`, and `project_manager`.
 - Verify route protection, API authorization, object-level ownership, team scoping, webhook secret protection, temporary-password onboarding, and safe error handling.
 - Verify the core CRM modules: Authentication, Dashboard, Leads, Customers, Follow-ups, Team Chat, Reports, Users, Settings, My Account, and Webhooks.
 - Verify the Aureum UI foundation for responsive layout, typography consistency, drawers, forms, tables, filters, and browser smoke.
@@ -54,6 +54,7 @@ Reconciled and verified.
 - No known Critical or High authorization defects.
 - Sales Agent cannot access restricted routes, APIs, or another agent's owned records.
 - Sales Manager cannot access Settings or another team's reporting scope.
+- HR can access people-operations surfaces without sales pipeline access; Project Manager can access company reports without sales-record editing access.
 - Super Admin can access all final administrative surfaces.
 - Webhook secrets are masked after creation and validated for public inbound requests.
 - Final QA documentation and handover checklist are present in `docs/qa`.

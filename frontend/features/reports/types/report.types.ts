@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "sales_manager" | "sales_agent";
+export type UserRole = "super_admin" | "sales_manager" | "sales_agent" | "hr" | "project_manager";
 export type ReportScope = "company" | "team";
 export type ReportDateRange = "today" | "yesterday" | "this_week" | "this_month" | "last_month" | "custom";
 export interface ReportQueryParams { role: UserRole; scope: ReportScope; dateRange: ReportDateRange; startDate?: string; endDate?: string; teamId?: string; agentId?: string; }

@@ -1,14 +1,14 @@
-const CRM_ROLES = Object.freeze(['super_admin', 'sales_manager', 'sales_agent']);
+const CRM_ROLES = Object.freeze(['super_admin', 'sales_manager', 'sales_agent', 'hr', 'project_manager']);
 const ROUTE_PERMISSIONS = Object.freeze({
   dashboard: CRM_ROLES,
   'all-leads': ['super_admin', 'sales_manager'],
-  'my-leads': CRM_ROLES,
+  'my-leads': ['super_admin', 'sales_manager', 'sales_agent'],
   'add-lead': ['super_admin', 'sales_manager', 'sales_agent'],
-  customers: CRM_ROLES,
-  'follow-ups': CRM_ROLES,
+  customers: ['super_admin', 'sales_manager', 'sales_agent'],
+  'follow-ups': ['super_admin', 'sales_manager', 'sales_agent'],
   tasks: CRM_ROLES,
   'team-chat': CRM_ROLES,
-  reports: ['super_admin', 'sales_manager'],
+  reports: ['super_admin', 'sales_manager', 'project_manager'],
   users: ['super_admin', 'sales_manager'],
   settings: ['super_admin'],
   'my-account': CRM_ROLES,

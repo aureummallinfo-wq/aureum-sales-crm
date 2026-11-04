@@ -5,5 +5,7 @@ const { canAccessRoute } = require('../../helpers/security-fixtures');
 test('reports are available to leadership roles and denied to Sales Agents', () => {
   assert.equal(canAccessRoute('super_admin', 'reports'), true);
   assert.equal(canAccessRoute('sales_manager', 'reports'), true);
+  assert.equal(canAccessRoute('project_manager', 'reports'), true);
+  assert.equal(canAccessRoute('hr', 'reports'), false);
   assert.equal(canAccessRoute('sales_agent', 'reports'), false);
 });

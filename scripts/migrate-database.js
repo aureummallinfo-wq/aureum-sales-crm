@@ -23,7 +23,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '013_reconcile_legacy_not_interested.sql'),
   path.join(root, 'db', 'migrations', '014_edit_saved_notes.sql'),
   path.join(root, 'db', 'migrations', '015_meta_crm_feedback.sql'),
-  path.join(root, 'db', 'migrations', '016_closed_won_followup_lifecycle.sql')
+  path.join(root, 'db', 'migrations', '016_closed_won_followup_lifecycle.sql'),
+  path.join(root, 'db', 'migrations', '017_staff_positions.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 
@@ -171,7 +172,7 @@ async function importProductionState() {
   const workspaceId = workspaceRows[0]?.id;
   if (!workspaceId) throw new Error('Could not resolve the production CRM workspace.');
 
-  const roles = [['super_admin', 'Super Admin'], ['sales_manager', 'Sales Manager'], ['sales_agent', 'Sales Agent']];
+  const roles = [['super_admin', 'Super Admin'], ['sales_manager', 'Sales Manager'], ['sales_agent', 'Sales Agent'], ['hr', 'HR'], ['project_manager', 'Project Manager']];
   for (const [key, name] of roles) await upsertGenerated('crm.roles', ['workspace_id', 'key', 'name'], [workspaceId, key, name], ['workspace_id', 'key']);
   const permissionKeys = ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'];
   for (const key of permissionKeys) await upsert('crm.permissions', ['key', 'name'], [key, key.replace(/-/g, ' ')], ['key']);
@@ -182,7 +183,9 @@ async function importProductionState() {
   const permissionsByRole = {
     super_admin: permissionKeys,
     sales_manager: permissionKeys.filter(key => key !== 'settings'),
-    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password']
+    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password'],
+    hr: ['dashboard', 'tasks', 'team-chat', 'my-account', 'change-password'],
+    project_manager: ['dashboard', 'tasks', 'team-chat', 'reports', 'my-account', 'change-password']
   };
   for (const [role, keys] of Object.entries(permissionsByRole)) for (const key of keys) await sql.query('INSERT INTO crm.role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [roleMap.get(role), permissionMap.get(key)]);
 

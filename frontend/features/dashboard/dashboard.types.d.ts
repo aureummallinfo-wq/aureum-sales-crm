@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent';
+export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent' | 'hr' | 'project_manager';
 export type DashboardScope = 'company' | 'team' | 'own';
 export type DashboardDateRange = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom';
 

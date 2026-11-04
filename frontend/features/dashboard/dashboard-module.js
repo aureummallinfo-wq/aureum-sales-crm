@@ -22,7 +22,9 @@ state.dashboardAgentFilter = priorAgentFilter === '*' ? ['*'] : Array.isArray(pr
 const dashboardRoleConfig = {
   SUPER_ADMIN: { role: 'super_admin', scope: 'company', scopeLabel: 'Company-wide data', welcome: 'Welcome back, Super Admin', welcomeCopy: 'Track company-wide leads, follow-ups, users, and sales performance.', quickActions: [['add-lead', 'Add New Lead'], ['leads', 'View All Leads'], ['reports', 'View Reports'], ['agents', 'Manage Users'], ['follow-ups', 'View Follow-ups']] },
   SALES_MANAGER: { role: 'sales_manager', scope: 'team', scopeLabel: 'Team data', welcome: 'Welcome back, Sales Manager', welcomeCopy: 'Monitor team leads, follow-ups, users, and sales progress.', quickActions: [['add-lead', 'Add New Lead'], ['leads', 'View All Leads'], ['follow-ups', 'View Follow-ups'], ['reports', 'View Reports'], ['agents', 'View Users']] },
-  SALES_AGENT: { role: 'sales_agent', scope: 'own', scopeLabel: 'My data only', welcome: 'Welcome back, Sales Agent', welcomeCopy: 'Manage your assigned leads, customers, and follow-ups for today.', quickActions: [['add-lead', 'Add New Lead'], ['my-leads', 'View My Leads'], ['follow-ups', 'View Follow-ups'], ['customers', 'Open Customers'], ['team-chat', 'Team Chat']] }
+  SALES_AGENT: { role: 'sales_agent', scope: 'own', scopeLabel: 'My data only', welcome: 'Welcome back, Sales Agent', welcomeCopy: 'Manage your assigned leads, customers, and follow-ups for today.', quickActions: [['add-lead', 'Add New Lead'], ['my-leads', 'View My Leads'], ['follow-ups', 'View Follow-ups'], ['customers', 'Open Customers'], ['team-chat', 'Team Chat']] },
+  HR: { role: 'hr', scope: 'people', scopeLabel: 'People operations overview', welcome: 'Welcome back, HR', welcomeCopy: 'Coordinate internal tasks, communication, and staff support without accessing sales records.', quickActions: [['tasks', 'Open Tasks'], ['team-chat', 'Team Chat'], ['my-account', 'My Account']] },
+  PROJECT_MANAGER: { role: 'project_manager', scope: 'company', scopeLabel: 'Company-wide operations', welcome: 'Welcome back, Project Manager', welcomeCopy: 'Monitor company reporting, operational tasks, and internal coordination.', quickActions: [['reports', 'View Reports'], ['tasks', 'Open Tasks'], ['team-chat', 'Team Chat']] }
 };
 
 function dashboardRole() { return dashboardRoleConfig[state.role] || dashboardRoleConfig.SALES_AGENT; }
@@ -62,6 +64,7 @@ function dashboardTooltipText(title, lines = []) { return [title, ...lines].filt
 function dashboardTooltip(title, lines = []) { return `<span class="dashboard-chart-tooltip" aria-hidden="true"><strong>${dashboardEscape(dashboardSafeString(title))}</strong>${dashboardSafeArray(lines).map(line => `<span>${dashboardEscape(dashboardSafeString(line))}</span>`).join('')}</span>`; }
 
 function dashboardKpiTarget(id, role) {
+  if (role === 'HR') return ['dashboard'];
   const agent = role === 'SALES_AGENT';
   return { 'total-leads': [agent ? 'my-leads' : 'leads'], 'new-leads': [agent ? 'my-leads' : 'leads', 'New'], 'hot-leads': [agent ? 'my-leads' : 'leads', 'Hot'], 'follow-ups-due': ['follow-ups', 'today'], 'overdue-follow-ups': ['follow-ups', 'overdue'], 'active-customers': ['customers'], 'closed-deals': [agent ? 'my-leads' : 'leads', 'Closed Won'], 'conversion-rate': ['reports'], 'my-leads': ['my-leads'], 'my-hot-leads': ['my-leads', 'Hot'], 'my-follow-ups': ['follow-ups', 'today'], 'my-overdue': ['follow-ups', 'overdue'], 'my-customers': ['customers'], 'my-closed-deals': ['my-leads', 'Closed Won'] }[id] || ['dashboard'];
 }
@@ -149,7 +152,7 @@ function ensurePresenceHeartbeat() {
   dashboardPresenceTimer = window.setInterval(async () => {
     if (!state.authUser) { window.clearInterval(dashboardPresenceTimer); dashboardPresenceTimer = null; return; }
     await sendPresenceHeartbeat();
-    if (state.screen === 'dashboard' && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role)) loadDashboard({ force: true });
+    if (state.screen === 'dashboard' && ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'].includes(state.role)) loadDashboard({ force: true });
   }, 30 * 1000);
 }
 
@@ -168,7 +171,7 @@ async function loadDashboard(options = {}) {
   render();
   try {
     const endpoints = ['/api/dashboard/summary', '/api/dashboard/lead-inflow', '/api/dashboard/lead-sources', '/api/dashboard/follow-up-performance', '/api/dashboard/conversion-overview', '/api/dashboard/recent-leads', '/api/dashboard/today-follow-ups'];
-    if (state.role !== 'SALES_AGENT') endpoints.push('/api/dashboard/agent-performance');
+  if (['SUPER_ADMIN', 'SALES_MANAGER', 'PROJECT_MANAGER'].includes(state.role)) endpoints.push('/api/dashboard/agent-performance');
     const responses = await Promise.all(endpoints.map(dashboardEndpoint));
     if (requestId !== dashboardRequestId || cacheKey !== dashboardCacheKey()) return;
     const [summary, leadInflow, leadSources, followUpPerformance, conversionOverview, recentLeads, todayFollowUps, agentPerformance] = responses;

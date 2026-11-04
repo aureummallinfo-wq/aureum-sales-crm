@@ -1,4 +1,4 @@
-export type UserRole = "super_admin" | "sales_manager" | "sales_agent";
+export type UserRole = "super_admin" | "sales_manager" | "sales_agent" | "hr" | "project_manager";
 export type ChatType = "channel" | "group" | "direct";
 export type ChatMessageType = "text" | "attachment" | "system" | "crm_reference_placeholder";
 export type UserPresenceStatus = "online" | "offline" | "away";

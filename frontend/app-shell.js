@@ -8,20 +8,20 @@ const icons = {
 const icon = (name) => `<span class="nav-icon" aria-hidden="true">${icons[name] || '•'}</span>`;
 
 const routePermissions = {
-  dashboard: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
+  dashboard: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
   leads: ['SUPER_ADMIN', 'SALES_MANAGER'],
   'my-leads': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   'add-lead': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   customers: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
   'follow-ups': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  tasks: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  'team-chat': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  reports: ['SUPER_ADMIN', 'SALES_MANAGER'],
+  tasks: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
+  'team-chat': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
+  reports: ['SUPER_ADMIN', 'SALES_MANAGER', 'PROJECT_MANAGER'],
   agents: ['SUPER_ADMIN', 'SALES_MANAGER'],
   users: ['SUPER_ADMIN', 'SALES_MANAGER'],
-  'my-account': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  'change-password': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
-  'access-denied': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT'],
+  'my-account': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
+  'change-password': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
+  'access-denied': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
   settings: ['SUPER_ADMIN']
 };
 const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', tasks: '/tasks', 'team-chat': '/team-chat', reports: '/reports', agents: '/users', 'my-account': '/my-account', 'change-password': '/change-password', 'access-denied': '/access-denied', settings: '/settings' };
@@ -299,11 +299,13 @@ async function aureumLoadDisplayPreferences() {
 }
 window.aureumLoadDisplayPreferences = aureumLoadDisplayPreferences;
 
-const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Agent' };
+const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Agent', HR: 'HR', PROJECT_MANAGER: 'Project Manager' };
 const navByRole = {
   SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users'], ['settings', 'Settings', 'settings']],
   SALES_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users']],
-  SALES_AGENT: [['dashboard', 'Dashboard', 'dashboard'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['my-account', 'My Account', 'users']]
+  SALES_AGENT: [['dashboard', 'Dashboard', 'dashboard'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['my-account', 'My Account', 'users']],
+  HR: [['dashboard', 'Dashboard', 'dashboard'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['my-account', 'My Account', 'users']],
+  PROJECT_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['my-account', 'My Account', 'users']]
 };
 
 function badge(status) {
@@ -929,7 +931,7 @@ async function loadDashboard() {
     const names = ['summary', 'lead-inflow', 'lead-sources', 'follow-up-performance', 'conversion-overview', 'recent-leads', 'today-follow-ups'];
     const entries = await Promise.all(names.map(name => apiFetch(`/api/dashboard/${name}`)));
     const data = Object.fromEntries(names.map((name, index) => [name === 'lead-inflow' ? 'leadInflow' : name === 'lead-sources' ? 'leadSources' : name === 'follow-up-performance' ? 'followUpPerformance' : name === 'conversion-overview' ? 'conversionOverview' : name === 'recent-leads' ? 'recentLeads' : name === 'today-follow-ups' ? 'todayFollowUps' : 'summary', entries[index].data]));
-    if (state.role !== 'SALES_AGENT') data.agentPerformance = (await apiFetch('/api/dashboard/agent-performance')).data;
+    if (['SUPER_ADMIN', 'SALES_MANAGER', 'PROJECT_MANAGER'].includes(state.role)) data.agentPerformance = (await apiFetch('/api/dashboard/agent-performance')).data;
     state.dashboard = { loading: false, error: '', data };
   } catch (error) { state.dashboard = { loading: false, error: error.message, data: null }; }
   render();

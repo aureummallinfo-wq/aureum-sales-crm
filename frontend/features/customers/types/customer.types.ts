@@ -1,4 +1,4 @@
-export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent';
+export type UserRole = 'super_admin' | 'sales_manager' | 'sales_agent' | 'hr' | 'project_manager';
 export type CustomerStatus = "New" | "Contacted" | "Hot" | "Cold" | "Follow-up" | "Visit Scheduled" | "Visit Completed" | "Negotiation" | "Closed Won" | "No Response" | "Not Interested" | "Invalid";
 export type CustomerSource = 'Website' | 'WhatsApp' | 'Facebook' | 'Instagram' | 'Sales Partner' | 'Walk-in' | 'Referral' | 'Manual Entry';
 export type CustomerPriority = 'High' | 'Medium' | 'Low' | 'VIP';
