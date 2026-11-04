@@ -134,4 +134,12 @@ test('follow-ups belong to the visible customer relationship, not an imported ow
     assert.equal(invalid.assigned_agent_id, user.id);
     assert.equal(await repository.getFollowUp(workspace.id, 'wrong-lead'), null);
   });
+  await t.test('bulk assignment moves multiple unassigned leads to one advisor', async () => {
+    const bulkLeadOne = await insert('leads', { workspace_id: workspace.id, legacy_id: 'bulk-lead-1', full_name: 'Bulk one', assigned_team_id: team.id });
+    const bulkLeadTwo = await insert('leads', { workspace_id: workspace.id, legacy_id: 'bulk-lead-2', full_name: 'Bulk two', assigned_team_id: team.id });
+    const updated = await repository.bulkAssignLeads(workspace.id, [bulkLeadOne.legacy_id, bulkLeadTwo.legacy_id], admin, { assignedAgent: 'colleague' });
+    assert.equal(updated.length, 2);
+    assert.deepEqual(updated.map(item => item.assigned_agent_id), ['colleague', 'colleague']);
+    assert.deepEqual(updated.map(item => item.assigned_team_id), ['team', 'team']);
+  });
 });
