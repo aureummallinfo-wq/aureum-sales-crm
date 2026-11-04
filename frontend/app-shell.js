@@ -761,7 +761,8 @@ async function loadFollowups(force = false) {
     const endpoint = state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups';
     const result = await apiFetch(endpoint, { cacheTtl: 15 * 1000, force });
     if (sessionKey !== portalSessionKey()) return;
-    state.followups = { loading: false, error: '', items: result.data || [] };
+    const terminal = item => window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) || item.cancelled_by_closure;
+    state.followups = { loading: false, error: '', items: (result.data || []).filter(item => !terminal(item)) };
   } catch (error) { if (sessionKey !== portalSessionKey()) return; state.followups = { loading: false, error: error.message, items: state.followups.items || [] }; }
   render();
 }
@@ -772,7 +773,10 @@ function followupTable(items) {
 }
 
 function renderFollowups() {
-  const all = state.followups.items || [];
+  const all = (state.followups.items || []).filter(item =>
+    !window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags)
+    && !item.cancelled_by_closure
+  );
   const visible = all.filter(item => (state.followupTab === 'all' || item.status === state.followupTab) && followupDateMatches(item, state.followupDateFilter));
   const today = all.filter(item => followupDateMatches(item, 'today') && !['Completed', 'Cancelled'].includes(item.status)).length;
   const overdue = all.filter(item => item.status === 'Overdue').length;

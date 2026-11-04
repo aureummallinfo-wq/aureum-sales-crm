@@ -28,7 +28,7 @@ working_dir="$(docker inspect -f '{{.Config.WorkingDir}}' "$container_name")"
 test "$network_mode" = host || die "Unsupported existing network mode: $network_mode"
 
 mapfile -t env_values < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container_name")
-mapfile -t mount_values < <(docker inspect -f '{{range .Mounts}}{{printf "%s\t%s\t%s\t%s\n" .Type .Source .Destination .RW}}{{end}}' "$container_name")
+mapfile -t mount_values < <(docker inspect -f '{{range .Mounts}}{{.Type}}|{{.Source}}|{{.Destination}}|{{.RW}}{{"\n"}}{{end}}' "$container_name")
 mapfile -t entrypoint_values < <(docker inspect -f '{{range .Config.Entrypoint}}{{println .}}{{end}}' "$container_name")
 mapfile -t command_values < <(docker inspect -f '{{range .Config.Cmd}}{{println .}}{{end}}' "$container_name")
 
@@ -64,7 +64,7 @@ for env_value in "${env_values[@]}"; do
 done
 
 for mount_value in "${mount_values[@]}"; do
-  IFS=$'\t' read -r mount_type mount_source mount_destination mount_rw <<< "$mount_value"
+  IFS='|' read -r mount_type mount_source mount_destination mount_rw <<< "$mount_value"
   [[ -n "$mount_source" && -n "$mount_destination" ]] || continue
   mount_spec="type=${mount_type},source=${mount_source},destination=${mount_destination}"
   [[ "$mount_rw" == true ]] || mount_spec+=',readonly'

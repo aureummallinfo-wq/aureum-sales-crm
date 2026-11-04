@@ -25,7 +25,7 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
   }
 
   function schedule(user, customer, input) {
-    if (['Closed Lost','Not Interested'].includes(customer.customer_status)) throw new Error('Closed opportunity cannot have active follow-ups');
+    if (statusTags.isTerminal(customer.customer_status, customer.tags)) throw new Error('Closed opportunity cannot have active follow-ups');
     const related = followUps.filter(item => (item.customer_id === customer.id || (!item.customer_id && item.lead_id === customer.lead_id)) && canViewFollowUp(user,item));
     let item = uniqueFollowUps(related)[0];
     const created = !item;
@@ -58,7 +58,7 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
     let plan = notePlan(input);
     const customer = customers.find(item => item.id === customerId || (leadId && item.lead_id === leadId));
     const lead = leads.find(item => item.id === (leadId || customer?.lead_id));
-    if (['Closed Lost','Not Interested'].includes(lead?.status || customer?.customer_status)) {
+    if (statusTags.isTerminal(lead?.status || customer?.customer_status, lead?.tags || customer?.tags)) {
       if(input.next_followup_days && input.next_followup_days!=='none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
       plan={...plan,schedule:null};
     }

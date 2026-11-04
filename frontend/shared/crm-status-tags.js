@@ -8,7 +8,7 @@
   }
   function isValid(value) { return values.includes(value); }
   function isTerminal(status, tags) {
-    const terminal = new Set(['closed lost', 'not interested']);
+    const terminal = new Set(['closed won', 'closed lost', 'not interested']);
     return [status, ...(Array.isArray(tags) ? tags : [])]
       .some(value => terminal.has(String(value || '').trim().toLowerCase()));
   }

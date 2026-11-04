@@ -19,12 +19,16 @@ function taskState() {
   return state.tasks;
 }
 
-async function loadTasks(force = false) {
+async function loadTasks(force = false, focusSnapshot = null) {
   if (!state.authUser || !canAccess('tasks')) return;
   const tasks = taskState();
+  const requestToken = (tasks.requestToken || 0) + 1;
+  tasks.requestToken = requestToken;
+  const snapshot = focusSnapshot || AureumSearch.capture('[data-task-search]');
   tasks.loading = true;
   tasks.error = '';
   render();
+  AureumSearch.restore('[data-task-search]', snapshot);
   try {
     const query = new URLSearchParams();
     if (tasks.filters.status !== 'all') query.set('status', tasks.filters.status);
@@ -32,6 +36,7 @@ async function loadTasks(force = false) {
     if (tasks.filters.assignedTo !== 'all') query.set('assignedTo', tasks.filters.assignedTo);
     if (tasks.filters.search) query.set('q', tasks.filters.search);
     const result = await apiFetch(`/api/tasks${query.toString() ? `?${query}` : ''}`, { cacheTtl: 30 * 1000, force });
+    if (requestToken !== tasks.requestToken) return;
     tasks.items = result.data || [];
     if (['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && !tasks.users.length) {
       const [users, leads, customers, followUps] = await Promise.all([apiFetch('/api/users?status=active', { cacheTtl: 2 * 60 * 1000 }), apiFetch('/api/leads', { cacheTtl: 30 * 1000 }), apiFetch('/api/customers', { cacheTtl: 30 * 1000 }), apiFetch('/api/follow-ups', { cacheTtl: 15 * 1000 })]);
@@ -41,10 +46,12 @@ async function loadTasks(force = false) {
       tasks.followUps = followUps.data || [];
     }
   } catch (error) {
+    if (requestToken !== tasks.requestToken) return;
     tasks.error = error.message || 'Unable to load tasks.';
   }
   tasks.loading = false;
   render();
+  AureumSearch.restore('[data-task-search]', snapshot);
 }
 
 function taskSummary(items) {
@@ -94,7 +101,7 @@ function ensureTaskEvents() {
     if (target.matches('[data-task-delete]')) { if (!window.confirm('Delete this task? It will be removed from active task views.')) return; try { await apiFetch(`/api/tasks/${encodeURIComponent(target.dataset.taskDelete)}`, { method: 'DELETE' }); showToast('Task deleted.'); await loadTasks(); } catch (error) { showToast(error.message); } return; }
     if (target.matches('[data-task-status]')) { try { await apiFetch(`/api/tasks/${encodeURIComponent(target.dataset.taskStatus)}`, { method: 'PATCH', body: JSON.stringify({ status: target.dataset.nextStatus }) }); showToast(target.dataset.nextStatus === 'Completed' ? 'Task completed.' : 'Task reopened.'); await loadTasks(); } catch (error) { showToast(error.message); } }
   });
-  document.addEventListener('input', event => { if (event.target instanceof Element && event.target.matches('[data-task-search]') && state.screen === 'tasks') { taskState().filters.search = event.target.value; window.clearTimeout(window.__aureumTaskSearchTimer); window.__aureumTaskSearchTimer = window.setTimeout(() => loadTasks(), 250); } });
+  document.addEventListener('input', event => { if (event.target instanceof Element && event.target.matches('[data-task-search]') && state.screen === 'tasks') { const snapshot = AureumSearch.capture(event.target); taskState().filters.search = event.target.value; window.clearTimeout(window.__aureumTaskSearchTimer); window.__aureumTaskSearchTimer = window.setTimeout(() => loadTasks(false, snapshot), 250); } });
   document.addEventListener('change', event => { const target = event.target; if (!(target instanceof Element) || !target.matches('[data-task-filter]')) return; taskState().filters[target.dataset.taskFilter] = target.value; loadTasks(); });
   document.addEventListener('submit', async event => { const form = event.target; if (!(form instanceof HTMLFormElement) || form.id !== 'task-form') return; event.preventDefault(); const data = Object.fromEntries(new FormData(form).entries()); const editing = taskState().editing; try { await apiFetch(editing ? `/api/tasks/${encodeURIComponent(editing.id)}` : '/api/tasks', { method: editing ? 'PATCH' : 'POST', body: JSON.stringify(data) }); taskState().formOpen = false; taskState().editing = null; showToast(editing ? 'Task updated.' : 'Task assigned.'); await loadTasks(); } catch (error) { showToast(error.message); } });
 }

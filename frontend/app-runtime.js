@@ -20,7 +20,7 @@ function followupTable(items) {
 }
 
 function renderFollowups() {
-  const all = state.followups.items || [];
+  const all = (state.followups.items || []).filter(item => !window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) && !item.cancelled_by_closure);
   const search = String(state.followupSearch || '').toLowerCase();
   const visible = all.filter(item => (state.followupTab === 'all' || item.status === state.followupTab) && followupDateMatches(item, state.followupDateFilter) && (!state.followupType || item.type === state.followupType) && (!state.followupPriority || item.priority === state.followupPriority) && (!search || [item.customer, item.phone, item.agent, item.notes].some(value => String(value || '').toLowerCase().includes(search))));
   const today = all.filter(item => followupDateMatches(item, 'today') && !['Completed', 'Cancelled'].includes(item.status)).length;
@@ -124,7 +124,7 @@ function bind() {
   document.querySelectorAll('[data-lead-status]').forEach(el => el.addEventListener('click', () => { state.leadFilters.status = el.dataset.leadStatus; render(); }));
   document.querySelectorAll('[data-clear-lead-filters]').forEach(el => el.addEventListener('click', () => { state.leadFilters = { q: '', status: '', source: '' }; render(); }));
   const leadSearch = document.querySelector('[data-lead-search]');
-  if (leadSearch) leadSearch.addEventListener('input', event => { state.leadFilters.q = event.target.value; render(); });
+  if (leadSearch) leadSearch.addEventListener('input', event => { const snapshot = AureumSearch.capture(event.target); state.leadFilters.q = event.target.value; render(); AureumSearch.restore('[data-lead-search]', snapshot); });
   const leadSource = document.querySelector('[data-lead-source]');
   if (leadSource) leadSource.addEventListener('change', event => { state.leadFilters.source = event.target.value; render(); });
   document.querySelectorAll('[data-lead-open]').forEach(el => el.addEventListener('click', () => openLead(el.dataset.leadOpen)));
@@ -137,7 +137,7 @@ function bind() {
   if (leadNoteForm) leadNoteForm.addEventListener('submit', async event => { event.preventDefault(); const data = Object.fromEntries(new FormData(leadNoteForm).entries()); try { await apiFetch(`/api/leads/${state.leadDetail.data.id}/notes`, { method: 'POST', body: JSON.stringify(data) }); await openLead(state.leadDetail.data.id); } catch (error) { showToast(error.message); } });
   document.querySelectorAll('[data-customer-tab-filter]').forEach(el => el.addEventListener('click', () => { state.customerListFilter = el.dataset.customerTabFilter; render(); }));
   const customerSearch = document.querySelector('[data-customer-search]');
-  if (customerSearch) customerSearch.addEventListener('input', event => { state.customerSearch = event.target.value; render(); });
+  if (customerSearch) customerSearch.addEventListener('input', event => { const snapshot = AureumSearch.capture(event.target); state.customerSearch = event.target.value; render(); AureumSearch.restore('[data-customer-search]', snapshot); });
   const customerStatus = document.querySelector('[data-customer-status]');
   if (customerStatus) customerStatus.addEventListener('change', event => { state.customerStatusFilter = event.target.value; render(); });
   document.querySelectorAll('[data-followup-call]').forEach(el => el.addEventListener('click', () => showToast(`Call ${el.dataset.followupCall}`)));
@@ -148,7 +148,7 @@ function bind() {
   document.querySelectorAll('[data-followup-apply-custom]').forEach(el => el.addEventListener('click', () => { state.followupDateFilter = 'custom'; state.followupCustomStart = document.querySelector('[data-followup-start]')?.value || ''; state.followupCustomEnd = document.querySelector('[data-followup-end]')?.value || ''; render(); }));
   document.querySelectorAll('[data-followup-clear-custom]').forEach(el => el.addEventListener('click', () => { state.followupDateFilter = 'all'; state.followupCustomStart = ''; state.followupCustomEnd = ''; render(); }));
   const followupSearch = document.querySelector('[data-followup-search]');
-  if (followupSearch) followupSearch.addEventListener('input', event => { state.followupSearch = event.target.value; render(); });
+  if (followupSearch) followupSearch.addEventListener('input', event => { const snapshot = AureumSearch.capture(event.target); state.followupSearch = event.target.value; render(); AureumSearch.restore('[data-followup-search]', snapshot); });
   const followupType = document.querySelector('[data-followup-type]');
   if (followupType) followupType.addEventListener('change', event => { state.followupType = event.target.value; render(); });
   const followupPriority = document.querySelector('[data-followup-priority]');

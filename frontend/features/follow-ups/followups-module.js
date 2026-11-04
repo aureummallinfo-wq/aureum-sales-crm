@@ -1,5 +1,24 @@
 (function initializeAureumFollowUpsModule() {
   const constants = window.AureumFollowUpConstants || {};
+  const searchFocus = window.AureumSearch || {
+    capture(input) {
+      if (!input) return null;
+      return {
+        selectionStart: Number.isFinite(input.selectionStart) ? input.selectionStart : String(input.value || '').length,
+        selectionEnd: Number.isFinite(input.selectionEnd) ? input.selectionEnd : String(input.value || '').length,
+        selectionDirection: input.selectionDirection || 'none'
+      };
+    },
+    restore(targetOrSelector, snapshot) {
+      const input = typeof targetOrSelector === 'string' ? document.querySelector(targetOrSelector) : targetOrSelector;
+      if (!input || !snapshot) return;
+      input.focus({ preventScroll: true });
+      const max = String(input.value || '').length;
+      const start = Math.max(0, Math.min(max, snapshot.selectionStart ?? max));
+      const end = Math.max(start, Math.min(max, snapshot.selectionEnd ?? start));
+      input.setSelectionRange(start, end, snapshot.selectionDirection || 'none');
+    }
+  };
   const dateUtils = window.AureumFollowUpDateUtils;
   const metrics = window.AureumFollowUpMetrics;
   const esc = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -14,7 +33,7 @@
   const customerTagChips = item => followupTags(item).map(tag => `<span class="customer-tag">${esc(tag)}</span>`).join('');
   const statusBadge = item => status(item) === 'Contacted' ? '<span class="badge followup-contacted-badge">Contacted</span>' : badge(status(item));
   const stateForModule = () => { state.followupModule = state.followupModule || { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: currentDate().slice(0, 7), tab: 'overview', form: '' }; return state.followupModule; };
-  const items = () => (state.followups?.items || []).map(item => ({ ...item, status: status(item), customer: value(item, 'customer', 'customer_name'), phone: value(item, 'phone', 'customer_phone'), agent: value(item, 'agent', 'assigned_agent'), type: value(item, 'type', 'follow_up_type') }));
+  const items = () => (state.followups?.items || []).filter(item => !window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) && !item.cancelled_by_closure).map(item => ({ ...item, status: status(item), customer: value(item, 'customer', 'customer_name'), phone: value(item, 'phone', 'customer_phone'), agent: value(item, 'agent', 'assigned_agent'), type: value(item, 'type', 'follow_up_type') }));
   const select = (name, options, selected, label, required = false) => `<select name="${name}" ${required ? 'required' : ''}>${label ? `<option value="">${esc(label)}</option>` : ''}${options.map(option => { const val = Array.isArray(option) ? option[0] : option; const text = Array.isArray(option) ? option[1] : option; return `<option value="${esc(val)}" ${String(val) === String(selected || '') ? 'selected' : ''}>${esc(text)}</option>`; }).join('')}</select>`;
   const summaryCard = (label, amount, detail, tone = '') => `<div class="card followup-summary-card"><div class="kpi-label">${esc(label)}</div><div class="kpi-value">${esc(amount)}</div><div class="followup-summary-detail ${tone ? `is-${tone}` : ''}">${esc(detail)}</div></div>`;
   const metricCard = (label, amount) => `<div class="followup-metric"><span>${esc(label)}</span><strong>${esc(amount)}</strong></div>`;
@@ -220,14 +239,11 @@
   });
   document.addEventListener('input', event => {
     if (!event.target.matches('[data-followup-module-search]')) return;
-    const { value, selectionStart, selectionEnd, selectionDirection } = event.target;
+    const snapshot = searchFocus.capture(event.target);
+    const { value } = event.target;
     stateForModule().search = value;
     render();
-    const input = document.querySelector('[data-followup-module-search]');
-    if (input) {
-      input.focus({ preventScroll: true });
-      input.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
-    }
+    searchFocus.restore('[data-followup-module-search]', snapshot);
   });
   document.addEventListener('change', event => {
     const target = event.target; const moduleState = stateForModule();

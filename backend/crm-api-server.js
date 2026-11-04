@@ -76,7 +76,20 @@ const SESSION_TTL = 8 * 60 * 60 * 1000;
 const LOGIN_MAX_FAILED_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
 const SESSION_SECRET = String(process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret');
-const ALLOWED_FRONTEND_ORIGINS = new Set(String(process.env.AUREUM_FRONTEND_ORIGINS || 'http://127.0.0.1:4173,http://localhost:4173').split(',').map(value => value.trim()).filter(Boolean));
+const DEFAULT_FRONTEND_ORIGINS = [
+  'http://127.0.0.1:4173',
+  'http://localhost:4173',
+  'https://aureum-sales-crm.vercel.app',
+  'https://aureum-sales-crm-frontend.vercel.app',
+  'https://aureum-sales-crm-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-frontend-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-git-main-aureummallinfo-6133.vercel.app',
+  'https://aureum-sales-crm-frontend-git-main-aureummallinfo-6133.vercel.app'
+];
+const ALLOWED_FRONTEND_ORIGINS = new Set([
+  ...DEFAULT_FRONTEND_ORIGINS,
+  ...String(process.env.AUREUM_FRONTEND_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean)
+]);
 const loginAttempts = new Map();
 const revokedSessions = new Map();
 const tasks = [];
@@ -263,7 +276,8 @@ function canViewLead(user, lead) {
 
 function leadView(lead) {
   const customerId = NEON_SQL ? lead.customer_id : customers.find(item => item.lead_id === lead.id && item.assigned_agent_id === lead.assigned_agent_id && item.assigned_team_id === lead.assigned_team_id)?.id;
-  return { ...lead, customer_id: customerId || null, meta: `${lead.phone} · ${lead.city}`, interest: lead.interested_in, budget: lead.budget, source: lead.lead_source, agent: lead.assigned_agent || 'Unassigned', tag: lead.tags?.[0] || '', next: lead.next_follow_up_at, contacted: lead.last_contacted_at };
+  const assignedTeamName = lead.assigned_team_name || teams.find(team => team.id === lead.assigned_team_id)?.name || '';
+  return { ...lead, assigned_team_name: assignedTeamName, customer_id: customerId || null, meta: `${lead.phone} · ${lead.city}`, interest: lead.interested_in, budget: lead.budget, source: lead.lead_source, agent: lead.assigned_agent || 'Unassigned', tag: lead.tags?.[0] || '', next: lead.next_follow_up_at, contacted: lead.last_contacted_at };
 }
 
 function addLeadActivity(leadId, userId, activityType, description, metadata = {}) {
@@ -350,14 +364,18 @@ function addCustomerActivity(customerId, userId, activityType, description, meta
 function applyMemoryLifecycle(user, lead, patch) {
   if (!lead) return false;
   const requested=patch.status || patch.customer_status;
-  const reactivating=lead.lifecycle_version>0 && requested && !['Not Interested','Closed Lost'].includes(requested);
-  const closing=!reactivating && (['Not Interested','Closed Lost'].includes(requested) || (patch.tags || []).some(tag=>['Not Interested','Closed Lost'].includes(tag)));
+  const requestedTerminal=statusTags.isTerminal(requested, []);
+  const taggedTerminal=!requested && statusTags.isTerminal('', patch.tags);
+  const terminalRequested=requestedTerminal || taggedTerminal;
+  const reactivating=lead.lifecycle_version>0 && requested && !requestedTerminal;
+  const closing=!reactivating && terminalRequested;
   if (!closing && !(lead.lifecycle_version > 0 && requested)) return false;
-  const target=closing ? 'Closed Lost' : requested;
-  if (lead.status===target) return true;
+  const target=closing && requested !== 'Closed Won' ? 'Closed Lost' : (requested || 'Closed Lost');
+  if (lead.status===target && !closing) return true;
   const now=new Date().toISOString();
   const related=customers.filter(item=>item.lead_id===lead.id);
-  for (const item of [lead,...related]) Object.assign(item,{status:target,...(item===lead ? {} : {customer_status:target}),closure_reason:closing ? patch.closure_reason || 'Not Interested' : null,lifecycle_version:(item.lifecycle_version || 0)+1,next_follow_up_at:null,updated_at:now});
+  const clearTerminalTags = tags => (Array.isArray(tags) ? tags : []).filter(tag => !statusTags.isTerminal('', [tag]));
+  for (const item of [lead,...related]) Object.assign(item,{status:target,...(item===lead ? {} : {customer_status:target}),...(reactivating ? {tags:clearTerminalTags(item.tags)} : {}),closure_reason:closing ? patch.closure_reason || 'Not Interested' : null,lifecycle_version:(item.lifecycle_version || 0)+1,next_follow_up_at:null,updated_at:now});
   if (closing) {
     const ids=[];
     for (const item of followUps) if ((item.lead_id===lead.id || related.some(c=>c.id===item.customer_id)) && !['Completed','Cancelled'].includes(item.status)) {
@@ -375,16 +393,22 @@ function applyMemoryLifecycle(user, lead, patch) {
 
 function memoryFollowUpWorkflow() { return createMemoryFollowUpWorkflow({ leads, customers, followUps, users, notifications, customerNotes, addLeadActivity, addCustomerActivity, addFollowUpActivity, canViewFollowUp }); }
 
-function canViewFollowUp(user, item) {
+function canViewFollowUp(user, item, includeClosed = false) {
   const customer = customers.find(record => record.id === item.customer_id || (!item.customer_id && record.lead_id === item.lead_id));
   if (!customer || (item.lead_id && item.lead_id !== customer.lead_id)
     || item.assigned_agent_id !== customer.assigned_agent_id || item.assigned_team_id !== customer.assigned_team_id) return false;
+  if (!includeClosed && statusTags.isTerminal(customer.customer_status, customer.tags)) return false;
   return canViewOwnedRecord(user,item) && canViewCustomer(user,customer);
 }
 
 function refreshFollowUpStatuses() {
   const now = Date.now();
   followUps.forEach(item => {
+    const customer = customers.find(record => record.id === item.customer_id || (!item.customer_id && record.lead_id === item.lead_id));
+    const lead = customer ? leads.find(record => record.id === customer.lead_id) : leads.find(record => record.id === item.lead_id);
+    if (statusTags.isTerminal(customer?.customer_status || lead?.status, customer?.tags || lead?.tags) && !['Completed','Cancelled'].includes(item.status)) {
+      item.status = 'Cancelled'; item.cancelled_by_closure = true; item.cancellation_reason = 'Opportunity closed'; item.updated_at = new Date().toISOString();
+    }
     if (!['Pending','Rescheduled','Overdue'].includes(item.status) || item.cancelled_by_closure) return;
     const due = followUpDates.toInstant(item.due_date,item.due_time);
     if (!Number.isNaN(due) && due <= now && item.status !== 'Overdue') { item.status = 'Overdue'; addFollowUpNotification(item, 'follow_up_overdue'); }
@@ -1422,6 +1446,45 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'PATCH' && url.pathname === '/api/leads/bulk-assign') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager']);
+    if (user) {
+      const body = await readBody(req);
+      const leadIds = [...new Set((Array.isArray(body.lead_ids) ? body.lead_ids : []).map(value => safeText(value, 120)).filter(Boolean))];
+      const assignedAgentId = safeText(body.assigned_agent_id, 120);
+      const requestedTeamId = safeText(body.assigned_team_id, 120);
+      const clearAgent = body.clear_agent === true;
+      if (!leadIds.length) { json(res, 422, { error: 'Select at least one lead.' }); return; }
+      if (leadIds.length > 250) { json(res, 413, { error: 'Assign up to 250 leads at a time.' }); return; }
+      const assigned = assignedAgentId ? users.find(item => item.id === assignedAgentId && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role)) : null;
+      if (assignedAgentId && (!assigned || (user.role === 'sales_manager' && assigned.team_id !== user.team_id))) { json(res, 422, { error: 'Choose an active advisor from your permitted team.' }); return; }
+      const teamId = assigned?.team_id || requestedTeamId || (clearAgent ? null : user.role === 'sales_manager' ? user.team_id : null);
+      const team = teamId ? teams.find(item => item.id === teamId) : null;
+      if (teamId && !team) { json(res, 422, { error: 'Choose a valid team.' }); return; }
+      if (user.role === 'sales_manager' && teamId !== user.team_id) { json(res, 403, { error: 'You can only assign leads within your team.' }); return; }
+      if (!assigned && !teamId && !clearAgent) { json(res, 422, { error: 'Choose a team, an agent, or clear the current agent assignment.' }); return; }
+      const selected = leadIds.map(id => findLead(id));
+      if (selected.some(lead => !lead || !canViewLead(user, lead))) { json(res, 403, { error: 'One or more selected leads are outside your permitted scope.' }); return; }
+      const changed = [];
+      for (const lead of selected) {
+        const linkedCustomers = customers.filter(item => item.lead_id === lead.id);
+        const nextTeam = teamId || (clearAgent ? lead.assigned_team_id : null);
+        for (const item of [lead, ...linkedCustomers, ...followUps.filter(item => linkedCustomers.some(customer => customer.id === item.customer_id) || (!item.customer_id && item.lead_id === lead.id))]) {
+          item.assigned_agent_id = assigned?.id || null;
+          item.assigned_agent = assigned?.full_name || 'Unassigned';
+          item.assigned_team_id = nextTeam;
+          item.updated_at = new Date().toISOString();
+        }
+        addLeadActivity(lead.id, user.id, 'Lead assigned', assigned ? `Assigned to ${assigned.full_name}` : team ? `Assigned to ${team.name} queue` : 'Agent assignment cleared');
+        addActivityLog(user.id, 'lead', lead.id, 'lead_bulk_assigned', assigned ? `Lead assigned to ${assigned.full_name}.` : team ? `Lead assigned to ${team.name}.` : 'Lead agent assignment cleared.', { assigned_agent_id: assigned?.id || null, assigned_team_id: nextTeam, bulk_count: selected.length });
+        changed.push(leadView(lead));
+      }
+      persistState();
+      json(res, 200, { data: changed, meta: { updated: changed.length } });
+    }
+    return;
+  }
+
   const leadMatch = url.pathname.match(/^\/api\/leads\/([^/]+)$/);
   if (req.method === 'GET' && leadMatch) {
     const user = requireAuth(req, res);
@@ -1559,7 +1622,7 @@ async function handle(req, res) {
     const user = requireAuth(req, res); const customer = customers.find(item => item.id === customerMatch[1]);
     if (!customer) { json(res, 404, { error: 'Customer not found' }); return; }
     if (!canViewCustomer(user, customer)) { json(res, 403, { error: 'Access denied — customer is outside your ownership scope' }); return; }
-    json(res, 200, { data: customerView(customer), notes: customerNotes.get(customer.id) || [], timeline: customerActivities.get(customer.id) || [], followUps: followUps.filter(item=>item.customer_id===customer.id && canViewFollowUp(user,item)).map(followUpView) }); return;
+    json(res, 200, { data: customerView(customer), notes: customerNotes.get(customer.id) || [], timeline: customerActivities.get(customer.id) || [], followUps: followUps.filter(item=>item.customer_id===customer.id && canViewFollowUp(user,item,true)).map(followUpView) }); return;
   }
 
   if (customerMatch && req.method === 'PATCH') {
@@ -1597,7 +1660,7 @@ async function handle(req, res) {
     if (action === 'timeline' && req.method === 'GET') { json(res, 200, { data: customerActivities.get(customer.id) || [] }); return; }
     if (action === 'notes' && req.method === 'GET') { json(res, 200, { data: customerNotes.get(customer.id) || [] }); return; }
     if (action === 'notes' && req.method === 'POST') { const body=await readBody(req);const noteText=safeText(body.note,2000);if(!noteText){json(res,400,{error:'Note is required'});return;}let saved;try{saved=memoryFollowUpWorkflow().saveNote(user,{customerId:customer.id,note:noteText,input:body});}catch(error){json(res,422,{error:error.message});return;}json(res,201,{data:saved.entry});return; }
-    if (action === 'follow-ups' && req.method === 'GET') { json(res, 200, { data: uniqueFollowUps(followUps.filter(item => (item.customer_id===customer.id || (!item.customer_id && item.lead_id===customer.lead_id)) && canViewFollowUp(user,item))).map(followUpView) }); return; }
+    if (action === 'follow-ups' && req.method === 'GET') { json(res, 200, { data: uniqueFollowUps(followUps.filter(item => (item.customer_id===customer.id || (!item.customer_id && item.lead_id===customer.lead_id)) && canViewFollowUp(user,item,true))).map(followUpView) }); return; }
     if (action === 'follow-ups' && req.method === 'POST') {
       const body = await readBody(req);
       const raw = String(body.due_date || '');
@@ -1928,15 +1991,15 @@ async function handle(req, res) {
   if (followUpMatch && req.method === 'GET') {
     const user = requireAuth(req, res); const item = findFollowUp(followUpMatch[1]);
     if (!item) { json(res, 404, { error: 'Follow-up not found' }); return; }
-    if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
+    if (!canViewFollowUp(user, item, true)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     const customer = customers.find(record => record.id === item.customer_id || (!item.customer_id && record.lead_id === item.lead_id));
-    const relatedFollowUps = customer ? followUps.filter(record => (record.customer_id === customer.id || (!record.customer_id && record.lead_id === customer.lead_id)) && canViewFollowUp(user, record)).map(followUpView) : [];
+    const relatedFollowUps = customer ? followUps.filter(record => (record.customer_id === customer.id || (!record.customer_id && record.lead_id === customer.lead_id)) && canViewFollowUp(user, record, true)).map(followUpView) : [];
     json(res, 200, { data: followUpView(item), activity: followUpActivities.get(item.id) || [], notes: customer ? customerNotes.get(customer.id) || [] : [], timeline: customer ? customerActivities.get(customer.id) || [] : [], followUps: relatedFollowUps }); return;
   }
   if (followUpMatch && req.method === 'PATCH') {
     const user = requireAuth(req, res); const item = findFollowUp(followUpMatch[1]);
     if (!item) { json(res, 404, { error: 'Follow-up not found' }); return; }
-    if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
+    if (!canViewFollowUp(user, item, true)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     if(item.cancelled_by_closure) {json(res,409,{error:'Cancelled follow-up cannot be restored; create a new follow-up'});return;}
     const body = await readBody(req); if (body.due_date !== undefined && !validateIsoDate(body.due_date)) { json(res, 422, { error: 'Due date must use YYYY-MM-DD.' }); return; } if (body.due_time !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) { json(res, 422, { error: 'Due time must use HH:MM.' }); return; } ['follow_up_type', 'due_date', 'due_time', 'priority', 'notes'].forEach(field => { if (body[field] !== undefined) item[field] = typeof body[field] === 'string' ? safeText(body[field], field === 'notes' ? 2000 : 120) : body[field]; });
     item.updated_at = new Date().toISOString(); addFollowUpActivity(item, user.id, 'Follow-up updated', 'Follow-up details updated'); json(res, 200, { data: followUpView(item) }); return;
@@ -1944,7 +2007,7 @@ async function handle(req, res) {
   if (followUpActionMatch) {
     const user = requireAuth(req, res); const item = findFollowUp(followUpActionMatch[1]); const action = followUpActionMatch[2];
     if (!item) { json(res, 404, { error: 'Follow-up not found' }); return; }
-    if (!canViewFollowUp(user, item)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
+    if (!canViewFollowUp(user, item, true)) { json(res, 403, { error: 'Access denied — follow-up is outside your ownership scope' }); return; }
     if (action === 'activity' && req.method === 'GET') { json(res, 200, { data: followUpActivities.get(item.id) || [] }); return; }
     const body = await readBody(req);
     if (item.cancelled_by_closure && action !== 'notes') {json(res,409,{error:'Cancelled follow-up cannot be restored; create a new follow-up'});return;}

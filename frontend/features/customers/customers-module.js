@@ -181,7 +181,7 @@
     const action = event.target.closest('[data-customer-module-action]'); if (action) { event.preventDefault(); customerAction(action.dataset.customerModuleAction, action.dataset.customerId); }
   });
   document.addEventListener('keydown', event => { const row = event.target.closest('[data-customer-module-row]'); if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openCustomer(row.dataset.customerModuleRow); } });
-  document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { state.customerModule.filters.search = input.value; render(); const next = document.querySelector('[data-customer-module-search]'); if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); } } });
+  document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.customerModule.filters.search = input.value; render(); AureumSearch.restore('[data-customer-module-search]', snapshot); } });
   document.addEventListener('change', event => { const input = event.target;
     if (input.matches('#customer-module-edit-form select[name="property_type"]')) {
       const field = input.closest('form').querySelector('[data-customer-other-property]');

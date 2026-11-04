@@ -189,6 +189,21 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res,result.status,result);
     }
 
+    if (req.method === 'PATCH' && pathname === '/api/leads/bulk-assign') {
+      if (!role(user, ['super_admin', 'sales_manager'], res)) return true;
+      const body = await readBodyLimited(req, 100000);
+      const leadIds = [...new Set((Array.isArray(body.lead_ids) ? body.lead_ids : []).map(value => safeText(value, 120)).filter(Boolean))];
+      const assignedAgent = safeText(body.assigned_agent_id, 120);
+      const assignedTeam = safeText(body.assigned_team_id, 120);
+      const clearAgent = body.clear_agent === true;
+      if (!leadIds.length) return json(res, 422, { error: 'Select at least one lead.' });
+      if (leadIds.length > 250) return json(res, 413, { error: 'Assign up to 250 leads at a time.' });
+      if (!assignedAgent && !assignedTeam && !clearAgent) return json(res, 422, { error: 'Choose a team, an agent, or clear the current agent assignment.' });
+      const updated = await repository.bulkAssignLeads(workspaceId, leadIds, user, { assignedAgent, assignedTeam, clearAgent });
+      if (!updated) return json(res, 422, { error: 'The selected leads or assignment target is outside your permitted scope.' });
+      return json(res, 200, { data: updated.map(leadView), meta: { updated: updated.length } });
+    }
+
     const leadMatch = pathname.match(/^\/api\/leads\/([^/]+)$/);
     if (req.method === 'GET' && leadMatch) {
       if (!user) return unauthenticated(res);

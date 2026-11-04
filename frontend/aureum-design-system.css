@@ -791,11 +791,13 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 .lead-more-options button, .lead-action-options button { padding: 9px 10px; color: var(--ink); border: 0; border-radius: 7px; background: transparent; text-align: left; font-size: 11px; cursor: pointer; }
 .lead-more-options button:hover, .lead-action-options button:hover { background: var(--cream-deep); }
 .lead-filter-bar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; padding: 15px 22px; border-bottom: 1px solid var(--line); background: #fffdf9; }
+.lead-bulk-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 22px; border-bottom: 1px solid var(--line); background: #fff8e8; }
+.lead-bulk-toolbar span { flex: 1 1 260px; color: var(--muted); font-size: 11px; }
 .lead-search-field { display: flex; align-items: center; gap: 8px; flex: 1 1 230px; min-height: 37px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--white); }
 .lead-search-field span { color: var(--gold); font-size: 18px; }
 .lead-search-field input { width: 100%; border: 0; outline: 0; background: transparent; font-size: 11px; }
 .lead-table-wrap { border-radius: 0 0 12px 12px; }
-.lead-data-table { min-width: 1450px; }
+.lead-data-table { min-width: 1180px; }
 .lead-data-table th { white-space: nowrap; }
 .lead-data-table tbody tr[data-lead-module-row], .customer-data-table tbody tr[data-customer-module-row] { cursor: pointer; }
 .lead-data-table tbody tr[data-lead-module-row]:hover, .customer-data-table tbody tr[data-customer-module-row]:hover { background: #fffaf0; }
@@ -813,6 +815,8 @@ html[data-theme="dark"] .report-section { background: #121c25; }
 .lead-empty-inline { display: grid; justify-items: center; gap: 7px; padding: 40px; text-align: center; }
 .lead-empty-inline strong { color: var(--ink); font-family: "Playfair Display", serif; font-size: 18px; }
 .lead-empty-inline span { color: var(--muted); font-size: 11px; }
+.bulk-assignment-dialog { width: min(680px, 100%); }
+.bulk-assignment-dialog .form-grid { margin-top: 4px; }
 .lead-loading-grid { display: grid; gap: 18px; }
 .lead-skeleton { min-height: 145px; border-radius: 14px; background: linear-gradient(90deg, var(--cream-deep), #fff, var(--cream-deep)); background-size: 220% 100%; animation: leadShimmer 1.3s infinite; }
 .lead-skeleton-tall { min-height: 460px; }
