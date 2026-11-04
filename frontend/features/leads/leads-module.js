@@ -409,8 +409,6 @@
   document.addEventListener('click', event => {
     const bulkOpen = event.target.closest?.('[data-bulk-assignment-open]');
     if (bulkOpen) { event.preventDefault(); state.leadModule.bulkAssignment = { count: state.leadModule.selectedLeadIds.length }; render(); loadLeadAgents(); return; }
-    const bulkClose = event.target.closest?.('[data-bulk-assignment-close]');
-    if (bulkClose) { state.leadModule.bulkAssignment = null; render(); return; }
     const bulkSubmit = event.target.closest?.('[data-bulk-assignment-submit]');
     if (bulkSubmit) {
       event.preventDefault();
@@ -419,6 +417,8 @@
       if (form) submitBulkAssignment(form);
       return;
     }
+    const bulkClose = event.target.closest?.('[data-bulk-assignment-close]');
+    if (bulkClose && (event.target === bulkClose || bulkClose.matches('button'))) { state.leadModule.bulkAssignment = null; render(); return; }
     const clearSelection = event.target.closest?.('[data-leads-clear-selection]');
     if (clearSelection) { state.leadModule.selectedLeadIds = []; render(); return; }
     const leadTemplate = event.target.closest?.('[data-leads-template]');
