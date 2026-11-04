@@ -37,8 +37,8 @@ jobs:
       - name: Run syntax checks
         run: pnpm check
 
-      - name: Check VPS deployment script
-        run: shellcheck scripts/deploy-vps-release.sh
+      - name: Check VPS deployment scripts
+        run: shellcheck scripts/deploy-vps-release.sh scripts/backup-vps-postgres.sh
 
       - name: Run tests
         run: pnpm test
@@ -102,5 +102,5 @@ jobs:
           set -euo pipefail
           release_dir="/opt/aureum-sales-crm/releases/${GITHUB_SHA}"
           ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$VPS_USER@$VPS_HOST" \
-            "bash '$release_dir/scripts/deploy-vps-release.sh' '$release_dir' '${GITHUB_SHA}'"
+            "AUREUM_SCHEMA_BASELINE_THROUGH=013 bash '$release_dir/scripts/deploy-vps-release.sh' '$release_dir' '${GITHUB_SHA}'"
 

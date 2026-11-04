@@ -608,17 +608,57 @@ function customerIdForLead(leadId) {
 function renderLeadDrawer() {
   const detail = state.leadDetail;
   if (!detail) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Lead profile</div><h2>Loading…</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state">Loading the permitted lead…</div></aside>`;
-  if (detail.error) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Protected lead</div><h2>Access denied</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state"><strong>${detail.error}</strong></div></aside>`;
+  if (detail.error) return profileErrorDrawer(detail, { kind: 'lead', closeAttr: 'data-close-drawer' });
   const lead = detail.data;
   const customerId = customerIdForLead(lead.id);
   return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Lead profile</div><h2>${lead.full_name}</h2><p class="page-subtitle">${badge(lead.status)} · ${lead.agent}</p></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="drawer-section"><div class="header-actions"><button class="btn btn-gold btn-sm" data-lead-toast="Call opened">${icons.phone} Call</button><button class="btn btn-secondary btn-sm" data-lead-toast="WhatsApp opened">${icons.whatsapp} WhatsApp</button>${customerId ? `<button class="btn btn-secondary btn-sm" data-lead-customer="${customerId}">Open customer</button>` : ''}</div></div><div class="drawer-section"><div class="detail-grid"><div><div class="detail-label">Phone</div><div class="detail-value">${lead.phone}</div></div><div><div class="detail-label">WhatsApp</div><div class="detail-value">${lead.whatsapp_number}</div></div><div><div class="detail-label">Email</div><div class="detail-value">${lead.email || '—'}</div></div><div><div class="detail-label">City / area</div><div class="detail-value">${lead.city} · ${lead.area}</div></div><div><div class="detail-label">Interested in</div><div class="detail-value">${lead.interest}</div></div><div><div class="detail-label">Budget</div><div class="detail-value">${lead.budget || '—'}</div></div></div></div><form id="lead-status-form" class="drawer-section"><div class="form-field"><label>Update lead status</label><select name="status">${["New","Contacted","Hot","Cold","Follow-up","Visit Scheduled","Visit Completed","Negotiation","Closed Won","No Response","Not Interested","Invalid"].map(status => `<option ${status === lead.status ? 'selected' : ''}>${status}</option>`).join('')}</select></div><button class="btn btn-gold" type="submit">Save status</button></form><form id="lead-note-form" class="drawer-section"><div class="form-field"><label>Add note</label><textarea name="note" rows="3" required placeholder="Capture the next useful detail…"></textarea></div><button class="btn btn-secondary" type="submit">Save note</button></form><div class="drawer-section"><h3>Activity history</h3><div class="timeline" style="margin-top:15px">${(detail.activity || []).map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${item.activity_type}</div><div class="timeline-copy">${item.description}</div><div class="timeline-time">${item.created_at}</div></div></div>`).join('') || '<div class="empty-state">No activity recorded yet.</div>'}</div></div></aside>`;
 }
 
+// Only a 403 is a permission problem; 404, timeouts and server failures get their
+// own wording so a broken API is never presented as "Access denied".
+function profileLoadError(error, id) {
+  return { error: error.message, status: Number(error.status || 0), code: error.code || '', requestId: error.requestId || '', id };
+}
+
+function escapeProfileText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+}
+
+function profileErrorDrawer(detail, { kind, closeAttr }) {
+  const record = kind === 'customer' ? 'profile' : 'lead details';
+  const copy = detail.status === 403
+    ? { eyebrow: 'Protected record', title: 'Access denied', message: 'This record is outside your access scope.' }
+    : detail.status === 404
+      ? { eyebrow: 'Record unavailable', title: 'Record not found', message: 'It may have been removed or merged.' }
+      : { eyebrow: 'Connection problem', title: `Unable to load ${record}`, message: detail.code === 'REQUEST_TIMEOUT' ? 'The request timed out. Please try again.' : 'The server could not load this record. Please try again.' };
+  const reference = detail.requestId ? `<p class="form-hint">Reference: ${escapeProfileText(detail.requestId)}</p>` : '';
+  const retry = detail.status === 403 || detail.status === 404 || !detail.id ? '' : `<button class="btn btn-gold btn-sm" type="button" data-profile-retry="${kind}" data-profile-id="${escapeProfileText(detail.id)}">Retry</button>`;
+  return `<div class="drawer-backdrop" ${closeAttr}></div><aside class="drawer" role="alert"><div class="drawer-header"><div><div class="eyebrow">${copy.eyebrow}</div><h2>${copy.title}</h2></div><button class="drawer-close" type="button" ${closeAttr} aria-label="Close">${icons.close}</button></div><div class="drawer-section"><p>${copy.message}</p>${reference}<div class="drawer-action-row">${retry}<button class="btn btn-secondary btn-sm" type="button" ${closeAttr}>Close</button></div></div></aside>`;
+}
+
+document.addEventListener('click', event => {
+  const retry = event.target.closest('[data-profile-retry]');
+  if (!retry) return;
+  event.preventDefault();
+  if (retry.dataset.profileRetry === 'customer') openCustomer(retry.dataset.profileId);
+  else openLead(retry.dataset.profileId);
+});
+
+// The lead record decides whether the drawer opens; activity or notes failing
+// only marks that tab, so one broken sub-request cannot block the profile.
 async function openLead(id) {
   window.AureumSidebarBadges?.markLeadSeen((state.leads?.items || []).find(item => String(item.id) === String(id)) || id);
+  const request = state.leadDetailRequest = (state.leadDetailRequest || 0) + 1;
   state.drawer = 'lead'; state.leadDetail = null; render();
-  try { const [detail, activity, notes] = await Promise.all([apiFetch(`/api/leads/${id}`), apiFetch(`/api/leads/${id}/activity`), apiFetch(`/api/leads/${id}/notes`)]); state.leadDetail = { data: detail.data, activity: activity.data || [], notes: notes.data || [] }; }
-  catch (error) { state.leadDetail = { error: error.message }; }
+  const [detail, activity, notes] = await Promise.allSettled([apiFetch(`/api/leads/${id}`), apiFetch(`/api/leads/${id}/activity`), apiFetch(`/api/leads/${id}/notes`)]);
+  if (request !== state.leadDetailRequest) return;
+  state.leadDetail = detail.status === 'rejected' ? profileLoadError(detail.reason, id) : {
+    data: detail.value.data,
+    activity: activity.status === 'fulfilled' ? activity.value.data || [] : [],
+    notes: notes.status === 'fulfilled' ? notes.value.data || [] : [],
+    activityError: activity.status === 'rejected',
+    notesError: notes.status === 'rejected'
+  };
   render();
 }
 
@@ -667,9 +707,10 @@ async function loadCustomers(force = false) {
 }
 
 async function openCustomer(customerId) {
+  const request = state.customerDetailRequest = (state.customerDetailRequest || 0) + 1;
   state.drawer = 'customer'; state.customerId = customerId; state.customerDetail = null; state.customerTab = 'overview'; render();
-  try { const result = await apiFetch(`/api/customers/${customerId}`); state.customerDetail = result; render(); }
-  catch (error) { state.customerDetail = { error: error.message }; render(); }
+  try { const result = await apiFetch(`/api/customers/${customerId}`); if (request !== state.customerDetailRequest) return; state.customerDetail = result; render(); }
+  catch (error) { if (request !== state.customerDetailRequest) return; state.customerDetail = profileLoadError(error, customerId); render(); }
 }
 
 function customerTable(items) {
@@ -689,7 +730,7 @@ function renderCustomers() {
 function renderCustomerDrawer() {
   const detail = state.customerDetail;
   if (!detail) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Customer relationship</div><h2>Loading profile…</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state">Loading permitted customer details…</div></aside>`;
-  if (detail.error) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer"><div class="drawer-header"><div><div class="eyebrow">Protected profile</div><h2>Access denied</h2></div><button class="drawer-close" data-close-drawer>${icons.close}</button></div><div class="empty-state"><strong>${detail.error}</strong></div></aside>`;
+  if (detail.error) return profileErrorDrawer(detail, { kind: 'customer', closeAttr: 'data-close-drawer' });
   const c = detail.data;
   let body = `<div class="detail-grid"><div><div class="detail-label">Phone</div><div class="detail-value">${c.phone}</div></div><div><div class="detail-label">WhatsApp</div><div class="detail-value">${c.whatsapp_number}</div></div><div><div class="detail-label">Email</div><div class="detail-value">${c.email || '—'}</div></div><div><div class="detail-label">City / area</div><div class="detail-value">${c.city} · ${c.area}</div></div><div><div class="detail-label">Interested in</div><div class="detail-value">${c.interest}</div></div><div><div class="detail-label">Budget</div><div class="detail-value">${c.budget || '—'}</div></div><div><div class="detail-label">Lead source</div><div class="detail-value">${c.source}</div></div><div><div class="detail-label">Next follow-up</div><div class="detail-value">${c.next}</div></div></div><div class="legend" style="margin-top:16px">${(c.tags || []).map(tag => badge(tag)).join(' ')}</div>`;
   if (state.customerTab === 'timeline') body = `<div class="timeline">${(detail.timeline || []).map(item => `<div class="timeline-item"><div class="timeline-dot"></div><div><div class="timeline-title">${item.activity_type}</div><div class="timeline-copy">${item.description}</div><div class="timeline-time">${item.created_at}</div></div></div>`).join('') || '<div class="empty-state">No activity recorded yet.</div>'}</div>`;

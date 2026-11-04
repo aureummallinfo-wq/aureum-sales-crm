@@ -134,7 +134,7 @@
   function renderCustomerDrawerModule() {
     const detail = state.customerDetail;
     if (!detail) return `<div class="drawer-backdrop" data-customer-module-close></div><aside class="drawer customer-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Customer relationship</div><h2>Loading profile…</h2></div><button class="drawer-close" data-customer-module-close aria-label="Close customer profile">×</button></div><div class="empty-state">Loading permitted customer details…</div></aside>`;
-    if (detail.error) return `<div class="drawer-backdrop" data-customer-module-close></div><aside class="drawer customer-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Protected profile</div><h2>Access denied</h2></div><button class="drawer-close" data-customer-module-close>×</button></div><div class="customer-error-state"><p>${escape(detail.error)}</p></div></aside>`;
+    if (detail.error) return profileErrorDrawer(detail, { kind: 'customer', closeAttr: 'data-customer-module-close' });
     const customer = normalizeCustomer(detail.data);
     const tab = state.customerModule.tab || 'overview';
     const timeline = detail.timeline || detail.activity || [];
