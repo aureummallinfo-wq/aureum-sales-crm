@@ -24,7 +24,8 @@ const schemaPaths = [
   path.join(root, 'db', 'migrations', '014_edit_saved_notes.sql'),
   path.join(root, 'db', 'migrations', '015_meta_crm_feedback.sql'),
   path.join(root, 'db', 'migrations', '016_closed_won_followup_lifecycle.sql'),
-  path.join(root, 'db', 'migrations', '017_staff_positions.sql')
+  path.join(root, 'db', 'migrations', '017_staff_positions.sql'),
+  path.join(root, 'db', 'migrations', '018_webhook_lead_configuration.sql')
 ];
 const DRY_RUN = process.argv.includes('--dry-run');
 

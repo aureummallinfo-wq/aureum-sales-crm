@@ -41,6 +41,15 @@ test('Meta lead IDs survive intake and reach n8n with status changes, without fr
     assert.equal((await sql.query('SELECT count(*)::int AS n FROM crm.leads WHERE external_lead_id=$1', [metaLeadId]))[0].n, 1);
   });
 
+  await t.test('webhook intake repairs a missing source catalog row', async () => {
+    const autoSecret = 'auto-source-fixture-secret';
+    await sql.query("INSERT INTO crm.webhook_connections(workspace_id,legacy_id,name,source_platform,secret_hash,status,default_lead_source,default_lead_status) VALUES($1,'auto_hook','Auto source intake','meta',$2,'active','Meta Lead Ads','New')", [w.id, crypto.createHash('sha256').update(autoSecret).digest('hex')]);
+    const result = await repo.ingestWebhookLead(w.id, 'auto_hook', autoSecret, { full_name: 'Auto Source Buyer', phone: '0300-1112233', external_lead_id: 'auto-source-001' });
+    assert.equal(result.ok, true);
+    const [source] = await sql.query("SELECT name,is_active FROM crm.lead_sources WHERE workspace_id=$1 AND slug='meta-lead-ads'", [w.id]);
+    assert.deepEqual(source, { name: 'Meta Lead Ads', is_active: true });
+  });
+
   await t.test('an ID that arrived as an unsafe JSON number is not stored as the match key', async () => {
     const result = await intake({ external_lead_id: 23456789012345680, phone: '0300-9998887' });
     const [row] = await sql.query('SELECT external_lead_id, metadata FROM crm.leads WHERE legacy_id=$1', [result.lead.id]);

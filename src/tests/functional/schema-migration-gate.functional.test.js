@@ -78,7 +78,7 @@ test('schema gate applies only unrecorded migrations and never rewrites lead tim
     assert.equal((await gate('--require-current')).exit, 1);
     assert.deepEqual((await gate('--apply', '--through=015')).body.applied, ['015_meta_crm_feedback.sql']);
     assert.equal((await gate('--require-current')).exit, 1);
-    assert.deepEqual((await gate('--apply')).body.applied, ['016_closed_won_followup_lifecycle.sql', '017_staff_positions.sql']);
+    assert.deepEqual((await gate('--apply')).body.applied, ['016_closed_won_followup_lifecycle.sql', '017_staff_positions.sql', '018_webhook_lead_configuration.sql']);
     assert.equal((await gate('--require-current')).exit, 0);
     assert.deepEqual((await gate('--apply')).body.applied, []);
   });
