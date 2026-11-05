@@ -19,6 +19,23 @@ function externalLeadIdentifier(raw) {
   return { externalId: String(value), unsafeExternalId: '' };
 }
 
+function normalizeInboundContact(value) {
+  return String(value ?? '').trim().replace(/^=/, '').replace(/^p:/i, '').replace(/\.00$/, '').trim();
+}
+
+function canonicalWebhookSource(raw, connection) {
+  const channel = String(raw.source_channel || raw.channel || '').trim().toLowerCase();
+  const platform = String(raw.platform || connection?.source_platform || '').trim().toLowerCase();
+  const requested = String(raw.lead_source || raw.source || connection?.default_lead_source || 'Webhook').trim();
+  if (channel.includes('instagram') || ['ig', 'instagram'].includes(platform)) return 'Instagram';
+  if (channel.includes('facebook') || ['fb', 'facebook', 'meta'].includes(platform) || requested.toLowerCase() === 'meta lead ads') return 'Facebook';
+  return requested || 'Webhook';
+}
+
+function webhookFormName(raw) {
+  return String(raw.source_form || raw.source_form_name || raw.form_name || raw.formName || '').trim();
+}
+
 function valueObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
@@ -459,7 +476,7 @@ function createNeonRepository(sql) {
 
   function leadRecord(row) {
     const metadata = valueObject(row.metadata);
-    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, external_source: row.external_source || metadata.external_source || null, external_lead_id: row.external_lead_id || metadata.external_lead_id || null, idempotency_key: row.idempotency_key || metadata.idempotency_key || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function customerRecord(row) {
@@ -516,7 +533,7 @@ function createNeonRepository(sql) {
     if (interest) { params.push(interest); conditions.push(`l.interested_in = $${params.length}`); }
     if (priority) { params.push(priority); conditions.push(`l.priority = $${params.length}`); }
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push(`l.assigned_agent_id = $${params.length}`); }
-    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
+    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `$${params.length}`; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.whatsapp_number, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(l.external_lead_id, '')) LIKE ${p} OR lower(coalesce(l.idempotency_key, '')) LIKE ${p} OR lower(coalesce(l.metadata::text, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
     if (imported === 'true' || imported === 'imported' || imported === 'webhook') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE`);
     if (imported === 'unassigned') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE AND l.assigned_agent_id IS NULL`);
     if (imported === 'webhook') conditions.push(`l.metadata->>'webhook_connection_id' IS NOT NULL`);
@@ -1155,13 +1172,21 @@ function createNeonRepository(sql) {
     }
 
     const fullName = String(raw.full_name || raw.name || [raw.first_name, raw.last_name].filter(Boolean).join(' ') || '').trim();
-    const phone = String(raw.phone || raw.phone_number || raw.mobile || '').trim();
+    const phone = normalizeInboundContact(raw.phone || raw.phone_number || raw.mobile);
+    const whatsapp = normalizeInboundContact(raw.whatsapp || raw.whatsapp_number || phone);
     if (!fullName || !phone) {
       await sql.query('UPDATE crm.webhook_events SET status=\'failed\',error_message=$1 WHERE id=$2', ['full_name and phone are required', eventId]);
       await sql.query('INSERT INTO crm.failed_webhook_leads (event_id,connection_id,external_lead_id,payload,error_message) VALUES ($1,$2,$3,$4::jsonb,$5)', [eventId, connection.id, externalId || null, payloadJson, 'full_name and phone are required']);
       return { status: 422, error: 'Full name and phone are required.' };
     }
-    const configuration = await ensureWebhookLeadConfiguration(workspace, raw.status || connection.default_lead_status || 'New', raw.lead_source || raw.source || connection.default_lead_source || 'Webhook');
+    const requestedSourceName = String(raw.lead_source || raw.source || connection.default_lead_source || 'Webhook').trim();
+    const sourceName = canonicalWebhookSource(raw, connection);
+    // Keep the historical Meta Lead Ads catalog entry for compatibility and
+    // audit views, while storing the operational source as Facebook/Instagram.
+    if (requestedSourceName.toLowerCase() === 'meta lead ads' && sourceName !== requestedSourceName) {
+      await ensureWebhookLeadConfiguration(workspace, raw.status || connection.default_lead_status || 'New', requestedSourceName);
+    }
+    const configuration = await ensureWebhookLeadConfiguration(workspace, raw.status || connection.default_lead_status || 'New', sourceName);
     const statusRows = configuration.statusRows;
     const sourceRows = configuration.sourceRows;
     if (!statusRows[0] || !sourceRows[0]) {
@@ -1170,10 +1195,10 @@ function createNeonRepository(sql) {
     }
     const legacyId = `lead_${crypto.randomUUID().slice(0, 10)}`;
     const inserted = await sql.query(
-      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb)
-       ON CONFLICT (workspace_id,external_source,external_lead_id) DO NOTHING RETURNING id`,
-      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, String(raw.whatsapp || raw.whatsapp_number || phone), raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, external_lead_id: externalId || null, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
+      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,idempotency_key,metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)
+       ON CONFLICT DO NOTHING RETURNING id`,
+      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, whatsapp, raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, idempotency, JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, lead_source: sourceName, source_form: webhookFormName(raw), source_form_name: webhookFormName(raw), source_channel: raw.source_channel || raw.channel || null, external_lead_id: externalId || null, idempotency_key: idempotency, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
     );
     if (!inserted[0]) {
       const existing = await sql.query(
