@@ -59,7 +59,7 @@ test('list APIs keep legacy callers compatible and page only explicit pagination
   assert.match(repository, /ON CONFLICT \(user_id,dedupe_key\) DO NOTHING/);
   assert.doesNotMatch(repository, /(?:ls\.name|src\.name|l\.interested_in|l\.priority|l\.assigned_agent_id|c\.customer_status|c\.assigned_agent_id|t\.status|t\.priority|t\.assigned_to) = \${params\.length}/);
   assert.doesNotMatch(repository, /const p = `\${params\.length}`/);
-  assert.match(repository, /const limitParam = '\\$' \+ limit; const offsetParam = '\\$' \+ offset;/);
+  assert.ok(repository.includes("const limitParam = '$' + limit; const offsetParam = '$' + offset;"));
   assert.match(repository, /LIMIT \${limitParam} OFFSET \${offsetParam}/);
 });
 
