@@ -145,7 +145,8 @@
   }
 
   function customerOptions() {
-    const source = state.customers?.items || [];
+    const moduleState = stateForModule();
+    const source = moduleState.customerOptionsLoaded ? (moduleState.customerOptions || []) : (state.customers?.items || []);
     const permitted = role() === 'SALES_AGENT' ? source.filter(item => item.assigned_agent_id === state.authUser?.id) : source;
     const prefill = state.followupPrefill || {};
     const selected = prefill.customer_id && !permitted.some(item => item.id === prefill.customer_id) ? [{ id: prefill.customer_id, full_name: 'Selected customer', phone: '' }, ...permitted] : permitted;
@@ -154,7 +155,26 @@
 
   function renderCreateFollowupDrawerModule() {
     const prefill = state.followupPrefill || {};
-    return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><h2>New Customer Follow-up</h2><button class="drawer-close" data-followup-module-close aria-label="Close follow-up">×</button></div><form id="followup-module-create-form" class="drawer-section">${prefill.lead_id && !prefill.customer_id ? `<input type="hidden" name="lead_id" value="${esc(prefill.lead_id)}" />` : `<div class="form-field"><label>Customer<select name="customer_id" required><option value="">Choose a customer</option>${customerOptions()}</select></label></div>`}${scheduleFields()}<button class="btn btn-gold" type="submit">Schedule follow-up</button></form></aside>`;
+    const moduleState = stateForModule();
+    const loading = moduleState.customerOptionsLoading && !moduleState.customerOptionsLoaded ? '<p class="form-hint">Loading permitted customers…</p>' : '';
+    return `<div class="drawer-backdrop" data-followup-module-close></div><aside class="drawer followup-detail-drawer"><div class="drawer-header"><h2>New Customer Follow-up</h2><button class="drawer-close" data-followup-module-close aria-label="Close follow-up">×</button></div><form id="followup-module-create-form" class="drawer-section">${prefill.lead_id && !prefill.customer_id ? `<input type="hidden" name="lead_id" value="${esc(prefill.lead_id)}" />` : `<div class="form-field"><label>Customer<select name="customer_id" required><option value="">Choose a customer</option>${customerOptions()}</select></label></div>${loading}`}${scheduleFields()}<button class="btn btn-gold" type="submit">Schedule follow-up</button></form></aside>`;
+  }
+
+  async function ensureCustomerOptions() {
+    const moduleState = stateForModule();
+    if (moduleState.customerOptionsLoaded || moduleState.customerOptionsLoading) return;
+    moduleState.customerOptionsLoading = true;
+    try {
+      const endpoint = role() === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers';
+      const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000 });
+      moduleState.customerOptions = result.data || [];
+      moduleState.customerOptionsLoaded = true;
+    } catch {
+      moduleState.customerOptions = state.customers?.items || [];
+    } finally {
+      moduleState.customerOptionsLoading = false;
+      if (state.drawer === 'create-followup') render();
+    }
   }
 
   async function refreshList() {
@@ -202,7 +222,7 @@
     }
     if (target.closest('[data-followup-module-create]')) {
       state.followupPrefill = null; state.drawer = 'create-followup'; state.followupDetail = null; moduleState.form = ''; render();
-      if (!state.customers?.items?.length && typeof loadCustomers === 'function') loadCustomers();
+      ensureCustomerOptions();
       return;
     }
     const action = target.closest('[data-followup-module-action]');
