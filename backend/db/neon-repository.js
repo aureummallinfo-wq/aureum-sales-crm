@@ -928,8 +928,15 @@ function createNeonRepository(sql) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${uniqueSql}) unique_followups`, params);
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit=params.length+1; const offset=params.length+2;
-      const rows = await sql.query(`SELECT * FROM (${uniqueSql}) unique_followups ORDER BY due_at ASC, id DESC LIMIT $${limit} OFFSET $${offset}`, [...params,pagination.pageSize,pagination.offset]);
-      return { rows: rows.map(followUpRecord), meta };
+      const rows = await sql.query(`SELECT * FROM (${uniqueSql}) unique_followups ORDER BY due_at ASC, id DESC LIMIT ${limit} OFFSET ${offset}`, [...params,pagination.pageSize,pagination.offset]);
+      const records = rows.map(followUpRecord);
+      for (let index = 0; index < (notify ? records.length : 0); index += 1) {
+        const record = records[index];
+        if (['Completed','Cancelled'].includes(record.lifecycle_status)) continue;
+        const row = rows[index];
+        await createFollowUpNotification(workspace, row.id, row.assigned_agent_id, record.status === 'Overdue' ? 'follow_up_overdue' : 'follow_up_due', record);
+      }
+      return { rows: records, meta };
     }
     const rows = await sql.query(`${followUpSelect} WHERE ${where} ORDER BY f.due_at ASC`, params);
     const records = rows.map(followUpRecord);
