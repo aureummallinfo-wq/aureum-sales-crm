@@ -529,12 +529,12 @@ function createNeonRepository(sql) {
 
   async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, allSalesManagerLeads = false, pagination = null }) {
     const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
-    if (status) { params.push(status); conditions.push(`ls.name = ${params.length}`); }
-    if (source) { params.push(source); conditions.push(`src.name = ${params.length}`); }
-    if (interest) { params.push(interest); conditions.push(`l.interested_in = ${params.length}`); }
-    if (priority) { params.push(priority); conditions.push(`l.priority = ${params.length}`); }
-    if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push(`l.assigned_agent_id = ${params.length}`); }
-    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `${params.length}`; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.whatsapp_number, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(l.external_lead_id, '')) LIKE ${p} OR lower(coalesce(l.idempotency_key, '')) LIKE ${p} OR lower(coalesce(l.metadata::text, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
+    if (status) { params.push(status); conditions.push('ls.name = $' + params.length); }
+    if (source) { params.push(source); conditions.push('src.name = $' + params.length); }
+    if (interest) { params.push(interest); conditions.push('l.interested_in = $' + params.length); }
+    if (priority) { params.push(priority); conditions.push('l.priority = $' + params.length); }
+    if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
+    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.whatsapp_number, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(l.external_lead_id, '')) LIKE ${p} OR lower(coalesce(l.idempotency_key, '')) LIKE ${p} OR lower(coalesce(l.metadata::text, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
     if (imported === 'true' || imported === 'imported' || imported === 'webhook') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE`);
     if (imported === 'unassigned') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE AND l.assigned_agent_id IS NULL`);
     if (imported === 'webhook') conditions.push(`l.metadata->>'webhook_connection_id' IS NOT NULL`);
@@ -543,7 +543,8 @@ function createNeonRepository(sql) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${leadSelect} WHERE ${where}) scoped_leads`, params);
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit = params.length + 1; const offset = params.length + 2;
-      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC LIMIT ${limit} OFFSET ${offset}`, [...params, pagination.pageSize, pagination.offset]);
+      const limitParam = '$' + limit; const offsetParam = '$' + offset;
+      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
       return { rows: rows.map(leadRecord), meta };
     }
     const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC`, params); return rows.map(leadRecord);
@@ -790,22 +791,23 @@ function createNeonRepository(sql) {
 
   async function listCustomers({ workspaceId: workspace, user, status, source, search, city, interest, priority, agentId, pagination = null }) {
     const scoped = await scope(workspace, user, 'c'); const conditions = [...scoped.conditions]; const params = [...scoped.params];
-    if (status) { params.push(status); conditions.push(`c.customer_status = ${params.length}`); }
-    if (source) { params.push(source); conditions.push(`coalesce(c.metadata->>'lead_source','') = ${params.length}`); }
-    if (city) { params.push(city); conditions.push(`coalesce(c.metadata->>'city','') = ${params.length}`); }
-    if (interest) { params.push(interest); conditions.push(`coalesce(c.metadata->>'interested_in','') = ${params.length}`); }
-    if (priority) { params.push(priority); conditions.push(`coalesce(c.metadata->>'priority','') = ${params.length}`); }
+    if (status) { params.push(status); conditions.push('c.customer_status = $' + params.length); }
+    if (source) { params.push(source); conditions.push("coalesce(c.metadata->>'lead_source','') = $" + params.length); }
+    if (city) { params.push(city); conditions.push("coalesce(c.metadata->>'city','') = $" + params.length); }
+    if (interest) { params.push(interest); conditions.push("coalesce(c.metadata->>'interested_in','') = $" + params.length); }
+    if (priority) { params.push(priority); conditions.push("coalesce(c.metadata->>'priority','') = $" + params.length); }
     if (agentId) {
       if (agentId === '__unassigned__') conditions.push('c.assigned_agent_id IS NULL');
-      else { params.push(await resolveUserId(workspace, agentId)); conditions.push(`c.assigned_agent_id = ${params.length}`); }
+      else { params.push(await resolveUserId(workspace, agentId)); conditions.push('c.assigned_agent_id = $' + params.length); }
     }
-    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = `${params.length}`; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.whatsapp_number,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p} OR lower(coalesce(c.metadata->>'interested_in','')) LIKE ${p} OR lower(coalesce(au.full_name,'')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.customer_notes n WHERE n.customer_id=c.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.customer_activities a WHERE a.customer_id=c.id AND lower(a.description) LIKE ${p}))`); }
+    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.whatsapp_number,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p} OR lower(coalesce(c.metadata->>'interested_in','')) LIKE ${p} OR lower(coalesce(au.full_name,'')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.customer_notes n WHERE n.customer_id=c.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.customer_activities a WHERE a.customer_id=c.id AND lower(a.description) LIKE ${p}))`); }
     const where = conditions.join(' AND ');
     if (pagination) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${customerSelect} WHERE ${where}) scoped_customers`, params);
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit = params.length + 1; const offset = params.length + 2;
-      const rows = await sql.query(`${customerSelect} WHERE ${where} ORDER BY c.created_at DESC, c.id DESC LIMIT ${limit} OFFSET ${offset}`, [...params, pagination.pageSize, pagination.offset]);
+      const limitParam = '$' + limit; const offsetParam = '$' + offset;
+      const rows = await sql.query(`${customerSelect} WHERE ${where} ORDER BY c.created_at DESC, c.id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
       return { rows: rows.map(customerRecord), meta };
     }
     const rows = await sql.query(`${customerSelect} WHERE ${where} ORDER BY c.created_at DESC, c.id DESC`, params); return rows.map(customerRecord);
@@ -928,7 +930,8 @@ function createNeonRepository(sql) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${uniqueSql}) unique_followups`, params);
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit=params.length+1; const offset=params.length+2;
-      const rows = await sql.query(`SELECT * FROM (${uniqueSql}) unique_followups ORDER BY due_at ASC, id DESC LIMIT ${limit} OFFSET ${offset}`, [...params,pagination.pageSize,pagination.offset]);
+      const limitParam = '$' + limit; const offsetParam = '$' + offset;
+      const rows = await sql.query(`SELECT * FROM (${uniqueSql}) unique_followups ORDER BY due_at ASC, id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params,pagination.pageSize,pagination.offset]);
       const records = rows.map(followUpRecord);
       for (let index = 0; index < (notify ? records.length : 0); index += 1) {
         const record = records[index];
@@ -1083,17 +1086,18 @@ function createNeonRepository(sql) {
     const scoped = await taskScope(workspace, user);
     const conditions = [...scoped.conditions];
     const params = [...scoped.params];
-    if (filters.status && filters.status !== 'all') { params.push(filters.status); conditions.push(`t.status = ${params.length}`); }
-    if (filters.priority && filters.priority !== 'all') { params.push(filters.priority); conditions.push(`t.priority = ${params.length}`); }
-    if (filters.assignedTo && filters.assignedTo !== 'all') { params.push(await resolveUserId(workspace, filters.assignedTo)); conditions.push(`t.assigned_to = ${params.length}`); }
-    if (filters.search) { params.push(`%${String(filters.search).toLowerCase()}%`); const p = `${params.length}`; conditions.push(`(lower(t.title) LIKE ${p} OR lower(coalesce(t.description, '')) LIKE ${p} OR lower(coalesce(l.full_name, '')) LIKE ${p} OR lower(coalesce(c.full_name, '')) LIKE ${p})`); }
+    if (filters.status && filters.status !== 'all') { params.push(filters.status); conditions.push('t.status = $' + params.length); }
+    if (filters.priority && filters.priority !== 'all') { params.push(filters.priority); conditions.push('t.priority = $' + params.length); }
+    if (filters.assignedTo && filters.assignedTo !== 'all') { params.push(await resolveUserId(workspace, filters.assignedTo)); conditions.push('t.assigned_to = $' + params.length); }
+    if (filters.search) { params.push(`%${String(filters.search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(t.title) LIKE ${p} OR lower(coalesce(t.description, '')) LIKE ${p} OR lower(coalesce(l.full_name, '')) LIKE ${p} OR lower(coalesce(c.full_name, '')) LIKE ${p})`); }
     const where = conditions.join(' AND ');
     const orderBy = "CASE WHEN t.status = 'Overdue' THEN 0 WHEN t.status = 'In Progress' THEN 1 WHEN t.status = 'Pending' THEN 2 ELSE 3 END, t.due_at NULLS LAST, t.created_at DESC, t.id DESC";
     if (filters.pagination) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${taskSelect} WHERE ${where}) scoped_tasks`, params);
       const meta = paginationMeta(filters.pagination, Number(totalRows[0]?.total || 0));
       const limit = params.length + 1; const offset = params.length + 2;
-      const rows = await sql.query(`${taskSelect} WHERE ${where} ORDER BY ${orderBy} LIMIT ${limit} OFFSET ${offset}`, [...params, filters.pagination.pageSize, filters.pagination.offset]);
+      const limitParam = '$' + limit; const offsetParam = '$' + offset;
+      const rows = await sql.query(`${taskSelect} WHERE ${where} ORDER BY ${orderBy} LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, filters.pagination.pageSize, filters.pagination.offset]);
       return { rows: rows.map(taskRecord), meta };
     }
     const rows = await sql.query(`${taskSelect} WHERE ${where} ORDER BY ${orderBy}`, params);
