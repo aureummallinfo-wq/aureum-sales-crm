@@ -205,7 +205,7 @@ const state = {
   ready: false,
   dashboard: { loading: true, error: '', data: null },
   leads: { loading: false, error: '', items: [] },
-  leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '' },
+  leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' },
   leadDetail: null,
   customers: { loading: false, error: '', items: [] },
   followups: { loading: false, error: '', items: [] },
@@ -232,7 +232,7 @@ function clearPortalData() {
   Object.assign(state, {
     dashboard: { loading: false, error: '', data: null },
     leads: collection(), customers: collection(), followups: collection(), agents: collection(),
-    leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '' },
+    leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' },
     leadModule: { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', selectedLeadIds: [], bulkAssignment: null, importDialog: null },
     customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' } },
     followupModule: { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: new Date().toISOString().slice(0, 7), tab: 'overview', form: '' },

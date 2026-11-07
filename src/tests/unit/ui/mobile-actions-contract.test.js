@@ -22,6 +22,15 @@ test('record drawers expose editing and the compact follow-up note workflow', ()
   assert.match(followups, /'followup-module-note-form'/);
 });
 
+test('All Leads exposes assignment filters', () => {
+  const leads = read('frontend/features/leads/leads-module.js');
+
+  assert.match(leads, /data-leads-assignment/);
+  assert.match(leads, /Assigned leads/);
+  assert.match(leads, /Unassigned leads/);
+  assert.match(leads, /filters\.assignment/);
+});
+
 test('notification center is wired after the final module binding layer', () => {
   const runtime = read('frontend/module9-settings-account-runtime.js');
   assert.match(runtime, /typeof bindNotifications9 === 'function'/);

@@ -35,7 +35,7 @@ export interface Lead {
 
 export interface LeadNote { id: string; lead_id?: string; note: string; user_id?: string; created_at: string; }
 export interface LeadActivity { id: string; lead_id?: string; activity_type: string; description: string; user_id?: string; created_at: string; metadata?: Record<string, unknown>; }
-export interface LeadFilters { q?: string; status?: LeadStatus | ''; source?: LeadSource | ''; agentId?: string; interest?: string; /** @deprecated Use interest for the Interested in filter. */ propertyType?: string; priority?: LeadPriority | ''; }
+export interface LeadFilters { q?: string; status?: LeadStatus | ''; source?: LeadSource | ''; agentId?: string; assignment?: 'assigned' | 'unassigned' | ''; interest?: string; /** @deprecated Use interest for the Interested in filter. */ propertyType?: string; priority?: LeadPriority | ''; }
 export interface CreateLeadInput extends Partial<Lead> { full_name: string; phone: string; interested_in: string; }
 export interface UpdateLeadInput extends Partial<CreateLeadInput> { id: string; }
 export interface LeadsListResponse { scope: 'all' | 'my'; requestedBy: string; data: Lead[]; }

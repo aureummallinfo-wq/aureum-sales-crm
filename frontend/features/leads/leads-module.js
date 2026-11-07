@@ -96,6 +96,8 @@
   const safeDate = value => value && value !== '—' ? escape(value) : '—';
   const sourceForm = lead => lead?.source_form || lead?.source_form_name || lead?.form_name || '';
   const ownerLabel = lead => [lead?.assigned_team_name || lead?.team_name || '', lead?.assigned_agent || lead?.agent || 'Unassigned'].filter(Boolean).join(' · ') || 'Unassigned';
+  const isAssigned = lead => Boolean(lead?.assigned_agent_id || lead?.assigned_team_id || lead?.assigned_to || lead?.agent_id || (lead?.assigned_agent && !/^unassigned$/i.test(String(lead.assigned_agent).trim())));
+  const assignmentFilterOptions = (selected = '') => `<option value="">All assignments</option><option value="assigned" ${selected === 'assigned' ? 'selected' : ''}>Assigned leads</option><option value="unassigned" ${selected === 'unassigned' ? 'selected' : ''}>Unassigned leads</option>`;
   const selectedLeadIds = () => new Set(state.leadModule.selectedLeadIds || []);
   const renderBulkAssignmentDialog = () => {
     const dialog = state.leadModule.bulkAssignment;
@@ -200,6 +202,8 @@
       if (interestFilter && canonicalInterest(lead.interested_in) !== canonicalInterest(interestFilter)) return false;
       if (filters.priority && lead.priority !== filters.priority) return false;
       if (filters.agentId && String(lead.assigned_agent_id || '') !== String(filters.agentId)) return false;
+      if (filters.assignment === 'assigned' && !isAssigned(lead)) return false;
+      if (filters.assignment === 'unassigned' && isAssigned(lead)) return false;
       return true;
     }).sort((left, right) => {
       const leftTime = Date.parse(left.created_at || left.createdAt || '') || 0;
@@ -272,9 +276,10 @@
     const search = escape(state.leadFilters?.q || '');
     const tableHeaders = my ? '<th>Lead</th><th>Phone / WhatsApp</th><th>Interested in</th><th>Location</th><th>Budget</th><th>Status / priority</th><th>Actions</th>' : `<th><input type="checkbox" data-leads-select-all aria-label="Select all visible leads" ${items.length && items.every(lead => selectedLeadIds().has(String(lead.id))) ? 'checked' : ''} /></th><th>Lead</th><th>Phone / WhatsApp</th><th>Interested in</th><th>Location</th><th>Budget</th><th>Source / form</th><th>Owner</th><th>Status / priority</th><th>Actions</th>`;
     const agentFilter = !my && isManager() ? `<select class="select" data-leads-agent aria-label="Filter by assigned agent">${agentFilterOptions(state.leadFilters?.agentId || '')}</select>` : '';
+    const assignmentFilter = !my && isManager() ? `<select class="select" data-leads-assignment aria-label="Filter by lead assignment">${assignmentFilterOptions(state.leadFilters?.assignment || '')}</select>` : '';
     const selectedCount = state.leadModule.selectedLeadIds.length;
     const bulkToolbar = !my && canManage() && selectedCount ? `<div class="lead-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Select a team queue or advisor to update ownership.</span><button class="btn btn-gold btn-sm" data-bulk-assignment-open>Assign selected</button><button class="btn btn-secondary btn-sm" data-leads-clear-selection>Clear selection</button></div>` : '';
-    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, scopeDetail)}${summaryCard('Hot leads', hot, hot ? (filtered ? 'Matches active filters' : 'Prioritize today') : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? (filtered ? 'Matches active filters' : 'Conversation in motion') : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? (filtered ? 'Matches active filters' : 'Review before end of day') : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${scopeTotal} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div>${bulkToolbar}<div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, scopeDetail)}${summaryCard('Hot leads', hot, hot ? (filtered ? 'Matches active filters' : 'Prioritize today') : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? (filtered ? 'Matches active filters' : 'Conversation in motion') : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? (filtered ? 'Matches active filters' : 'Review before end of day') : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${scopeTotal} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${assignmentFilter}${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div>${bulkToolbar}<div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
     return page + renderImportDialog() + renderBulkAssignmentDialog();
   }
 
@@ -450,7 +455,7 @@
     const tab = event.target.closest('[data-leads-tab]');
     if (tab) { event.preventDefault(); state.leadFilters.status = tab.dataset.leadsTab || ''; render(); return; }
     const reset = event.target.closest('[data-leads-reset]');
-    if (reset) { state.leadFilters = { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '' }; state.leadModule.selectedLeadIds = []; if (state.screen === 'leads') refreshLeads(); else render(); return; }
+    if (reset) { state.leadFilters = { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' }; state.leadModule.selectedLeadIds = []; if (state.screen === 'leads') refreshLeads(); else render(); return; }
     const action = event.target.closest('[data-leads-action]');
     if (action) { event.preventDefault(); leadModuleAction(action.dataset.leadsAction, action.dataset.leadId); return; }
     const drawerTab = event.target.closest('[data-lead-drawer-tab]');
@@ -502,8 +507,9 @@
     if (input.matches('[data-leads-source]')) state.leadFilters.source = input.value;
     if (input.matches('[data-leads-interest]') || input.matches('[data-leads-property]')) { state.leadFilters.interest = input.value; state.leadFilters.propertyType = ''; }
     if (input.matches('[data-leads-priority]')) state.leadFilters.priority = input.value;
+    if (input.matches('[data-leads-assignment]')) state.leadFilters.assignment = input.value;
     if (input.matches('[data-leads-agent]')) { state.leadFilters.agentId = input.value; refreshLeads(); return; }
-    if (input.matches('[data-leads-source], [data-leads-interest], [data-leads-property], [data-leads-priority]')) render();
+    if (input.matches('[data-leads-source], [data-leads-interest], [data-leads-property], [data-leads-priority], [data-leads-assignment]')) render();
   });
   document.addEventListener('submit', event => {
     const form = event.target;
