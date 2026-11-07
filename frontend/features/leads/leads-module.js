@@ -96,7 +96,7 @@
   const safeDate = value => value && value !== '—' ? escape(value) : '—';
   const sourceForm = lead => lead?.source_form || lead?.source_form_name || lead?.form_name || '';
   const ownerLabel = lead => [lead?.assigned_team_name || lead?.team_name || '', lead?.assigned_agent || lead?.agent || 'Unassigned'].filter(Boolean).join(' · ') || 'Unassigned';
-  const isAssigned = lead => Boolean(lead?.assigned_agent_id || lead?.assigned_team_id || lead?.assigned_to || lead?.agent_id || (lead?.assigned_agent && !/^unassigned$/i.test(String(lead.assigned_agent).trim())));
+  const isAssigned = lead => Boolean(lead?.assigned_agent_id || lead?.assigned_to || lead?.agent_id || (lead?.assigned_agent && !/^unassigned$/i.test(String(lead.assigned_agent).trim())));
   const assignmentFilterOptions = (selected = '') => `<option value="">All assignments</option><option value="assigned" ${selected === 'assigned' ? 'selected' : ''}>Assigned leads</option><option value="unassigned" ${selected === 'unassigned' ? 'selected' : ''}>Unassigned leads</option>`;
   const selectedLeadIds = () => new Set(state.leadModule.selectedLeadIds || []);
   const renderBulkAssignmentDialog = () => {
