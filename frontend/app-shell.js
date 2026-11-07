@@ -233,10 +233,10 @@ function clearPortalData() {
     dashboard: { loading: false, error: '', data: null },
     leads: collection(), customers: collection(), followups: collection(), agents: collection(),
     leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '' },
-    leadModule: { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', selectedLeadIds: [], bulkAssignment: null, importDialog: null },
-    customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' } },
-    followupModule: { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: new Date().toISOString().slice(0, 7), tab: 'overview', form: '' },
-    tasks: { ...collection(), users: [], leads: [], customers: [], followUps: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '' }, formOpen: false, editing: null },
+    leadModule: { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', selectedLeadIds: [], bulkAssignment: null, importDialog: null, pagination: { page: 1, pageSize: 25 } },
+    customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' }, pagination: { page: 1, pageSize: 25 } },
+    followupModule: { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: new Date().toISOString().slice(0, 7), tab: 'overview', form: '', pagination: { page: 1, pageSize: 25 } },
+    tasks: { ...collection(), users: [], leads: [], customers: [], followUps: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '' }, pagination: { page: 1, pageSize: 25 }, formOpen: false, editing: null },
     users: { ...collection(), teams: [], detail: null, filters: { search: '', role: 'All', status: 'All', inviteStatus: 'All', teamId: 'All', activityStatus: 'All' }, drawer: '' },
     account: { loading: false, error: '', data: null },
     chat: { loading: false, error: '', channels: [], groups: [], direct: [], users: [], messages: [], attachments: [], links: [], unread: {} },
@@ -697,14 +697,26 @@ function customerInitials(name) { return String(name || '').split(' ').map(part 
 async function loadCustomers(force = false) {
   if (!state.authUser) return;
   const sessionKey = portalSessionKey();
-  state.customers = { loading: true, error: '', items: state.customers.items || [] };
+  state.customerModule = state.customerModule || {};
+  const paging = state.customerModule.pagination = { page: 1, pageSize: 25, ...(state.customerModule.pagination || {}) };
+  const requestToken = (state.customers.requestToken || 0) + 1;
+  state.customers = { ...state.customers, requestToken, loading: true, error: '', items: state.customers.items || [] };
   render();
   try {
-    const endpoint = state.role === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers';
+    const query = new URLSearchParams({ page: String(paging.page), pageSize: String(paging.pageSize) });
+    const filters = state.customerModule.filters || {};
+    if (filters.search) query.set('q', filters.search);
+    if (filters.status) query.set('status', filters.status);
+    if (filters.source) query.set('source', filters.source);
+    if (filters.city) query.set('city', filters.city);
+    if (filters.interestedIn) query.set('interest', filters.interestedIn);
+    if (filters.priority) query.set('priority', filters.priority);
+    if (filters.agentId) query.set('agentId', filters.agentId);
+    const endpoint = `${state.role === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers'}?${query}`;
     const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
-    if (sessionKey !== portalSessionKey()) return;
-    state.customers = { loading: false, error: '', items: result.data || [] };
-  } catch (error) { if (sessionKey !== portalSessionKey()) return; state.customers = { loading: false, error: error.message, items: state.customers.items || [] }; }
+    if (sessionKey !== portalSessionKey() || requestToken !== state.customers.requestToken) return;
+    state.customers = { requestToken, loading: false, error: '', items: result.data || [], meta: result.meta || null };
+  } catch (error) { if (sessionKey !== portalSessionKey() || requestToken !== state.customers.requestToken) return; state.customers = { ...state.customers, requestToken, loading: false, error: error.message, items: state.customers.items || [] }; }
   render();
 }
 
@@ -798,15 +810,30 @@ function followupDateMatches(item, filter) {
 async function loadFollowups(force = false) {
   if (!state.authUser) return;
   const sessionKey = portalSessionKey();
-  state.followups = { loading: true, error: '', items: state.followups.items || [] };
+  state.followupModule = state.followupModule || {};
+  const moduleState = state.followupModule;
+  const paging = moduleState.pagination = { page: 1, pageSize: 25, ...(moduleState.pagination || {}) };
+  const requestToken = (state.followups.requestToken || 0) + 1;
+  state.followups = { ...state.followups, requestToken, loading: true, error: '', items: state.followups.items || [] };
   render();
   try {
-    const endpoint = state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups';
+    const query = new URLSearchParams({ page: String(paging.page), pageSize: String(paging.pageSize) });
+    if (moduleState.search) query.set('q', moduleState.search);
+    if (moduleState.status) query.set('status', moduleState.status);
+    if (moduleState.date && moduleState.date !== 'all') query.set('date', moduleState.date);
+    if (moduleState.customStart) query.set('customStart', moduleState.customStart);
+    if (moduleState.customEnd) query.set('customEnd', moduleState.customEnd);
+    if (moduleState.selectedDate) query.set('selectedDate', moduleState.selectedDate);
+    if (moduleState.agentId) query.set('agentId', moduleState.agentId);
+    if (moduleState.type) query.set('type', moduleState.type);
+    if (moduleState.leadStatus) query.set('leadStatus', moduleState.leadStatus);
+    if (moduleState.priority) query.set('priority', moduleState.priority);
+    const endpoint = `${state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups'}?${query}`;
     const result = await apiFetch(endpoint, { cacheTtl: 15 * 1000, force });
-    if (sessionKey !== portalSessionKey()) return;
+    if (sessionKey !== portalSessionKey() || requestToken !== state.followups.requestToken) return;
     const terminal = item => window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) || item.cancelled_by_closure;
-    state.followups = { loading: false, error: '', items: (result.data || []).filter(item => !terminal(item)) };
-  } catch (error) { if (sessionKey !== portalSessionKey()) return; state.followups = { loading: false, error: error.message, items: state.followups.items || [] }; }
+    state.followups = { requestToken, loading: false, error: '', items: (result.data || []).filter(item => !terminal(item)), meta: result.meta || null };
+  } catch (error) { if (sessionKey !== portalSessionKey() || requestToken !== state.followups.requestToken) return; state.followups = { ...state.followups, requestToken, loading: false, error: error.message, items: state.followups.items || [] }; }
   render();
 }
 
@@ -958,15 +985,26 @@ function renderDashboard() {
 
 async function loadLeads(my = false, force = false) {
   if (!state.authUser) return;
-  state.leads = { loading: true, error: '', items: state.leads.items || [] }; render();
-  const agentId = !my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) ? String(state.leadFilters?.agentId || '') : '';
-  const endpoint = my || !agentId ? (my ? '/api/leads/my' : '/api/leads') : `/api/leads?agentId=${encodeURIComponent(agentId)}`;
+  state.leadModule = state.leadModule || {};
+  const paging = state.leadModule.pagination = { page: 1, pageSize: 25, ...(state.leadModule.pagination || {}) };
+  const requestToken = (state.leads.requestToken || 0) + 1;
+  state.leads = { ...state.leads, requestToken, loading: true, error: '', items: state.leads.items || [] }; render();
+  const query = new URLSearchParams({ page: String(paging.page), pageSize: String(paging.pageSize) });
+  const filters = state.leadFilters || {};
+  if (filters.q) query.set('q', filters.q);
+  if (filters.status) query.set('status', filters.status);
+  if (filters.source) query.set('source', filters.source);
+  if (filters.interest || filters.propertyType) query.set('interest', filters.interest || filters.propertyType);
+  if (filters.priority) query.set('priority', filters.priority);
+  if (!my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && filters.agentId) query.set('agentId', filters.agentId);
+  const endpoint = `${my ? '/api/leads/my' : '/api/leads'}?${query}`;
   try {
     const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
-    state.leads = { loading: false, error: '', items: result.data || [] };
+    if (requestToken !== state.leads.requestToken) return;
+    state.leads = { requestToken, loading: false, error: '', items: result.data || [], meta: result.meta || null };
     if (state.screen === (my ? 'my-leads' : 'leads')) window.AureumSidebarBadges?.markLeadsSeen(state.leads.items);
   }
-  catch (error) { state.leads = { loading: false, error: error.message, items: state.leads.items || [] }; }
+  catch (error) { if (requestToken !== state.leads.requestToken) return; state.leads = { ...state.leads, requestToken, loading: false, error: error.message, items: state.leads.items || [] }; }
   render();
 }
 
