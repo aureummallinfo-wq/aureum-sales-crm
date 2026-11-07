@@ -10,6 +10,7 @@
   state.customerModule = state.customerModule || { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' } };
   state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '', ...(state.customerModule.filters || {}) };
   state.customerModule.editing = Boolean(state.customerModule.editing);
+  state.customerModule.pagination = { page: 1, pageSize: 25, ...(state.customerModule.pagination || {}) };
   const statuses = Array.isArray(state.customerModule.statuses) && state.customerModule.statuses.length ? state.customerModule.statuses : defaultStatuses;
   if (!state.customerModule.statusesLoaded && typeof apiFetch === 'function') {
     state.customerModule.statusesLoaded = true;
@@ -106,16 +107,17 @@
     if (state.customers?.error && !state.customers.items?.length) return renderCustomerError();
     const all = (state.customers?.items || []).map(normalizeCustomer);
     const items = visibleCustomers();
+    const matchingTotal = Number(state.customers?.meta?.total ?? items.length);
     const active = items.filter(customer => !['Closed Won', 'Not Interested', 'Invalid'].includes(customerStatus(customer))).length;
     const hot = items.filter(customer => customerStatus(customer) === 'Hot').length;
     const due = items.filter(hasScheduledFollowUp).length;
     const booking = items.filter(customer => customerStatus(customer) === 'Negotiation').length;
     const closed = items.filter(customer => customerStatus(customer) === 'Closed Won').length;
-    const filtered = items.length !== all.length;
-    const scopeDetail = filtered ? 'Matches active filters' : (state.role === 'SALES_AGENT' ? 'Assigned to me' : state.role === 'SALES_MANAGER' ? 'Team customers' : 'Company-wide book');
+    const scopeDetail = state.role === 'SALES_AGENT' ? 'Matching assigned records' : state.role === 'SALES_MANAGER' ? 'Matching team records' : 'Matching company records';
     const cityOptions = [...new Set(all.map(customer => customer.city).filter(Boolean))].sort();
     const agentFilter = customerAgentFilterOptions(all);
-    return pageHeader('Client relationships', 'Customers', state.role === 'SALES_AGENT' ? 'Work only the customer relationships assigned to your advisor account.' : state.role === 'SALES_MANAGER' ? 'Review the team customer book, activity, and next commercial action.' : 'Review the complete Aureum customer book, activity, and next commercial action.', `<button class="btn btn-secondary" data-customer-module-export>Export CSV</button><button class="btn btn-secondary" data-customer-module-reload>Refresh</button><button class="btn btn-secondary" data-screen="${state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'}">Open leads</button>`) + `<section class="grid grid-4 customer-summary-grid">${summaryCard('Total Customers', items.length, scopeDetail)}${summaryCard('Active Customers', active, active ? (filtered ? 'Matches active filters' : 'Relationships in motion') : 'No active customers', 'green')}${summaryCard('Hot Customers', hot, hot ? (filtered ? 'Matches active filters' : 'High intent') : 'No hot customers', hot ? 'hot' : '')}${summaryCard('Follow-ups Due', due, due ? (filtered ? 'Matches active filters' : 'Review next actions') : 'Nothing scheduled', due ? 'warm' : '')}${summaryCard('Negotiation', booking, filtered ? 'Matches active filters' : 'Commercial opportunity', booking ? 'booking' : '')}${summaryCard('Closed Customers', closed, filtered ? 'Matches active filters' : 'Won customer history', 'green')}</section><section class="card table-card customer-registry-card"><div class="customer-registry-head"><div><h2>Customer registry</h2><p>${items.length} of ${all.length} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SUPER_ADMIN' ? 'Company scope' : state.role === 'SALES_MANAGER' ? 'Team scope' : 'Assigned only'}</span></div>${customerStatusTabs()}<div class="customer-filter-bar"><label class="customer-search-field"><span aria-hidden="true">⌕</span><input data-customer-module-search value="${escape(state.customerModule.filters?.search || '')}" placeholder="Search name, phone, WhatsApp, email…" aria-label="Search customers" /></label><select class="select" data-customer-module-source aria-label="Filter by source">${selectOptions(sources, state.customerModule.filters?.source || '', 'All sources')}</select><select class="select" data-customer-module-city aria-label="Filter by city">${selectOptions(cityOptions, state.customerModule.filters?.city || '', 'All cities')}</select><select class="select" data-customer-module-interest aria-label="Filter by interest">${selectOptions(interests, state.customerModule.filters?.interestedIn || '', 'All interests')}</select><select class="select" data-customer-module-priority aria-label="Filter by priority">${selectOptions(priorities, state.customerModule.filters?.priority || '', 'All priorities')}</select>${agentFilter}<button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset</button></div><div class="table-wrap customer-table-wrap"><table class="customer-data-table"><thead><tr><th>Customer name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Assigned agent</th><th>Status / tags</th><th>Last activity</th><th>Next follow-up</th><th>Actions</th></tr></thead><tbody>${tableRows(items)}</tbody></table></div></section>`;
+    const pager = window.AureumPagination?.render(state.customers?.meta || { page: state.customerModule.pagination.page, pageSize: state.customerModule.pagination.pageSize, total: matchingTotal }, 'customers', { busy: Boolean(state.customers?.loading) }) || '';
+    return pageHeader('Client relationships', 'Customers', state.role === 'SALES_AGENT' ? 'Work only the customer relationships assigned to your advisor account.' : state.role === 'SALES_MANAGER' ? 'Review the team customer book, activity, and next commercial action.' : 'Review the complete Aureum customer book, activity, and next commercial action.', `<button class="btn btn-secondary" data-customer-module-export>Export CSV</button><button class="btn btn-secondary" data-customer-module-reload>Refresh</button><button class="btn btn-secondary" data-screen="${state.role === 'SALES_AGENT' ? 'my-leads' : 'leads'}">Open leads</button>`) + `<section class="grid grid-4 customer-summary-grid">${summaryCard('Matching Customers', matchingTotal, scopeDetail)}${summaryCard('Active on this page', active, 'Current page', 'green')}${summaryCard('Hot on this page', hot, 'Current page', hot ? 'hot' : '')}${summaryCard('Follow-ups on this page', due, 'Current page', due ? 'warm' : '')}${summaryCard('Negotiation on this page', booking, 'Current page', booking ? 'booking' : '')}${summaryCard('Closed on this page', closed, 'Current page', 'green')}</section><section class="card table-card customer-registry-card"><div class="customer-registry-head"><div><h2>Customer registry</h2><p>${items.length} records on this page · ${matchingTotal} matching records.</p></div><span class="badge badge-neutral">${state.role === 'SUPER_ADMIN' ? 'Company scope' : state.role === 'SALES_MANAGER' ? 'Team scope' : 'Assigned only'}</span></div>${customerStatusTabs()}<div class="customer-filter-bar"><label class="customer-search-field"><span aria-hidden="true">⌕</span><input data-customer-module-search value="${escape(state.customerModule.filters?.search || '')}" placeholder="Search name, phone, WhatsApp, email…" aria-label="Search customers" /></label><select class="select" data-customer-module-source aria-label="Filter by source">${selectOptions(sources, state.customerModule.filters?.source || '', 'All sources')}</select><select class="select" data-customer-module-city aria-label="Filter by city">${selectOptions(cityOptions, state.customerModule.filters?.city || '', 'All cities')}</select><select class="select" data-customer-module-interest aria-label="Filter by interest">${selectOptions(interests, state.customerModule.filters?.interestedIn || '', 'All interests')}</select><select class="select" data-customer-module-priority aria-label="Filter by priority">${selectOptions(priorities, state.customerModule.filters?.priority || '', 'All priorities')}</select>${agentFilter}<button class="btn btn-secondary btn-sm" data-customer-module-reset>Reset</button></div><div class="table-wrap customer-table-wrap"><table class="customer-data-table"><thead><tr><th>Customer name</th><th>Phone / WhatsApp</th><th>Email</th><th>City</th><th>Interested in</th><th>Budget</th><th>Assigned agent</th><th>Status / tags</th><th>Last activity</th><th>Next follow-up</th><th>Actions</th></tr></thead><tbody>${tableRows(items)}</tbody></table></div>${pager}</section>`;
   }
 
   function detailItem(label, value) { return `<div><div class="detail-label">${escape(label)}</div><div class="detail-value">${escape(value ?? '—')}</div></div>`; }
@@ -149,7 +151,24 @@
   }
 
   async function refreshCustomers() { try { await loadCustomers(true); } catch { /* loadCustomers renders its own state */ } }
-  function exportCustomers() { const rows = visibleCustomers().map(customer => [customerName(customer), customer.phone, customer.whatsapp_number, customer.email, customer.city, customerInterest(customer), customer.budget, customerAgent(customer), customerStatus(customer)]); const csv = [['Name', 'Phone', 'WhatsApp', 'Email', 'City', 'Interested In', 'Budget', 'Assigned Agent', 'Status'], ...rows].map(row => row.map(value => { const text = String(value ?? ''); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = 'aureum-customers.csv'; link.click(); URL.revokeObjectURL(link.href); showToast('Customer CSV downloaded'); }
+  async function exportCustomers() {
+    try {
+      const filters = state.customerModule.filters || {};
+      const query = new URLSearchParams();
+      if (filters.search) query.set('q', filters.search);
+      if (filters.status) query.set('status', filters.status);
+      if (filters.source) query.set('source', filters.source);
+      if (filters.city) query.set('city', filters.city);
+      if (filters.interestedIn) query.set('interest', filters.interestedIn);
+      if (filters.priority) query.set('priority', filters.priority);
+      if (filters.agentId) query.set('agentId', filters.agentId);
+      const endpoint = `${state.role === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers'}${query.toString() ? `?${query}` : ''}`;
+      const result = await apiFetch(endpoint, { force: true });
+      const rows = (result.data || []).map(normalizeCustomer).map(customer => [customerName(customer), customer.phone, customer.whatsapp_number, customer.email, customer.city, customerInterest(customer), customer.budget, customerAgent(customer), customerStatus(customer)]);
+      const csv = [['Name', 'Phone', 'WhatsApp', 'Email', 'City', 'Interested In', 'Budget', 'Assigned Agent', 'Status'], ...rows].map(row => row.map(value => { const text = String(value ?? ''); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; }).join(',')).join('\n');
+      const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = 'aureum-customers.csv'; link.click(); URL.revokeObjectURL(link.href); showToast('Customer CSV downloaded');
+    } catch (error) { showToast(`Unable to export customers: ${error.message}`); }
+  }
   async function customerAction(action, id) {
     const customer = (state.customers?.items || []).find(item => item.id === id) || currentCustomer();
     if (!customer) return;
@@ -173,15 +192,15 @@
     if (row && !event.target.closest('button, a, input, select, textarea, summary, details')) { openCustomer(row.dataset.customerModuleRow); return; }
     const close = event.target.closest('[data-customer-module-close]'); if (close) { state.drawer = null; state.customerDetail = null; render(); return; }
     const open = event.target.closest('[data-customer-module-open]'); if (open) { event.preventDefault(); openCustomer(open.dataset.customerModuleOpen); return; }
-    const tab = event.target.closest('[data-customer-module-tab]'); if (tab) { state.customerModule.filters.status = tab.dataset.customerModuleTab || ''; render(); return; }
+    const tab = event.target.closest('[data-customer-module-tab]'); if (tab) { state.customerModule.filters.status = tab.dataset.customerModuleTab || ''; state.customerModule.pagination.page = 1; refreshCustomers(); return; }
     const drawerTab = event.target.closest('[data-customer-module-drawer-tab]'); if (drawerTab) { state.customerModule.tab = drawerTab.dataset.customerModuleDrawerTab; render(); return; }
-    const reset = event.target.closest('[data-customer-module-reset]'); if (reset) { state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' }; render(); return; }
+    const reset = event.target.closest('[data-customer-module-reset]'); if (reset) { state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' }; state.customerModule.pagination.page = 1; refreshCustomers(); return; }
     const reload = event.target.closest('[data-customer-module-reload]'); if (reload) refreshCustomers();
     const exportButton = event.target.closest('[data-customer-module-export]'); if (exportButton) exportCustomers();
     const action = event.target.closest('[data-customer-module-action]'); if (action) { event.preventDefault(); customerAction(action.dataset.customerModuleAction, action.dataset.customerId); }
   });
   document.addEventListener('keydown', event => { const row = event.target.closest('[data-customer-module-row]'); if (row && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); openCustomer(row.dataset.customerModuleRow); } });
-  document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.customerModule.filters.search = input.value; render(); AureumSearch.restore('[data-customer-module-search]', snapshot); } });
+  document.addEventListener('input', event => { const input = event.target.closest('[data-customer-module-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.customerModule.filters.search = input.value; state.customerModule.pagination.page = 1; render(); AureumSearch.restore('[data-customer-module-search]', snapshot); window.clearTimeout(window.__aureumCustomerSearchTimer); window.__aureumCustomerSearchTimer = window.setTimeout(() => refreshCustomers(), 300); } });
   document.addEventListener('change', event => { const input = event.target;
     if (input.matches('#customer-module-edit-form select[name="property_type"]')) {
       const field = input.closest('form').querySelector('[data-customer-other-property]');
@@ -191,13 +210,21 @@
       if (!enabled) other.value = '';
       return;
     }
-    const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-agent]')) filters.agentId = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority], [data-customer-module-agent]')) render(); });
+    const filters = state.customerModule.filters; if (input.matches('[data-customer-module-source]')) filters.source = input.value; if (input.matches('[data-customer-module-city]')) filters.city = input.value; if (input.matches('[data-customer-module-interest]')) filters.interestedIn = input.value; if (input.matches('[data-customer-module-priority]')) filters.priority = input.value; if (input.matches('[data-customer-module-agent]')) filters.agentId = input.value; if (input.matches('[data-customer-module-source], [data-customer-module-city], [data-customer-module-interest], [data-customer-module-priority], [data-customer-module-agent]')) { state.customerModule.pagination.page = 1; refreshCustomers(); } });
   document.addEventListener('submit', event => {
     const form = event.target;
     if (form.matches('#customer-module-note-form')) { event.preventDefault(); const id = currentCustomer()?.id; const data = Object.fromEntries(new FormData(form).entries()); if (!id) return; apiFetch(`/api/customers/${id}/notes`, { method: 'POST', body: JSON.stringify(data) }).then(() => { showToast('Customer note added'); return openCustomer(id); }).then(refreshCustomers).catch(error => showToast(`Unable to add note: ${error.message}`)); }
     if (form.matches('#customer-module-status-form')) { event.preventDefault(); const id = currentCustomer()?.id; const data = Object.fromEntries(new FormData(form).entries()); if (!id) return; apiFetch(`/api/customers/${id}/status`, { method: 'PATCH', body: JSON.stringify(data) }).then(() => { showToast('Customer status updated'); return openCustomer(id); }).then(refreshCustomers).catch(error => showToast(`Unable to update customer status: ${error.message}`)); }
     if (form.matches('#customer-module-edit-form')) { event.preventDefault(); const id = currentCustomer()?.id; if (!id) return; const formData = new FormData(form); const raw = Object.fromEntries(formData.entries()); raw.tags = normalizeTags(formData.getAll('tags')); if (raw.property_type === 'Other') { raw.property_type = String(raw.property_type_other || '').trim(); if (!raw.property_type) { showToast('Specify the property type before saving'); return; } } delete raw.property_type_other; const payload = { ...raw, tags: normalizeTags(raw.tags) }; apiFetch(`/api/customers/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }).then(() => { state.customerModule.editing = false; showToast('Customer profile updated'); return openCustomer(id); }).then(refreshCustomers).catch(error => showToast(`Unable to update customer: ${error.message}`)); }
   });
+
+  if (window.AureumPagination && !window.__aureumCustomerPagerBound) {
+    window.__aureumCustomerPagerBound = true;
+    window.AureumPagination.attach(document, 'customers', () => state.customers?.meta || state.customerModule.pagination, ({ page, pageSize }) => {
+      state.customerModule.pagination = { page, pageSize };
+      refreshCustomers();
+    });
+  }
 
   window.renderCustomers = renderCustomersModule;
   window.renderCustomerDrawer = renderCustomerDrawerModule;
