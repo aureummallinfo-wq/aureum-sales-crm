@@ -1,0 +1,12 @@
+/* Responsive, Aureum-themed pagination bar for list modules. */
+.aureum-pagination { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px 20px; padding: 16px 20px; border-top: 1px solid var(--line, #e2d8c8); background: var(--white, #fff); color: var(--ink, #222); }
+.aureum-pagination-info { font-size: 13px; color: var(--muted, #58616b); font-variant-numeric: tabular-nums; }
+.aureum-pagination-size, .aureum-pagination-jump label { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.aureum-pagination-size select, .aureum-pagination-jump input { min-height: 36px; padding: 6px 10px; background: var(--white, #fff); color: var(--ink, #222); border: 1px solid var(--line, #d9c9a8); border-radius: 8px; }
+.aureum-pagination-jump input { width: 76px; }
+.aureum-pagination-actions, .aureum-pagination-jump { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.aureum-page-btn, .aureum-pagination-jump button { min-width: 36px; min-height: 36px; border: 1px solid var(--line, #d9c9a8); border-radius: 8px; padding: 6px 10px; color: var(--ink, #222); background: var(--white, #fff); cursor: pointer; font-weight: 600; }
+.aureum-page-btn[aria-current="page"] { color: #fff; background: var(--gold, #9d7c34); border-color: var(--gold, #9d7c34); }
+.aureum-page-btn:disabled, .aureum-pagination-jump button:disabled { opacity: .45; cursor: not-allowed; }
+.aureum-page-btn:focus-visible, .aureum-pagination-jump input:focus-visible, .aureum-pagination-jump button:focus-visible { outline: 2px solid var(--gold, #9d7c34); outline-offset: 2px; }
+@media(max-width:640px) { .aureum-pagination { justify-content: center; padding: 14px 10px; } .aureum-pagination-info { width: 100%; text-align: center; } .aureum-pagination-actions { justify-content: center; } .aureum-page-btn { min-width: 34px; padding: 5px 7px; } }
