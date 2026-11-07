@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Aureum CRM — Pagination Controls Demo</title><link rel="stylesheet" href="../../frontend/shared/pagination.css" />
+<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#f6f4ee;color:#222}.wrap{max-width:1100px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e7dfd2;border-radius:14px;overflow:hidden}.heading{padding:22px}.heading h1{font-size:23px;margin:0 0 8px}.heading p{color:#6b7280;font-size:13px}.grid{width:100%;border-collapse:collapse}.grid td,.grid th{padding:14px;text-align:left;border-top:1px solid #eee;font-size:13px}.grid th{background:#fcfaf6}.muted{color:#666;font-size:13px}</style></head>
+<body><div class="wrap"><div class="card"><div class="heading"><h1>Aureum CRM — All Leads pagination</h1><p>Static interface demo with a simulated 4,538 records. No real CRM information is loaded.</p></div><table class="grid"><thead><tr><th>Record</th><th>Status</th><th>Source</th></tr></thead><tbody id="records"></tbody></table><div id="pager"></div></div></div>
+<script src="../../frontend/shared/pagination.js"></script><script>
+let meta={page:1,pageSize:25,total:4538};
+function render(){let p=AureumPagination.normalizeMeta(meta);document.getElementById('records').innerHTML=Array.from({length:Math.max(0,Math.min(p.pageSize,p.total-(p.page-1)*p.pageSize))},(_,i)=>{let n=(p.page-1)*p.pageSize+i+1;return `<tr><td>Example lead #${n}</td><td>New</td><td>Sample source</td></tr>`}).join('');document.getElementById('pager').innerHTML=AureumPagination.render(p,'leads')}
+AureumPagination.attach(document.body,'leads',()=>meta,change=>{meta={...meta,...change};render()});render();
+</script></body></html>
