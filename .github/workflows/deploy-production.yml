@@ -47,9 +47,9 @@ jobs:
     name: Deploy exact commit to VPS
     needs: verify
     runs-on: ubuntu-latest
-    # Keep this false until the VPS deploy key and server-side Docker access
-    # are configured. Set the repository variable to "true" afterwards.
-    if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+    # Deployment is deliberately disabled to prevent automatic migrations.
+    # Re-enabling requires a reviewed, migration-free deployment process.
+    if: ${{ false }} # VPS deployment disabled until migration-free release is approved
     environment: production
     steps:
       - name: Check out the exact commit
