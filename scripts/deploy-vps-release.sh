@@ -8,6 +8,7 @@ health_url="${AUREUM_HEALTH_URL:-http://127.0.0.1:4173/api/health/ready}"
 image_name="${AUREUM_IMAGE_NAME:-aureum-sales-crm}:${release_sha}"
 candidate_name="${container_name}.candidate-${release_sha:0:12}"
 backup_name="${container_name}.previous"
+migration_mode="${AUREUM_MIGRATION_MODE:-apply}"
 
 die() {
   echo "deploy-vps-release: $*" >&2
@@ -64,23 +65,42 @@ backup_and_apply() {
 
 gate_status=0
 run_gate --status || gate_status=$?
-case "$gate_status" in
-  0)
-    echo 'Database schema is current.'
-    ;;
-  3)
-    backup_and_apply
-    ;;
-  4)
-    test -n "${AUREUM_SCHEMA_BASELINE_THROUGH:-}" || die 'The database has no migration baseline. Set AUREUM_SCHEMA_BASELINE_THROUGH only after confirming the existing schema.'
-    backup_database
-    run_gate "--baseline-through=${AUREUM_SCHEMA_BASELINE_THROUGH}" || die 'The existing schema did not pass the baseline verification; nothing was migrated.'
-    run_gate --apply || die 'Schema migration failed; the running container was not changed.'
-    ;;
-  *)
-    die "Schema status check failed (exit ${gate_status})."
-    ;;
-esac
+if [[ "$migration_mode" = require-current ]]; then
+  case "$gate_status" in
+    0)
+      echo 'Database schema is current; migration-free deployment may continue.'
+      ;;
+    3)
+      die 'Database migrations are pending. Migration-free deployment stopped before changing the running container.'
+      ;;
+    4)
+      die 'The database has no recorded migration baseline. Migration-free deployment stopped before changing the running container.'
+      ;;
+    *)
+      die "Schema status check failed (exit ${gate_status})."
+      ;;
+  esac
+elif [[ "$migration_mode" = apply ]]; then
+  case "$gate_status" in
+    0)
+      echo 'Database schema is current.'
+      ;;
+    3)
+      backup_and_apply
+      ;;
+    4)
+      test -n "${AUREUM_SCHEMA_BASELINE_THROUGH:-}" || die 'The database has no migration baseline. Set AUREUM_SCHEMA_BASELINE_THROUGH only after confirming the existing schema.'
+      backup_database
+      run_gate "--baseline-through=${AUREUM_SCHEMA_BASELINE_THROUGH}" || die 'The existing schema did not pass the baseline verification; nothing was migrated.'
+      run_gate --apply || die 'Schema migration failed; the running container was not changed.'
+      ;;
+    *)
+      die "Schema status check failed (exit ${gate_status})."
+      ;;
+  esac
+else
+  die "Unsupported AUREUM_MIGRATION_MODE: ${migration_mode}"
+fi
 run_gate --require-current || die 'Schema verification failed; the running container was not changed.'
 
 docker rm -f "$candidate_name" >/dev/null 2>&1 || true
