@@ -47,9 +47,9 @@ jobs:
     name: Deploy exact commit to VPS
     needs: verify
     runs-on: ubuntu-latest
-    # Keep this false until the VPS deploy key and server-side Docker access
-    # are configured. Set the repository variable to "true" afterwards.
-    if: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
+    # Deploy only an explicitly marked, reviewed merge commit.
+    # Ordinary pushes remain verification-only.
+    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-vps]') }}
     environment: production
     steps:
       - name: Check out the exact commit
@@ -102,5 +102,5 @@ jobs:
           set -euo pipefail
           release_dir="/opt/aureum-sales-crm/releases/${GITHUB_SHA}"
           ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$VPS_USER@$VPS_HOST" \
-            "AUREUM_SCHEMA_BASELINE_THROUGH=013 bash '$release_dir/scripts/deploy-vps-release.sh' '$release_dir' '${GITHUB_SHA}'"
+            "AUREUM_MIGRATION_MODE=require-current bash '$release_dir/scripts/deploy-vps-release.sh' '$release_dir' '${GITHUB_SHA}'"
 

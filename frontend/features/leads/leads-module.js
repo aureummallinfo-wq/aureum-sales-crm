@@ -20,6 +20,7 @@
   state.leadModule.importDialog = state.leadModule.importDialog || null;
   state.leadModule.selectedLeadIds = Array.isArray(state.leadModule.selectedLeadIds) ? state.leadModule.selectedLeadIds : [];
   state.leadModule.bulkAssignment = state.leadModule.bulkAssignment || null;
+  state.leadModule.pagination = { page: 1, pageSize: 25, ...(state.leadModule.pagination || {}) };
 
   const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const valueOf = (lead, key, fallback = '—') => lead && lead[key] !== undefined && lead[key] !== null && lead[key] !== '' ? lead[key] : fallback;
@@ -260,15 +261,12 @@
     if (state.leads?.loading && !state.leads.items?.length) return leadsLoading(my);
     if (state.leads?.error && !state.leads.items?.length) return leadsError(my);
     const items = leadModuleItems(my);
-    const scopeTotal = Array.isArray(state.leads?.items) ? state.leads.items.length : 0;
-    // Summary cards describe the same filtered view as the table. The
-    // registry sentence below still exposes the unfiltered permitted scope.
-    const total = items.length;
+    const scopeTotal = Number(state.leads?.meta?.total ?? items.length);
+    const total = scopeTotal;
     const hot = items.filter(lead => lead.status === 'Hot').length;
     const followUp = items.filter(lead => lead.status === 'Follow-up').length;
     const due = items.filter(lead => lead.next_follow_up_at && lead.next_follow_up_at !== 'Not scheduled').length;
-    const filtered = total !== scopeTotal;
-    const scopeDetail = filtered ? 'Matches active filters' : (my ? 'Ownership-scoped view' : 'Company / team registry');
+    const scopeDetail = my ? 'Matching assigned records' : 'Matching permitted records';
     // Keep lead intake available from the management registry and primary
     // navigation, but keep My Leads focused on the assigned pipeline.
     const addAction = !my && canCreateLead() ? '<button class="btn btn-gold" data-screen="add-lead">+ Add new lead</button>' : '';
@@ -279,7 +277,8 @@
     const assignmentFilter = !my && isManager() ? `<select class="select" data-leads-assignment aria-label="Filter by lead assignment">${assignmentFilterOptions(state.leadFilters?.assignment || '')}</select>` : '';
     const selectedCount = state.leadModule.selectedLeadIds.length;
     const bulkToolbar = !my && canManage() && selectedCount ? `<div class="lead-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Select a team queue or advisor to update ownership.</span><button class="btn btn-gold btn-sm" data-bulk-assignment-open>Assign selected</button><button class="btn btn-secondary btn-sm" data-leads-clear-selection>Clear selection</button></div>` : '';
-    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Visible leads', total, scopeDetail)}${summaryCard('Hot leads', hot, hot ? (filtered ? 'Matches active filters' : 'Prioritize today') : 'No hot leads in view', hot ? 'hot' : '')}${summaryCard('Follow-up leads', followUp, followUp ? (filtered ? 'Matches active filters' : 'Conversation in motion') : 'No follow-ups tagged', followUp ? 'warm' : '')}${summaryCard('Scheduled next actions', due, due ? (filtered ? 'Matches active filters' : 'Review before end of day') : 'Nothing scheduled', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} of ${scopeTotal} permitted records match the current filters.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${assignmentFilter}${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div>${bulkToolbar}<div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div></section>`;
+    const pager = window.AureumPagination?.render(state.leads?.meta || { page: state.leadModule.pagination.page, pageSize: state.leadModule.pagination.pageSize, total: scopeTotal }, 'leads', { busy: Boolean(state.leads?.loading) }) || '';
+    const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Matching leads', total, scopeDetail)}${summaryCard('Hot on this page', hot, 'Current page', hot ? 'hot' : '')}${summaryCard('Follow-up on this page', followUp, 'Current page', followUp ? 'warm' : '')}${summaryCard('Scheduled on this page', due, 'Current page', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} records on this page · ${scopeTotal} matching records.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${assignmentFilter}${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select><button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div>${bulkToolbar}<div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div>${pager}</section>`;
     return page + renderImportDialog() + renderBulkAssignmentDialog();
   }
 
@@ -453,9 +452,9 @@
     const open = event.target.closest('[data-leads-open]');
     if (open) { event.preventDefault(); openLead(open.dataset.leadsOpen); return; }
     const tab = event.target.closest('[data-leads-tab]');
-    if (tab) { event.preventDefault(); state.leadFilters.status = tab.dataset.leadsTab || ''; render(); return; }
+    if (tab) { event.preventDefault(); state.leadFilters.status = tab.dataset.leadsTab || ''; state.leadModule.pagination.page = 1; refreshLeads(); return; }
     const reset = event.target.closest('[data-leads-reset]');
-    if (reset) { state.leadFilters = { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' }; state.leadModule.selectedLeadIds = []; if (state.screen === 'leads') refreshLeads(); else render(); return; }
+    if (reset) { state.leadFilters = { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' }; state.leadModule.selectedLeadIds = []; state.leadModule.pagination.page = 1; refreshLeads(); return; }
     const action = event.target.closest('[data-leads-action]');
     if (action) { event.preventDefault(); leadModuleAction(action.dataset.leadsAction, action.dataset.leadId); return; }
     const drawerTab = event.target.closest('[data-lead-drawer-tab]');
@@ -476,7 +475,7 @@
       if (row) { row[edit.dataset.importField] = edit.value; state.leadModule.importDialog.errors = importRowErrors(state.leadModule.importDialog.rows || []); }
       return;
     }
-    const input = event.target.closest('[data-leads-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.leadFilters.q = input.value; render(); AureumSearch.restore('[data-leads-search]', snapshot); }
+    const input = event.target.closest('[data-leads-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.leadFilters.q = input.value; state.leadModule.pagination.page = 1; render(); AureumSearch.restore('[data-leads-search]', snapshot); window.clearTimeout(window.__aureumLeadSearchTimer); window.__aureumLeadSearchTimer = window.setTimeout(() => refreshLeads(), 300); }
   });
   document.addEventListener('change', event => {
     const input = event.target;
@@ -508,8 +507,8 @@
     if (input.matches('[data-leads-interest]') || input.matches('[data-leads-property]')) { state.leadFilters.interest = input.value; state.leadFilters.propertyType = ''; }
     if (input.matches('[data-leads-priority]')) state.leadFilters.priority = input.value;
     if (input.matches('[data-leads-assignment]')) state.leadFilters.assignment = input.value;
-    if (input.matches('[data-leads-agent]')) { state.leadFilters.agentId = input.value; refreshLeads(); return; }
-    if (input.matches('[data-leads-source], [data-leads-interest], [data-leads-property], [data-leads-priority], [data-leads-assignment]')) render();
+    if (input.matches('[data-leads-agent]')) { state.leadFilters.agentId = input.value; state.leadModule.pagination.page = 1; refreshLeads(); return; }
+    if (input.matches('[data-leads-source], [data-leads-interest], [data-leads-property], [data-leads-priority], [data-leads-assignment]')) { state.leadModule.pagination.page = 1; refreshLeads(); }
   });
   document.addEventListener('submit', event => {
     const form = event.target;
@@ -521,6 +520,15 @@
      if (form.matches('#lead-module-edit-form')) { event.preventDefault(); const id = currentLead()?.id; if (!id) return; const formData = new FormData(form); const raw = Object.fromEntries(formData.entries()); raw.tags = normalizeTags(formData.getAll('tags')); if (raw.interested_in === 'Other') { raw.interested_in = String(raw.interested_in_other || '').trim(); if (!raw.interested_in) { showToast('Tell us what they want before saving'); return; } } delete raw.interested_in_other; const payload = { ...raw, tags: normalizeTags(raw.tags) }; apiFetch(`/api/leads/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }).then(() => { state.leadModule.editing = false; showToast('Lead details updated'); return openLead(id); }).then(refreshLeads).catch(error => showToast(`Unable to update lead: ${error.message}`)); }
     if (form.matches('#lead-module-assign-form')) { event.preventDefault(); const id = currentLead().id; const assigned_agent_id = new FormData(form).get('assigned_agent_id'); if (!assigned_agent_id) return showToast('Choose an active advisor first'); apiFetch(`/api/leads/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ assigned_agent_id }) }).then(() => { showToast('Lead assignment updated'); return openLead(id); }).then(refreshLeads).catch(error => showToast(error.message)); }
   });
+
+  if (window.AureumPagination && !window.__aureumLeadPagerBound) {
+    window.__aureumLeadPagerBound = true;
+    window.AureumPagination.attach(document, 'leads', () => state.leads?.meta || state.leadModule.pagination, ({ page, pageSize }) => {
+      state.leadModule.pagination = { page, pageSize };
+      state.leadModule.selectedLeadIds = [];
+      refreshLeads();
+    });
+  }
 
   window.renderLeads = renderLeadsModule;
   window.renderAddLead = renderAddLeadModule;

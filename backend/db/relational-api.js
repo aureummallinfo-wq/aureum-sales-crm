@@ -3,11 +3,19 @@ const crypto = require('node:crypto');
 const { canViewOwnedRecord } = require('../security-utils');
 const { deriveAureumEmail } = require('../user-email');
 const { notePlan, uniqueFollowUps, isCompletedFollowUp } = require('../followup-workflow');
+const { parsePagination, PaginationValidationError } = require('../pagination');
 
 function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword = () => `Aureum${crypto.randomBytes(8).toString('hex')}!9`, temporaryPasswordExpiry = () => new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone }) {
   function deny(res, message = 'Access denied — insufficient permission') { json(res, 403, { error: message }); return true; }
   function unauthenticated(res) { json(res, 401, { error: 'Authentication required' }); return true; }
   function role(user, roles, res) { if (!user) { unauthenticated(res); return false; } if (roles.includes(user.role) || (user.role === 'hr' && roles.includes('project_manager'))) return true; deny(res); return false; }
+  function paginationRequest(url, res) {
+    try { return { ok: true, value: parsePagination(url.searchParams) }; }
+    catch (error) {
+      if (error instanceof PaginationValidationError) { json(res, 400, { error: error.message }); return { ok: false, value: null }; }
+      throw error;
+    }
+  }
   const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
   const PRESENCE_AWAY_WINDOW_MS = 15 * 60 * 1000;
   function presenceStatus(user, now = Date.now()) {
@@ -170,8 +178,10 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     if (req.method === 'GET' && (pathname === '/api/leads' || pathname === '/api/leads/my')) {
       if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager'], res)) return true;
-      const data = await repository.listLeads({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, status: url.searchParams.get('status') || '', search: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '', interest: url.searchParams.get('interest') || '', priority: url.searchParams.get('priority') || '', agentId: url.searchParams.get('agentId') || '', imported: url.searchParams.get('imported') || '' });
-      return json(res, 200, { scope: pathname.endsWith('/my') ? 'my' : 'all', requestedBy: user.role, data: data.map(leadView) });
+      const paging = paginationRequest(url, res); if (!paging.ok) return true;
+      const result = await repository.listLeads({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, status: url.searchParams.get('status') || '', search: url.searchParams.get('q') || '', source: url.searchParams.get('source') || '', interest: url.searchParams.get('interest') || '', priority: url.searchParams.get('priority') || '', agentId: url.searchParams.get('agentId') || '', imported: url.searchParams.get('imported') || '', pagination: paging.value });
+      const data = paging.value ? result.rows : result;
+      return json(res, 200, { scope: pathname.endsWith('/my') ? 'my' : 'all', requestedBy: user.role, data: data.map(leadView), ...(paging.value ? { meta: result.meta } : {}) });
     }
 
     const savedNote = pathname.match(/^\/api\/(leads|customers)\/([^/]+)\/notes(?:\/([^/]+)(\/history)?)?$/);
@@ -331,8 +341,11 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     if (req.method === 'GET' && pathname === '/api/tasks') {
       if (!role(user, ['super_admin', 'sales_manager', 'sales_agent', 'hr', 'project_manager'], res)) return true;
-      const data = await repository.listTasks(workspaceId, user, { status: url.searchParams.get('status') || '', priority: url.searchParams.get('priority') || '', assignedTo: url.searchParams.get('assignedTo') || '', search: url.searchParams.get('q') || '' });
-      return json(res, 200, { scope: user.role === 'super_admin' ? 'company' : user.role === 'sales_manager' ? 'team' : 'assigned', data: data.map(taskView), meta: { total: data.length } });
+      const paging = paginationRequest(url, res); if (!paging.ok) return true;
+      const result = await repository.listTasks(workspaceId, user, { status: url.searchParams.get('status') || '', priority: url.searchParams.get('priority') || '', assignedTo: url.searchParams.get('assignedTo') || '', search: url.searchParams.get('q') || '', pagination: paging.value });
+      const data = paging.value ? result.rows : result;
+      const meta = paging.value ? result.meta : { total: data.length };
+      return json(res, 200, { scope: user.role === 'super_admin' ? 'company' : user.role === 'sales_manager' ? 'team' : 'assigned', data: data.map(taskView), meta });
     }
 
     if (req.method === 'POST' && pathname === '/api/tasks') {
@@ -375,8 +388,11 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 
     if (req.method === 'GET' && (pathname === '/api/customers' || pathname === '/api/customers/my')) {
       if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager'], res)) return true;
-      const data = await repository.listCustomers({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, status: url.searchParams.get('status') || '', source: url.searchParams.get('source') || '', search: url.searchParams.get('q') || '' });
-      return json(res, 200, { scope: pathname.endsWith('/my') ? 'assigned' : user.role === 'super_admin' ? 'company' : 'team', data: data.map(customerView), meta: { total: data.length, page: 1, pageSize: data.length, totalPages: data.length ? 1 : 0 } });
+      const paging = paginationRequest(url, res); if (!paging.ok) return true;
+      const result = await repository.listCustomers({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, status: url.searchParams.get('status') || '', source: url.searchParams.get('source') || '', search: url.searchParams.get('q') || '', city: url.searchParams.get('city') || '', interest: url.searchParams.get('interest') || '', priority: url.searchParams.get('priority') || '', agentId: url.searchParams.get('agentId') || '', pagination: paging.value });
+      const data = paging.value ? result.rows : result;
+      const meta = paging.value ? result.meta : { total: data.length, page: 1, pageSize: data.length || 25, totalPages: data.length ? 1 : 0, hasNextPage: false, hasPreviousPage: false };
+      return json(res, 200, { scope: pathname.endsWith('/my') ? 'assigned' : user.role === 'super_admin' ? 'company' : 'team', data: data.map(customerView), meta });
     }
 
     const customerMatch = pathname.match(/^\/api\/customers\/([^/]+)$/);
@@ -390,7 +406,19 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     const customerAction = pathname.match(/^\/api\/customers\/([^/]+)\/(notes|timeline|follow-ups)$/);
     if (customerAction) { if (!user) return unauthenticated(res); const current = await repository.getCustomer(workspaceId, customerAction[1]); if (!current) return json(res, 404, { error: 'Customer not found' }); if (!canView(user, current)) return deny(res, 'Access denied — customer is outside your ownership scope'); const action = customerAction[2]; if (action === 'timeline' && req.method === 'GET') return json(res, 200, { data: await repository.listCustomerActivities(workspaceId, current.id) }); if (action === 'notes' && req.method === 'GET') return json(res, 200, { data: await repository.listCustomerNotes(workspaceId, current.id) }); if (action === 'notes' && req.method === 'POST') { const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) return json(res, 400, { error: 'Note is required' }); try { notePlan(body); } catch(error) { return json(res,422,{error:error.message}); } return json(res, 201, { data: await repository.addCustomerNote(workspaceId, current.id, user, note, body) }); } if (action === 'follow-ups' && req.method === 'GET') return json(res, 200, { data: (await repository.listCustomerFollowUpHistory(workspaceId, current.id, user)).map(followUpView) }); if (action === 'follow-ups' && req.method === 'POST') { const body = await readBody(req); const raw = String(body.due_date || ''); const date = raw.match(/\d{4}-\d{2}-\d{2}/)?.[0] || new Date().toISOString().slice(0, 10); const time = raw.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i); const dueTime = time ? `${String((Number(time[1]) + (time[3]?.toUpperCase() === 'PM' && Number(time[1]) < 12 ? 12 : 0)).toString().padStart(2, '0'))}:${time[2]}` : '10:00'; const followUp = await repository.createFollowUp(workspaceId, user, { customer_id: current.id, lead_id: current.lead_id, follow_up_type: body.type || 'General Follow-up', due_date: date, due_time: dueTime, priority: body.priority || 'Medium', notes: body.note || '' }); return json(res, 201, { data: { id: followUp.id, type: body.type || 'Phone call', due_date: body.due_date || date, agent: followUp.assigned_agent, status: followUp.status, note: body.note || '' }, followUp: followUpView(followUp) }); } return json(res, 405, { error: 'Method not allowed' }); }
 
-    if (req.method === 'GET' && (pathname === '/api/follow-ups' || pathname === '/api/follow-ups/my')) { if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager', 'hr'], res)) return true; const data = await repository.listFollowUps({ workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user.role === 'hr' ? { ...user, role: 'super_admin' } : user, includeCompleted: true }); return json(res, 200, { scope: pathname.endsWith('/my') ? 'assigned' : user.role === 'super_admin' || user.role === 'hr' ? 'company' : 'team', data: uniqueFollowUps(data).map(followUpView) }); }
+    if (req.method === 'GET' && (pathname === '/api/follow-ups' || pathname === '/api/follow-ups/my')) {
+      if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager', 'hr'], res)) return true;
+      const paging = paginationRequest(url, res); if (!paging.ok) return true;
+      const result = await repository.listFollowUps({
+        workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user.role === 'hr' ? { ...user, role: 'super_admin' } : user, includeCompleted: true, notify: true,
+        search: url.searchParams.get('q') || '', status: url.searchParams.get('status') || '', dateFilter: url.searchParams.get('date') || '',
+        customStart: url.searchParams.get('customStart') || '', customEnd: url.searchParams.get('customEnd') || '', selectedDate: url.searchParams.get('selectedDate') || '',
+        agentId: url.searchParams.get('agentId') || '', type: url.searchParams.get('type') || '', leadStatus: url.searchParams.get('leadStatus') || '',
+        priority: url.searchParams.get('priority') || '', pagination: paging.value
+      });
+      const data = paging.value ? result.rows : uniqueFollowUps(result);
+      return json(res, 200, { scope: pathname.endsWith('/my') ? 'assigned' : user.role === 'super_admin' || user.role === 'hr' ? 'company' : 'team', data: data.map(followUpView), ...(paging.value ? { meta: result.meta } : {}) });
+    }
     if (req.method === 'POST' && pathname === '/api/follow-ups') { if (!user) return unauthenticated(res); const body = await readBody(req); if (!body.due_date || !body.due_time || !validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) return json(res, 400, { error: 'A valid due date and time are required' }); const customer=body.customer_id ? await repository.getCustomer(workspaceId,body.customer_id) : null; const lead=body.lead_id ? await repository.getLead(workspaceId,body.lead_id) : null;
       if ((body.customer_id && !customer) || (body.lead_id && !lead) || (!customer && !lead)) return json(res,400,{error:'A valid customer or lead is required'});
       if (customer && lead && customer.lead_id !== lead.id) return json(res,422,{error:'The follow-up lead must belong to the selected customer.'});
