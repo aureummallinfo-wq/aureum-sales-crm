@@ -43,7 +43,7 @@ async function loadTasks(force = false, focusSnapshot = null) {
     tasks.items = result.data || [];
     tasks.meta = result.meta || null;
     if (['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && !tasks.users.length) {
-      const [users, leads, customers, followUps] = await Promise.all([apiFetch('/api/users?status=active', { cacheTtl: 2 * 60 * 1000 }), apiFetch('/api/leads?page=1&pageSize=100', { cacheTtl: 30 * 1000 }), apiFetch('/api/customers?page=1&pageSize=100', { cacheTtl: 30 * 1000 }), apiFetch('/api/follow-ups?page=1&pageSize=100', { cacheTtl: 15 * 1000 })]);
+      const [users, leads, customers, followUps] = await Promise.all([apiFetch('/api/users?status=active', { cacheTtl: 2 * 60 * 1000 }), apiFetch('/api/leads', { cacheTtl: 30 * 1000 }), apiFetch('/api/customers', { cacheTtl: 30 * 1000 }), apiFetch('/api/follow-ups', { cacheTtl: 15 * 1000 })]);
       tasks.users = (users.data || []).filter(item => ['sales_agent', 'sales_manager'].includes(String(item.role || item.roleKey || '').toLowerCase()) && String(item.status || '').toLowerCase() === 'active');
       tasks.leads = leads.data || [];
       tasks.customers = customers.data || [];
