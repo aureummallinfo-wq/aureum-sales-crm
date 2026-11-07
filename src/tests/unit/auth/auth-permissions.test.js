@@ -15,6 +15,9 @@ test('auth permissions expose the five canonical CRM roles and explicit route gr
   assert.deepEqual(ROUTE_PERMISSIONS.settings, ['super_admin']);
   assert.deepEqual(ROUTE_PERMISSIONS['add-lead'], ['super_admin', 'sales_manager', 'sales_agent']);
   assert.equal(canAccessRoute('hr', 'tasks'), true);
+  assert.equal(canAccessRoute('hr', 'follow-ups'), true);
+  assert.equal(canAccessRoute('hr', 'reports'), true);
+  assert.equal(canAccessRoute('hr', 'team-chat'), false);
   assert.equal(canAccessRoute('hr', 'all-leads'), false);
   assert.equal(canAccessRoute('project_manager', 'reports'), true);
   assert.equal(canAccessRoute('project_manager', 'customers'), false);

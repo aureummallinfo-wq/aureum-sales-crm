@@ -7,7 +7,7 @@ test('final route matrix matches the approved five-position access model', () =>
     super_admin: ['dashboard', 'all-leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'users', 'settings', 'my-account', 'change-password', 'access-denied'],
     sales_manager: ['dashboard', 'all-leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'users', 'my-account', 'change-password', 'access-denied'],
     sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password', 'access-denied'],
-    hr: ['dashboard', 'tasks', 'team-chat', 'my-account', 'change-password', 'access-denied'],
+    hr: ['dashboard', 'follow-ups', 'tasks', 'reports', 'my-account', 'change-password', 'access-denied'],
     project_manager: ['dashboard', 'tasks', 'team-chat', 'reports', 'my-account', 'change-password', 'access-denied']
   };
 

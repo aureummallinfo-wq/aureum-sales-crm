@@ -1,6 +1,6 @@
 export const CANONICAL_USER_ROLES = ["super_admin", "sales_manager", "sales_agent", "hr", "project_manager"] as const;
 export type CanonicalUserRole = typeof CANONICAL_USER_ROLES[number];
-export const CANONICAL_USER_ROLE_LABELS = { super_admin: "Super Admin", sales_manager: "Sales Manager", sales_agent: "Sales Agent", hr: "HR", project_manager: "Project Manager" } as const;
+export const CANONICAL_USER_ROLE_LABELS = { super_admin: "Super Admin", sales_manager: "Sales Manager", sales_agent: "Sales Executive", hr: "HR", project_manager: "Project Manager" } as const;
 export const CANONICAL_USER_STATUSES = ["Active", "Inactive", "Pending", "Suspended"] as const;
 export type CanonicalUserStatus = typeof CANONICAL_USER_STATUSES[number];
 export const CANONICAL_INVITE_STATUSES = ["Not Sent", "Pending", "Sent", "Accepted", "Expired", "Failed"] as const;

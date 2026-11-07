@@ -6,7 +6,7 @@
   const propertyTypes = options.propertyTypes || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
   const tagOptions = options.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const priorities = options.priorities || ['High', 'Medium', 'Low'];
-  const userNames = { usr_001: 'Malik Raza', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };
+  const userNames = { usr_001: 'Mian Waqas Ashraf', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };
   state.customerModule = state.customerModule || { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' } };
   state.customerModule.filters = { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '', ...(state.customerModule.filters || {}) };
   state.customerModule.editing = Boolean(state.customerModule.editing);
