@@ -104,14 +104,3 @@ jobs:
           ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$VPS_USER@$VPS_HOST" \
             "AUREUM_MIGRATION_MODE=require-current bash '$release_dir/scripts/deploy-vps-release.sh' '$release_dir' '${GITHUB_SHA}'"
 
-      - name: Provision Ali Akbar Sales Manager
-        if: ${{ contains(github.event.head_commit.message, '[provision-ali-akbar]') }}
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          ssh -i "$HOME/.ssh/id_ed25519" -o BatchMode=yes "$VPS_USER@$VPS_HOST" \
-            "docker exec aureum-sales-crm node scripts/provision-ali-akbar.js"
-
