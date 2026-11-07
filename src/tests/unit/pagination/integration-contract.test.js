@@ -63,6 +63,18 @@ test('list APIs keep legacy callers compatible and page only explicit pagination
   assert.match(repository, /LIMIT \${limitParam} OFFSET \${offsetParam}/);
 });
 
+test('direct record routes load their server-paginated datasets on boot and navigation', () => {
+  const shell = read('frontend/app-shell.js');
+
+  assert.match(shell, /if \(state\.authUser && state\.screen === 'leads'\) loadLeads\(false\)/);
+  assert.match(shell, /if \(state\.authUser && state\.screen === 'my-leads'\) loadLeads\(true\)/);
+  assert.match(shell, /if \(state\.authUser && state\.screen === 'tasks' && typeof loadTasks === 'function'\) loadTasks\(\)/);
+  assert.match(shell, /if \(screen === 'leads'\) loadLeads\(false\)/);
+  assert.match(shell, /if \(screen === 'my-leads'\) loadLeads\(true\)/);
+  assert.match(shell, /if \(screen === 'tasks' && typeof loadTasks === 'function'\) loadTasks\(\)/);
+  assert.match(shell, /window\.addEventListener\('popstate',[\s\S]*state\.screen === 'leads'[\s\S]*loadLeads\(false\)/);
+});
+
 test('production deployment requires an explicit marker and remains migration-free', () => {
   const workflow = read('.github/workflows/deploy-production.yml');
   assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[deploy-vps\]'\)/);

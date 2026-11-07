@@ -782,6 +782,11 @@ window.addEventListener('popstate', () => {
   if (!state.authUser) { state.screen = 'login'; render(); return; }
   state.screen = screenForPath[window.location.pathname] || 'dashboard';
   render();
+  if (state.screen === 'leads') loadLeads(false);
+  if (state.screen === 'my-leads') loadLeads(true);
+  if (state.screen === 'customers') loadCustomers();
+  if (state.screen === 'follow-ups') loadFollowups();
+  if (state.screen === 'tasks' && typeof loadTasks === 'function') loadTasks();
 });
 
 
@@ -899,8 +904,11 @@ function navigate(screen) {
   if (!canAccess(screen)) { state.drawer = null; state.deniedPath = screen; state.screen = 'unauthorized'; }
   else { state.drawer = null; state.screen = screen; }
   render();
+  if (screen === 'leads') loadLeads(false);
+  if (screen === 'my-leads') loadLeads(true);
   if (screen === 'customers') loadCustomers();
   if (screen === 'follow-ups') loadFollowups();
+  if (screen === 'tasks' && typeof loadTasks === 'function') loadTasks();
 }
 
 function baseBind() {
@@ -948,8 +956,11 @@ async function boot() {
   catch { state.authUser = null; state.screen = 'login'; }
   state.ready = true;
   render();
+  if (state.authUser && state.screen === 'leads') loadLeads(false);
+  if (state.authUser && state.screen === 'my-leads') loadLeads(true);
   if (state.authUser && state.screen === 'customers') loadCustomers();
   if (state.authUser && state.screen === 'follow-ups') loadFollowups();
+  if (state.authUser && state.screen === 'tasks' && typeof loadTasks === 'function') loadTasks();
 }
 
 async function loadDashboard() {
