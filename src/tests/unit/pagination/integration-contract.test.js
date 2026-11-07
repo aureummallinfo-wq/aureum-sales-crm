@@ -63,7 +63,9 @@ test('list APIs keep legacy callers compatible and page only explicit pagination
   assert.match(repository, /LIMIT \${limitParam} OFFSET \${offsetParam}/);
 });
 
-test('production deployment remains disabled while pagination is reviewed', () => {
+test('production deployment requires an explicit marker and remains migration-free', () => {
   const workflow = read('.github/workflows/deploy-production.yml');
-  assert.match(workflow, /if: \$\{\{ false \}\}/);
+  assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[deploy-vps\]'\)/);
+  assert.match(workflow, /AUREUM_MIGRATION_MODE=require-current/);
+  assert.doesNotMatch(workflow, /AUREUM_SCHEMA_BASELINE_THROUGH=013 bash/);
 });
