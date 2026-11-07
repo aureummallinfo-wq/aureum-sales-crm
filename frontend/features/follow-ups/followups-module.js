@@ -163,6 +163,13 @@
   async function ensureCustomerOptions() {
     const moduleState = stateForModule();
     if (moduleState.customerOptionsLoaded || moduleState.customerOptionsLoading) return;
+    const current = state.customers?.items || [];
+    const total = Number(state.customers?.meta?.total);
+    if (current.length && (!Number.isFinite(total) || total <= current.length)) {
+      moduleState.customerOptions = current;
+      moduleState.customerOptionsLoaded = true;
+      return;
+    }
     moduleState.customerOptionsLoading = true;
     try {
       const endpoint = role() === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers';
@@ -170,7 +177,7 @@
       moduleState.customerOptions = result.data || [];
       moduleState.customerOptionsLoaded = true;
     } catch {
-      moduleState.customerOptions = state.customers?.items || [];
+      moduleState.customerOptions = current;
     } finally {
       moduleState.customerOptionsLoading = false;
       if (state.drawer === 'create-followup') render();
@@ -268,8 +275,8 @@
     moduleState.pagination.page = 1;
     render();
     searchFocus.restore('[data-followup-module-search]', snapshot);
-    window.clearTimeout(window.__aureumFollowupSearchTimer);
-    window.__aureumFollowupSearchTimer = window.setTimeout(() => refreshList(), 300);
+    if (typeof window.clearTimeout === 'function') window.clearTimeout(window.__aureumFollowupSearchTimer);
+    if (typeof window.setTimeout === 'function') window.__aureumFollowupSearchTimer = window.setTimeout(() => refreshList(), 300);
   });
   document.addEventListener('change', event => {
     const target = event.target; const moduleState = stateForModule();

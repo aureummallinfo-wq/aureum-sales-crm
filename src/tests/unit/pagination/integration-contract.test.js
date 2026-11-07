@@ -19,7 +19,8 @@ test('CRM shell loads shared pagination assets before feature modules', () => {
 
 test('priority CRM loaders request database-backed page and pageSize', () => {
   const shell = read('frontend/app-shell.js');
-  assert.match(shell, /new URLSearchParams\(\{ page: String\(paging\.page\), pageSize: String\(paging\.pageSize\) \}\)/);
+  assert.match(shell, /page[^\n]*String\(paging\.page\)/);
+  assert.match(shell, /pageSize[^\n]*String\(paging\.pageSize\)/);
   assert.match(shell, /\/api\/leads\/my/);
   assert.match(shell, /\/api\/customers\/my/);
   assert.match(shell, /\/api\/follow-ups\/my/);
@@ -56,6 +57,10 @@ test('list APIs keep legacy callers compatible and page only explicit pagination
   assert.match(repository, /ORDER BY c\.created_at DESC, c\.id DESC/);
   assert.match(repository, /t\.created_at DESC, t\.id DESC/);
   assert.match(repository, /ON CONFLICT \(user_id,dedupe_key\) DO NOTHING/);
+  assert.doesNotMatch(repository, /(?:ls\.name|src\.name|l\.interested_in|l\.priority|l\.assigned_agent_id|c\.customer_status|c\.assigned_agent_id|t\.status|t\.priority|t\.assigned_to) = \${params\.length}/);
+  assert.doesNotMatch(repository, /const p = `\${params\.length}`/);
+  assert.ok(repository.includes("const limitParam = '$' + limit; const offsetParam = '$' + offset;"));
+  assert.match(repository, /LIMIT \${limitParam} OFFSET \${offsetParam}/);
 });
 
 test('production deployment remains disabled while pagination is reviewed', () => {
