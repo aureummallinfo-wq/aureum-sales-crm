@@ -410,7 +410,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (!role(user, pathname.endsWith('/my') ? ['super_admin', 'sales_manager', 'sales_agent'] : ['super_admin', 'sales_manager'], res)) return true;
       const paging = paginationRequest(url, res); if (!paging.ok) return true;
       const result = await repository.listFollowUps({
-        workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, includeCompleted: true, notify: !paging.value,
+        workspaceId, user: pathname.endsWith('/my') ? { ...user, role: 'sales_agent' } : user, includeCompleted: true, notify: true,
         search: url.searchParams.get('q') || '', status: url.searchParams.get('status') || '', dateFilter: url.searchParams.get('date') || '',
         customStart: url.searchParams.get('customStart') || '', customEnd: url.searchParams.get('customEnd') || '', selectedDate: url.searchParams.get('selectedDate') || '',
         agentId: url.searchParams.get('agentId') || '', type: url.searchParams.get('type') || '', leadStatus: url.searchParams.get('leadStatus') || '',
