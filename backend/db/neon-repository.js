@@ -1196,14 +1196,37 @@ function createNeonRepository(sql) {
     // was created after the original status seed migration ran.
     await listLeadConfiguration(workspace, 'lead-statuses');
     let statusRows = await sql.query('SELECT id,name FROM crm.lead_statuses WHERE workspace_id=$1 AND is_active=true AND lower(name)=lower($2) LIMIT 1',[workspace,requestedStatus]);
+    if (!statusRows[0] && requestedStatus.toLowerCase() !== 'new') {
+      // Older workspaces may receive a status value that is not in the
+      // approved catalog. Keep the lead deliverable with the canonical
+      // intake status rather than losing it at the webhook boundary.
+      statusRows = await sql.query("SELECT id,name FROM crm.lead_statuses WHERE workspace_id=$1 AND is_active=true AND lower(name)=lower('New') LIMIT 1",[workspace]);
+    }
     if (!statusRows[0]) return { statusRows, sourceRows: [], requestedStatus, requestedSource };
     let sourceRows = await sql.query('SELECT id,name FROM crm.lead_sources WHERE workspace_id=$1 AND is_active=true AND lower(name)=lower($2) LIMIT 1',[workspace,requestedSource]);
     if (!sourceRows[0]) {
       const slug = requestedSource.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 120) || 'webhook';
-      await sql.query(`INSERT INTO crm.lead_sources (workspace_id,name,slug,is_default,is_active)
-        VALUES ($1,$2,$3,false,true)
-        ON CONFLICT (workspace_id,slug) DO UPDATE SET name=EXCLUDED.name,is_active=true`,[workspace,requestedSource,slug]);
+      try {
+        await sql.query(`INSERT INTO crm.lead_sources (workspace_id,name,slug,is_default,is_active)
+          VALUES ($1,$2,$3,false,true)
+          ON CONFLICT (workspace_id,slug) DO UPDATE SET name=EXCLUDED.name,is_active=true`,[workspace,requestedSource,slug]);
+      } catch (error) {
+        // A legacy source constraint should not make a valid Meta lead fail.
+        // The fallback query below still selects a real active source row.
+        if (error?.code !== '23505') throw error;
+      }
       sourceRows = await sql.query('SELECT id,name FROM crm.lead_sources WHERE workspace_id=$1 AND is_active=true AND lower(name)=lower($2) LIMIT 1',[workspace,requestedSource]);
+    }
+    if (!sourceRows[0]) {
+      // Keep delivery working for workspaces created before the source catalog
+      // was seeded. Prefer the historical Meta source, then the generic
+      // Webhook source; both are valid CRM source records.
+      sourceRows = await sql.query(`SELECT id,name
+        FROM crm.lead_sources
+        WHERE workspace_id=$1 AND is_active=true
+          AND lower(name)=ANY($2::text[])
+        ORDER BY array_position($2::text[], lower(name))
+        LIMIT 1`,[workspace,['meta lead ads','facebook','instagram','webhook']]);
     }
     return { statusRows, sourceRows, requestedStatus, requestedSource };
   }
@@ -1336,3 +1359,4 @@ function createNeonRepository(sql) {
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }
 
 module.exports = { createNeonRepository, hashToken };
+
