@@ -152,7 +152,7 @@
   // Preserve the core/runtime bindings (reports, chat, leads, customers, follow-ups)
   // before adding the settings and account listeners. Without this call, replacing
   // bind() here silently drops report profile actions after every render.
-  bind = function bindModule9() { aureumGoals68Bind(); bindModule9Events(); if (typeof bindNotifications9 === 'function') bindNotifications9(); if (typeof bindMobileSidebar9 === 'function') bindMobileSidebar9(); };
+  bind = function bindModule9() { aureumGoals68Bind(); bindModule9Events(); if (typeof bindNotifications9 === 'function') bindNotifications9(); if (typeof bindMobileSidebar9 === 'function') bindMobileSidebar9(); if (typeof bindMobileSidebarControls9 === 'function') bindMobileSidebarControls9(); };
   render = function renderModule9() { aureumGoals68Render(); };
   if (state.authUser && state.ready) { render(); if (state.screen === 'settings') loadSettingsModule9(); if (state.screen === 'my-account') loadAccountModule9(); }
 })();
