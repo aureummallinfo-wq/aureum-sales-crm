@@ -2055,3 +2055,13 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.gr
   .login-form .form-help { margin-bottom: 10px; }
   .login-form .login-note { margin-top: 9px; }
 }
+
+
+/* Mobile navigation layering guard.
+   The global CRM drawer must fully cover page-level overlays (including the
+   Team Chat inbox) so two navigation surfaces can never splice together. */
+@media (max-width: 620px) {
+  .app-shell > .sidebar { z-index: 80; }
+  .app-shell > .mobile-sidebar-backdrop { z-index: 70; }
+  .app-shell .chat-workspace .chat-sidebar { z-index: 50; }
+}
