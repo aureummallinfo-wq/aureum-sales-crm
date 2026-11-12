@@ -2065,3 +2065,19 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.gr
   .app-shell > .mobile-sidebar-backdrop { z-index: 70; }
   .app-shell .chat-workspace .chat-sidebar { z-index: 50; }
 }
+
+
+/* Mobile sidebar close control: keep the hit target above sidebar artwork and
+   large enough for reliable finger taps on iOS/Android. */
+@media (max-width: 620px) {
+  .app-shell .mobile-sidebar-close {
+    z-index: 6;
+    width: 44px;
+    height: 44px;
+    top: max(8px, env(safe-area-inset-top));
+    right: 8px;
+    pointer-events: auto;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}

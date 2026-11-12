@@ -105,7 +105,26 @@ function bindNotifications9() {
   document.querySelectorAll('[data-search-screen]').forEach(el => el.addEventListener('click', () => { state.globalSearch = { q: '', loading: false, results: null, error: '' }; navigate(el.dataset.searchScreen); }));
 }
 
+function closeMobileSidebar9(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  state.mobileSidebarOpen = false;
+  state.chatRightInfoOpen = false;
+  render();
+}
+
+function bindMobileSidebarControls9() {
+  document.querySelectorAll('[data-mobile-sidebar-close]').forEach(control => {
+    if (control.dataset.mobileSidebarCloseBound === 'true') return;
+    control.dataset.mobileSidebarCloseBound = 'true';
+    control.addEventListener('click', closeMobileSidebar9);
+  });
+}
+
 function bindMobileSidebar9() {
+  bindMobileSidebarControls9();
   if (state.mobileSidebarEventsBound) return;
   state.mobileSidebarEventsBound = true;
   document.addEventListener('click', handleMobileSidebarClick9, true);
@@ -124,13 +143,14 @@ function handleMobileSidebarClick9(event) {
     return;
   }
 
-  const target = closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]');
+  const target = closest('[data-mobile-sidebar-toggle]');
   if (!target) return;
+
   event.preventDefault();
   event.stopPropagation();
 
-  const opening = target.matches('[data-mobile-sidebar-toggle]') && !state.mobileSidebarOpen;
-  state.mobileSidebarOpen = target.matches('[data-mobile-sidebar-toggle]') ? !state.mobileSidebarOpen : false;
+  const opening = !state.mobileSidebarOpen;
+  state.mobileSidebarOpen = !state.mobileSidebarOpen;
 
   // The CRM drawer and Team Chat inbox are both mobile overlays. Never leave
   // them open together or their headers can visually stack/splice.
