@@ -17,6 +17,9 @@ const { customerCreationPlan } = require('./customer-creation');
 const statusTags = require('../frontend/shared/crm-status-tags');
 const { createMemoryTaskRepository } = require('./memory-task-repository');
 const { deriveAureumEmail } = require('./user-email');
+const { sendExpoPushMessages } = require('./push-notifications');
+const { publicKey: webPushPublicKey, validSubscription, sendWebPushMessages } = require('./web-push-notifications');
+const appReleaseStorage = require('./app-release-storage');
 
 const PORT = Number(process.env.PORT || 4173);
 const ROOT = path.resolve(__dirname, '..');
@@ -451,8 +454,17 @@ function addFollowUpNotification(item, eventKey = 'follow_up_due') {
   const due = item.due_date ? ` due ${item.due_date}${item.due_time ? ` at ${item.due_time}` : ''}` : '';
   const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
   const message = eventKey === 'follow_up_overdue' ? `${customer} — ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} — ${type} was completed.` : `${customer} — ${type} scheduled${due}.`;
-  list.unshift({ id: `${userId}_${dedupeKey}`, dedupe_key: dedupeKey, event_type: eventKey, title, message, related_entity_type: 'follow_up', related_entity_id: item.id, is_read: false, created_at: new Date().toISOString() });
+  const notification = { id: `${userId}_${dedupeKey}`, dedupe_key: dedupeKey, event_type: eventKey, title, message, related_entity_type: 'follow_up', related_entity_id: item.id, is_read: false, created_at: new Date().toISOString() };
+  list.unshift(notification);
   notifications.set(userId, list.slice(0, 100));
+  sendMemoryPush(userId, notification, '/(tabs)/follow-ups', item.id);
+}
+
+function sendMemoryPush(userId, notification, route, entityId) {
+  const devices = mobilePushTokens.get(userId) || [];
+  sendExpoPushMessages(devices.map(device => ({ to: device.token, title: notification.title, body: notification.message, data: { route, notificationId: notification.id, entityId } }))).catch(error => console.error('Mobile push delivery failed:', error.message));
+  const subscriptions = webPushSubscriptions.get(userId) || [];
+  sendWebPushMessages(subscriptions, { title: notification.title, body: notification.message, priority: 'high', data: { route: `/${route.replace(/^\/+/, '')}`, notificationId: notification.id, entityId } }).catch(error => console.error('Browser push delivery failed:', error.message));
 }
 
 function dashboardBudgetMillions(value) {
@@ -618,6 +630,8 @@ function persistenceSnapshot() {
     notificationDefinitions,
     notificationSettings: [...notificationSettings.entries()],
     notifications: [...notifications.entries()],
+    mobilePushTokens: [...mobilePushTokens.entries()],
+    webPushSubscriptions: [...webPushSubscriptions.entries()],
     activityLogs,
     webhookConnections,
     webhookLogs,
@@ -702,6 +716,8 @@ function applyStoredState(saved) {
   replaceArray(leadSources, saved.leadSources);
   replaceMap(notificationSettings, saved.notificationSettings);
   replaceMap(notifications, saved.notifications);
+  replaceMap(mobilePushTokens, saved.mobilePushTokens);
+  replaceMap(webPushSubscriptions, saved.webPushSubscriptions);
   replaceArray(activityLogs, saved.activityLogs);
   replaceArray(webhookConnections, saved.webhookConnections);
   replaceArray(webhookLogs, saved.webhookLogs);
@@ -746,9 +762,11 @@ const customerStatuses = statusTags.values.map(name => [name, statusTags.colors[
 const leadTags = statusTags.values.map((name, index) => ({ id: `tag_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), color: index % 2 ? '#b6904f' : '#8d7658', tag_type: 'lead', is_active: true, created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const leadSources = ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'].map((name, index) => ({ id: `source_${String(index + 1).padStart(3, '0')}`, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), is_active: true, is_default: name === 'Manual Entry', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' }));
 const notificationDefinitions = [
-  ['new_lead_assigned', 'New lead assigned'], ['follow_up_due', 'Follow-up due'], ['follow_up_overdue', 'Follow-up overdue'], ['follow_up_completed', 'Follow-up completed'], ['lead_status_changed', 'Lead status changed'], ['customer_note_added', 'Customer note added'], ['team_chat_message', 'New team chat message'], ['user_added', 'User added'], ['deal_closed_won', 'Deal closed won'], ['deal_closed_lost', 'Deal closed lost']
+  ['new_lead_assigned', 'New lead assigned'], ['follow_up_due', 'Follow-up due'], ['follow_up_overdue', 'Follow-up overdue'], ['follow_up_completed', 'Follow-up completed'], ['task_assigned', 'Task assigned'], ['lead_status_changed', 'Lead status changed'], ['customer_note_added', 'Customer note added'], ['team_chat_message', 'New team chat message'], ['user_added', 'User added'], ['deal_closed_won', 'Deal closed won'], ['deal_closed_lost', 'Deal closed lost']
 ].map(([event_key, event_name]) => ({ event_key, event_name, in_app_enabled: true, email_enabled: false, whatsapp_enabled: false, sms_enabled: false }));
 const notificationSettings = new Map(users.map(user => [user.id, notificationDefinitions.map(item => ({ ...item }))]));
+const mobilePushTokens = new Map();
+const webPushSubscriptions = new Map();
 const notifications = new Map(users.map(user => [user.id, [
   { id: `${user.id}_notification_1`, event_type: 'follow_up_due', title: 'Follow-up due today', message: 'Review the next promised customer touchpoint in your workspace.', related_entity_type: 'follow_up', related_entity_id: 'followup_001', is_read: false, created_at: '2026-10-08T08:30:00.000Z' },
   { id: `${user.id}_notification_2`, event_type: 'team_chat_message', title: 'Team chat update', message: 'Sales Team has a new internal message.', related_entity_type: 'channel', related_entity_id: 'channel_sales', is_read: user.role === 'sales_agent', created_at: '2026-10-08T08:15:00.000Z' }
@@ -930,6 +948,11 @@ function parseCookies(req) {
   }));
 }
 
+function authorizationToken(req) {
+  const header = String(req.headers.authorization || '');
+  return /^Bearer\s+/i.test(header) ? header.replace(/^Bearer\s+/i, '').trim() : '';
+}
+
 function sessionCookie(req, token, maxAge) {
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
   const secure = req.socket.encrypted || forwardedProto === 'https';
@@ -965,7 +988,7 @@ function sessionFromToken(token) {
 
 function currentUser(req) {
   if (NEON_REPOSITORY) return req.__aureumUser || null;
-  const token = parseCookies(req).aureum_session;
+  const token = req.__aureumToken || parseCookies(req).aureum_session;
   const session = token ? sessionFromToken(token) : null;
   if (!session) return null;
   return users.find(user => user.id === session.userId && (!user.password_reset_at || session.expiresAt - SESSION_TTL >= user.password_reset_at)) || null;
@@ -1115,8 +1138,11 @@ async function handle(req, res) {
   }
 
   if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
-    const token = parseCookies(req).aureum_session;
+    const token = authorizationToken(req) || parseCookies(req).aureum_session;
+    req.__aureumToken = token || null;
     req.__aureumUser = token ? await NEON_REPOSITORY.findSession(token, NEON_WORKSPACE_ID) : null;
+  } else {
+    req.__aureumToken = authorizationToken(req) || parseCookies(req).aureum_session || null;
   }
 
   if (!await enforceRequestBudget(req, res, url, currentUser(req))) return;
@@ -1140,7 +1166,8 @@ async function handle(req, res) {
     }
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/auth/login') {
+  if (req.method === 'POST' && ['/api/auth/login', '/api/auth/mobile/login'].includes(url.pathname)) {
+    const mobileLogin = url.pathname === '/api/auth/mobile/login';
     try {
       if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
         const ip = req.socket.remoteAddress || 'local';
@@ -1171,7 +1198,7 @@ async function handle(req, res) {
         const signedInUser = await NEON_REPOSITORY.findUserByIdentifier(NEON_WORKSPACE_ID, identifier);
         await NEON_REPOSITORY.recordLogin({ userId: user.db_id, email: user.email, eventType: 'login_success', ipAddress: ip, userAgent: req.headers['user-agent'] });
         req.__aureumRelationalHandled = true;
-        json(res, 200, { user: publicUser(signedInUser || user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
+        json(res, 200, { accessToken: mobileLogin ? token : undefined, tokenType: mobileLogin ? 'Bearer' : undefined, expiresIn: mobileLogin ? Math.floor(SESSION_TTL / 1000) : undefined, user: publicUser(signedInUser || user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
         return;
       }
       const ip = req.socket.remoteAddress || 'local';
@@ -1191,21 +1218,38 @@ async function handle(req, res) {
       const currentPreferences = accountPreferences.get(user.id);
       if (currentPreferences) { delete currentPreferences.presence_status; accountPreferences.set(user.id, currentPreferences); }
       user.last_login_at = new Date().toISOString(); user.last_activity_at = user.last_login_at; addActivityLog(user.id, 'user', user.id, 'login_success', `${user.full_name} logged in to the workspace.`);
-      json(res, 200, { user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
+      json(res, 200, { accessToken: mobileLogin ? token : undefined, tokenType: mobileLogin ? 'Bearer' : undefined, expiresIn: mobileLogin ? Math.floor(SESSION_TTL / 1000) : undefined, user: publicUser(user), permissions: rolePermissions[user.role] }, { 'Set-Cookie': sessionCookie(req, token, SESSION_TTL / 1000) });
     } catch (error) { if (NEON_SQL || error.code) throw error; json(res, 400, { error: error.message }); }
     return;
   }
 
-  if (req.method === 'POST' && url.pathname === '/api/auth/logout') {
+  if (req.method === 'POST' && url.pathname === '/api/auth/mobile/refresh') {
+    const user = currentUser(req);
+    if (!user || !req.__aureumToken) { json(res, 401, { error: 'Your mobile session has expired. Please sign in again.' }); return; }
+    const previousToken = req.__aureumToken;
+    const token = createSessionToken(user.id);
     if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
-      const token = parseCookies(req).aureum_session;
+      await NEON_REPOSITORY.revokeSession(previousToken, NEON_WORKSPACE_ID);
+      await NEON_REPOSITORY.createSession({ userId: user.db_id, token, expiresAt: new Date(Date.now() + SESSION_TTL).toISOString(), ipAddress: req.socket.remoteAddress || 'local', userAgent: req.headers['user-agent'] });
+      req.__aureumRelationalHandled = true;
+    } else {
+      const previousSession = sessionFromToken(previousToken);
+      if (previousSession) revokedSessions.set(crypto.createHash('sha256').update(previousToken).digest('hex'), previousSession.expiresAt);
+    }
+    json(res, 200, { accessToken: token, tokenType: 'Bearer', expiresIn: Math.floor(SESSION_TTL / 1000), user: publicUser(user), permissions: rolePermissions[user.role] });
+    return;
+  }
+
+  if (req.method === 'POST' && ['/api/auth/logout', '/api/auth/mobile/logout'].includes(url.pathname)) {
+    if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+      const token = req.__aureumToken || parseCookies(req).aureum_session;
       if (req.__aureumUser) await NEON_REPOSITORY.updatePresenceStatus(NEON_WORKSPACE_ID, req.__aureumUser.id, 'Offline');
       if (token) { await NEON_REPOSITORY.revokeSession(token, NEON_WORKSPACE_ID); if (req.__aureumUser) await NEON_REPOSITORY.recordLogin({ userId: req.__aureumUser.db_id, email: req.__aureumUser.email, eventType: 'logout', ipAddress: req.socket.remoteAddress || 'local', userAgent: req.headers['user-agent'] }); }
       req.__aureumRelationalHandled = true;
     } else {
       const user = currentUser(req);
       if (user) {
-        const token = parseCookies(req).aureum_session;
+        const token = req.__aureumToken || parseCookies(req).aureum_session;
         const session = sessionFromToken(token);
         for (const [key, expiresAt] of revokedSessions) if (expiresAt <= Date.now()) revokedSessions.delete(key);
         if (session) revokedSessions.set(crypto.createHash('sha256').update(token).digest('hex'), session.expiresAt);
@@ -1286,11 +1330,13 @@ async function handle(req, res) {
       onChange: (task, actor, action) => { addActivityLog(actor.id, 'task', task.id, action, task.title); persistState(); },
       notify: (userId, task, actor) => {
         const list = notifications.get(userId) || [];
-        list.unshift({ id: crypto.randomUUID(), event_type: 'task_assigned', title: 'New task assigned', message: `${actor.full_name} assigned you: ${task.title}`, related_entity_type: 'task', related_entity_id: task.id, is_read: false, created_at: new Date().toISOString() });
+        const notification = { id: crypto.randomUUID(), event_type: 'task_assigned', title: 'New task assigned', message: `${actor.full_name} assigned you: ${task.title}`, related_entity_type: 'task', related_entity_id: task.id, is_read: false, created_at: new Date().toISOString() };
+        list.unshift(notification);
         notifications.set(userId, list);
+        sendMemoryPush(userId, notification, '/(tabs)/tasks', task.id);
       }
     });
-    const handled = await createRelationalApi({ repository, workspaceId: user.workspace_id || 'local', json, readBody, safeText }).handle(req, res, url, user);
+    const handled = await createRelationalApi({ repository, workspaceId: user.workspace_id || 'local', json, readBody, safeText, appReleaseDownloadSecret: SESSION_SECRET }).handle(req, res, url, user);
     if (handled === false) json(res, 405, { error: 'Method not allowed' });
     return;
   }
@@ -1337,7 +1383,7 @@ async function handle(req, res) {
       if (req.method === 'PATCH') {
         const body = await readBody(req);
         const allowed = key === 'notifications'
-          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'follow_up_completed', 'team_chat_message', 'daily_digest']
+          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'follow_up_completed', 'task_assigned', 'team_chat_message', 'daily_digest']
           : key === 'appearance' ? ['theme', 'compact_mode', 'sidebar_collapsed'] : ['language', 'date_format', 'time_format'];
         const next = { ...(current[key] || {}) };
         allowed.forEach(field => { if (body[field] !== undefined) next[field] = key === 'notifications' || key === 'appearance' && ['compact_mode', 'sidebar_collapsed'].includes(field) ? Boolean(body[field]) : String(body[field]); });
@@ -1833,6 +1879,50 @@ async function handle(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/mobile/push-tokens' && (req.method === 'POST' || req.method === 'DELETE')) {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    const body = await readBody(req);
+    const token = String(body.token || '').trim();
+    if (!token || token.length > 512) { json(res, 422, { error: 'A valid mobile push token is required.' }); return; }
+    const existing = mobilePushTokens.get(user.id) || [];
+    if (req.method === 'POST') {
+      const next = existing.filter(item => item.token !== token);
+      next.unshift({ token, platform: String(body.platform || 'android'), device_name: safeText(body.device_name, 160), app_version: safeText(body.app_version, 40), updated_at: new Date().toISOString() });
+      mobilePushTokens.set(user.id, next.slice(0, 5));
+      persistState();
+      json(res, 200, { data: { registered: true, platform: next[0].platform } });
+      return;
+    }
+    mobilePushTokens.set(user.id, existing.filter(item => item.token !== token));
+    persistState();
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/web-push/public-key') { json(res, 200, { publicKey: webPushPublicKey || null }); return; }
+  if (url.pathname === '/api/web-push/subscription' && (req.method === 'POST' || req.method === 'DELETE')) {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    const body = await readBody(req);
+    const subscription = body.subscription || body;
+    if (req.method === 'POST') {
+      if (!validSubscription(subscription)) { json(res, 422, { error: 'A valid browser push subscription is required.' }); return; }
+      const existing = webPushSubscriptions.get(user.id) || [];
+      const next = existing.filter(item => item.endpoint !== subscription.endpoint);
+      next.unshift({ endpoint: subscription.endpoint, keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth }, user_agent: safeText(req.headers['user-agent'], 500), updated_at: new Date().toISOString() });
+      webPushSubscriptions.set(user.id, next.slice(0, 5));
+      persistState();
+      json(res, 200, { data: { registered: true } });
+      return;
+    }
+    const existing = webPushSubscriptions.get(user.id) || [];
+    webPushSubscriptions.set(user.id, existing.filter(item => item.endpoint !== subscription.endpoint));
+    persistState();
+    json(res, 200, { ok: true });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/notifications') {
     const user = requireAuth(req, res);
     if (user) { const items = (notifications.get(user.id) || []).filter(item=>!item.cancelled_by_closure).sort((a, b) => b.created_at.localeCompare(a.created_at)); json(res, 200, { data: items.map(notificationView), unread: items.filter(item => !item.is_read).length }); }
@@ -2059,6 +2149,25 @@ async function handle(req, res) {
     return;
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/dashboard/initial') {
+    const user = requireAuth(req, res);
+    if (user) {
+      const dashboard = dashboardForUser(user, url.searchParams);
+      json(res, 200, { scope: dashboard.scopeLabel, data: {
+        summary: dashboard.summary,
+        leadInflow: dashboard.leadInflow,
+        leadSources: dashboard.leadSources,
+        followUpPerformance: dashboard.followUpPerformance,
+        conversionOverview: dashboard.conversionOverview,
+        recentLeads: dashboard.recentLeads,
+        todayFollowUps: (dashboard.todayFollowUps || []).map(item => ({ id: item.id, due_time: item.time, due_date: item.dueDate, customer_name: item.customer, follow_up_type: item.type, assigned_agent: item.agent, status: item.status })),
+        agentPerformance: dashboard.agentPerformance,
+        meta: dashboard.meta
+      } });
+    }
+    return;
+  }
+
   const dashboardRoutes = {
     '/api/dashboard/summary': 'summary',
     '/api/dashboard/lead-inflow': 'leadInflow',
@@ -2095,7 +2204,7 @@ async function initializeDatabase() {
     ADD COLUMN IF NOT EXISTS locked_until timestamptz`);
   NEON_WORKSPACE_ID = await NEON_REPOSITORY.workspaceId(NEON_WORKSPACE_LEGACY_ID);
   if (!NEON_WORKSPACE_ID) throw new Error('Aureum CRM workspace is missing; run the database migration before starting the API.');
-  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword, temporaryPasswordExpiry, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE });
+  RELATIONAL_API = createRelationalApi({ repository: NEON_REPOSITORY, workspaceId: NEON_WORKSPACE_ID, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword, temporaryPasswordExpiry, leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone: CRM_TIMEZONE, appReleaseStorage, appReleaseDownloadSecret: SESSION_SECRET });
   // The normalized crm schema is authoritative whenever a database is configured.
   // Do not hydrate the legacy compatibility snapshot here: doing so can load
   // stale users/records and overwrite newer relational data during a cold

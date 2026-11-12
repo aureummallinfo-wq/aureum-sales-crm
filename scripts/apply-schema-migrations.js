@@ -38,7 +38,8 @@ const REQUIRED_OBJECTS = [
   ['014_edit_saved_notes.sql', 'column', 'customer_notes', 'edited_by'],
   ['014_edit_saved_notes.sql', 'table', 'crm.note_revisions'],
   ['014_edit_saved_notes.sql', 'function', 'crm.edit_saved_note(uuid,text,uuid,uuid,uuid,integer,text)'],
-  ['015_meta_crm_feedback.sql', 'column', 'outbox_events', 'claimed_at']
+  ['015_meta_crm_feedback.sql', 'column', 'outbox_events', 'claimed_at'],
+  ['022_android_app_releases.sql', 'table', 'crm.app_releases']
 ];
 const COUNTED_TABLES = ['leads', 'customers', 'lead_notes', 'customer_notes', 'lead_activities', 'customer_activities', 'follow_ups'];
 

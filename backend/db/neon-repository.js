@@ -7,6 +7,8 @@ const { customerCreationPlan } = require('../customer-creation');
 const { insertLeadCustomer } = require('./customer-creation');
 const { deriveAureumEmail } = require('../user-email');
 const { paginationMeta } = require('../pagination');
+const { sendExpoPushMessages } = require('../push-notifications');
+const { sendWebPushMessages } = require('../web-push-notifications');
 
 function hashToken(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -465,6 +467,106 @@ function createNeonRepository(sql) {
     const userId = await resolveUserId(workspace, userIdentifier); if (!userId) return [];
     for (const item of updates || []) if (item.event_key) await sql.query(`INSERT INTO crm.notification_settings (user_id,event_key,in_app_enabled,email_enabled,whatsapp_enabled,sms_enabled) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,event_key) DO UPDATE SET in_app_enabled=EXCLUDED.in_app_enabled,email_enabled=EXCLUDED.email_enabled,whatsapp_enabled=EXCLUDED.whatsapp_enabled,sms_enabled=EXCLUDED.sms_enabled`, [userId, item.event_key, item.in_app_enabled !== false, Boolean(item.email_enabled), Boolean(item.whatsapp_enabled), Boolean(item.sms_enabled)]);
     return listNotificationSettings(workspace, userIdentifier);
+  }
+
+  function appReleaseView(row) {
+    if (!row) return null;
+    return { id: row.id, platform: row.platform, versionName: row.version_name, versionCode: row.version_code, minimumVersionCode: row.minimum_version_code, fileName: row.file_name, fileSize: Number(row.file_size), sha256: row.sha256, releaseNotes: row.release_notes || '', isPublished: row.is_published, publishedAt: row.published_at, downloadCount: Number(row.download_count || 0), createdAt: row.created_at, storageKey: row.storage_key };
+  }
+
+  async function createAppRelease(workspace, actor, input) {
+    const userId = await resolveUserId(workspace, actor?.id);
+    if (!userId) return null;
+    const rows = await sql.query(`INSERT INTO crm.app_releases (workspace_id,platform,version_name,version_code,minimum_version_code,file_name,storage_key,file_size,sha256,release_notes,uploaded_by) VALUES ($1,'android',$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [workspace, String(input.versionName || '').trim().slice(0, 40), Number(input.versionCode), Number(input.minimumVersionCode || 1), String(input.fileName || 'aureum-crm.apk').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160), String(input.storageKey), Number(input.fileSize), String(input.sha256), String(input.releaseNotes || '').slice(0, 5000), userId]);
+    return appReleaseView(rows[0]);
+  }
+
+  async function listAppReleases(workspace) {
+    return (await sql.query("SELECT * FROM crm.app_releases WHERE workspace_id=$1 AND platform='android' ORDER BY version_code DESC, created_at DESC", [workspace])).map(appReleaseView);
+  }
+
+  async function getAppRelease(workspace, identifier) {
+    const rows = await sql.query("SELECT * FROM crm.app_releases WHERE workspace_id=$1 AND platform='android' AND (id::text=$2 OR version_code::text=$2) LIMIT 1", [workspace, String(identifier)]);
+    return appReleaseView(rows[0]);
+  }
+
+  async function getLatestAppRelease(workspace) {
+    const rows = await sql.query("SELECT * FROM crm.app_releases WHERE workspace_id=$1 AND platform='android' AND is_published=true ORDER BY version_code DESC LIMIT 1", [workspace]);
+    return appReleaseView(rows[0]);
+  }
+
+  async function publishAppRelease(workspace, identifier) {
+    const rows = await sql.query(`WITH target AS MATERIALIZED (SELECT id FROM crm.app_releases WHERE workspace_id=$1 AND platform='android' AND (id::text=$2 OR version_code::text=$2) LIMIT 1), cleared AS (UPDATE crm.app_releases SET is_published=false,published_at=NULL WHERE workspace_id=$1 AND platform='android' AND EXISTS (SELECT 1 FROM target)), published AS (UPDATE crm.app_releases SET is_published=true,published_at=now() WHERE id IN (SELECT id FROM target) RETURNING *) SELECT * FROM published`, [workspace, String(identifier)]);
+    return appReleaseView(rows[0]);
+  }
+
+  async function unpublishAppRelease(workspace, identifier) {
+    const rows = await sql.query("UPDATE crm.app_releases SET is_published=false,published_at=NULL WHERE workspace_id=$1 AND platform='android' AND (id::text=$2 OR version_code::text=$2) RETURNING *", [workspace, String(identifier)]);
+    return appReleaseView(rows[0]);
+  }
+
+  async function recordAppReleaseDownload(workspace, identifier) {
+    await sql.query('UPDATE crm.app_releases SET download_count=download_count+1 WHERE workspace_id=$1 AND id=$2', [workspace, identifier]);
+  }
+
+  async function registerMobilePushToken(workspace, userIdentifier, input = {}) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    const token = String(input.token || '').trim();
+    const platform = String(input.platform || '').toLowerCase();
+    if (!userId || !token || !['android', 'ios'].includes(platform)) return null;
+    const tokenHash = hashToken(token);
+    const rows = await sql.query(`
+      INSERT INTO crm.mobile_push_tokens (workspace_id,user_id,token,token_hash,platform,device_name,app_version,enabled,last_seen_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,true,now(),now())
+      ON CONFLICT (workspace_id,token_hash) DO UPDATE SET user_id=EXCLUDED.user_id,token=EXCLUDED.token,platform=EXCLUDED.platform,device_name=EXCLUDED.device_name,app_version=EXCLUDED.app_version,enabled=true,last_seen_at=now(),updated_at=now()
+      RETURNING id,platform,device_name,app_version,enabled,last_seen_at`,
+    [workspace, userId, token.slice(0, 512), tokenHash, platform, String(input.device_name || '').slice(0, 160) || null, String(input.app_version || '').slice(0, 40) || null]);
+    return rows[0] || null;
+  }
+
+  async function removeMobilePushToken(workspace, userIdentifier, token) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    const value = String(token || '').trim();
+    if (!userId || !value) return false;
+    const result = await sql.query('DELETE FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND token_hash=$3', [workspace, userId, hashToken(value)]);
+    return Number(result.rowCount || 0) > 0;
+  }
+
+  async function listMobilePushTokens(workspace, userIdentifier) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    if (!userId) return [];
+    return sql.query('SELECT token,platform,device_name,app_version FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+  }
+
+  async function registerWebPushSubscription(workspace, userIdentifier, input = {}) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    const subscription = input.subscription || input;
+    const endpoint = String(subscription.endpoint || '').trim();
+    const p256dh = String(subscription.keys?.p256dh || '').trim();
+    const auth = String(subscription.keys?.auth || '').trim();
+    if (!userId || !endpoint || !p256dh || !auth) return null;
+    const rows = await sql.query(`
+      INSERT INTO crm.web_push_subscriptions (workspace_id,user_id,endpoint,p256dh_key,auth_key,user_agent,enabled,last_seen_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,true,now(),now())
+      ON CONFLICT (workspace_id,endpoint) DO UPDATE SET user_id=EXCLUDED.user_id,p256dh_key=EXCLUDED.p256dh_key,auth_key=EXCLUDED.auth_key,user_agent=EXCLUDED.user_agent,enabled=true,last_seen_at=now(),updated_at=now()
+      RETURNING id,endpoint,enabled,last_seen_at`,
+    [workspace, userId, endpoint.slice(0, 2048), p256dh.slice(0, 512), auth.slice(0, 512), String(input.user_agent || '').slice(0, 500) || null]);
+    return rows[0] || null;
+  }
+
+  async function removeWebPushSubscription(workspace, userIdentifier, endpoint) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    const value = String(endpoint || '').trim();
+    if (!userId || !value) return false;
+    const result = await sql.query('DELETE FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND endpoint=$3', [workspace, userId, value]);
+    return Number(result.rowCount || 0) > 0;
+  }
+
+  async function listWebPushSubscriptions(workspace, userIdentifier) {
+    const userId = await resolveUserId(workspace, userIdentifier);
+    if (!userId) return [];
+    const rows = await sql.query('SELECT endpoint,p256dh_key,auth_key FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+    return rows.map(row => ({ endpoint: row.endpoint, keys: { p256dh: row.p256dh_key, auth: row.auth_key } }));
   }
 
   async function scope(workspace, user, alias = 'l', options = {}) {
@@ -969,7 +1071,13 @@ function createNeonRepository(sql) {
     const due = followUp?.due_date ? ` due ${followUp.due_date}${followUp.due_time ? ` at ${followUp.due_time}` : ''}` : '';
     const copy = eventKey === 'follow_up_overdue' ? `${customer} — ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} — ${type} was completed.` : `${customer} — ${type} scheduled${due}.`;
     const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
-    await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}:${followUp?.due_date}:${followUp?.due_time}`]);
+    const notification = await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING RETURNING id`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}:${followUp?.due_date}:${followUp?.due_time}`]);
+    if (notification[0]) {
+      const devices = await sql.query('SELECT token FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+      sendExpoPushMessages(devices.map(device => ({ to: device.token, title, body: copy, data: { route: '/(tabs)/follow-ups', notificationId: notification[0].id, entityId: followUpId } }))).catch(error => console.error('Mobile push delivery failed:', error.message));
+      const subscriptions = await listWebPushSubscriptions(workspace, assignedAgentId);
+      sendWebPushMessages(subscriptions, { title, body: copy, priority: 'high', data: { route: '/follow-ups', notificationId: notification[0].id, entityId: followUpId } }).catch(error => console.error('Browser push delivery failed:', error.message));
+    }
   }
 
   async function createFollowUp(workspace, actor, input) {
@@ -1137,7 +1245,18 @@ function createNeonRepository(sql) {
     const taskId = rows[0]?.id;
     await insertAudit(workspace, actor, 'task_created', 'task', taskId, { legacy_id: legacyId, title, assigned_to: assignment.user.id });
     await enqueueOutbox(workspace, 'task_created', 'task', taskId, { legacy_id: legacyId, assigned_to: assignment.user.id }, `task_created:${legacyId}`);
-    if (assignment.userId && assignment.userId !== actorId) await sql.query(`INSERT INTO crm.notifications (user_id, title, message, related_entity_type, related_entity_id, dedupe_key) VALUES ($1,$2,$3,'task',$4,$5) ON CONFLICT (user_id, dedupe_key) DO NOTHING`, [assignment.userId, 'New task assigned', `${actor.full_name || 'A manager'} assigned you: ${title}`, taskId, `task_assigned:${legacyId}`]);
+    if (assignment.userId && assignment.userId !== actorId) {
+      const setting = await sql.query('SELECT in_app_enabled FROM crm.notification_settings WHERE user_id=$1 AND event_key=$2 LIMIT 1', [assignment.userId, 'task_assigned']);
+      if (!setting[0] || setting[0].in_app_enabled !== false) {
+        const notification = await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,'task_assigned',$2,$3,'task',$4,$5) ON CONFLICT (user_id, dedupe_key) DO NOTHING RETURNING id`, [assignment.userId, 'New task assigned', `${actor.full_name || 'A manager'} assigned you: ${title}`, taskId, `task_assigned:${legacyId}`]);
+        if (notification[0]) {
+          const devices = await listMobilePushTokens(workspace, assignment.userId);
+          sendExpoPushMessages(devices.map(device => ({ to: device.token, title: 'New task assigned', body: `${actor.full_name || 'A manager'} assigned you: ${title}`, data: { route: '/(tabs)/tasks', notificationId: notification[0].id, entityId: taskId } }))).catch(error => console.error('Mobile push delivery failed:', error.message));
+          const subscriptions = await listWebPushSubscriptions(workspace, assignment.userId);
+          sendWebPushMessages(subscriptions, { title: 'New task assigned', body: `${actor.full_name || 'A manager'} assigned you: ${title}`, priority: 'high', data: { route: '/tasks', notificationId: notification[0].id, entityId: taskId } }).catch(error => console.error('Browser push delivery failed:', error.message));
+        }
+      }
+    }
     return getTask(workspace, actor, legacyId) || getTask(workspace, { ...actor, role: 'super_admin' }, legacyId);
   }
 
@@ -1353,7 +1472,7 @@ function createNeonRepository(sql) {
   async function markMessageRead(workspace,user,identifier) { const userId=await resolveUserId(workspace,user.id);await sql.query('INSERT INTO crm.chat_read_receipts (message_id,user_id,read_at) SELECT id,$2,now() FROM crm.chat_messages WHERE workspace_id=$1 AND legacy_id=$3 ON CONFLICT (message_id,user_id) DO UPDATE SET read_at=now()',[workspace,userId,String(identifier)]);return true; }
   async function reportRows(workspace,user) { const agents=await listUsers(workspace,user);const leads=await listLeads({workspaceId:workspace,user});const customers=await listCustomers({workspaceId:workspace,user});const followUps=await listFollowUps({workspaceId:workspace,user});return agents.filter(item=>['sales_agent','sales_manager'].includes(item.role)).map(agent=>{const ls=leads.filter(item=>item.assigned_agent_id===agent.id);const cs=customers.filter(item=>item.assigned_agent_id===agent.id);const fs=followUps.filter(item=>item.assigned_agent_id===agent.id);const closed=ls.filter(item=>item.status==='Closed Won').length;const overdue=fs.filter(item=>item.status==='Overdue').length;const completed=fs.filter(item=>item.status==='Completed').length;const conversion=ls.length?Number((closed/ls.length*100).toFixed(1)):0;const performance=conversion>=20&&overdue<=1?'Excellent':conversion>=12&&overdue<=2?'Good':conversion>0?'Average':'Needs Attention';return {id:agent.id,agentId:agent.id,name:agent.full_name,agentName:agent.full_name,initials:String(agent.full_name||'?').split(/\s+/).map(part=>part[0]).slice(0,2).join('').toUpperCase(),email:agent.email,phone:agent.phone,role:agent.role,agentRole:agent.role==='sales_manager'?'Sales Manager':'Sales Agent',team:agent.team_id||'Unassigned',teamId:agent.team_id,assignedLeads:ls.length,activeLeads:ls.filter(item=>!['Closed Won','Closed Lost','Not Interested'].includes(item.status)).length,contactedLeads:ls.filter(item=>item.status!=='New').length,hotLeads:ls.filter(item=>['Hot','Booking'].includes(item.status)).length,followUpsAssigned:fs.length,followUpsDue:fs.filter(item=>['Pending','Rescheduled'].includes(item.status)).length,followUpsCompleted:completed,overdueFollowUps:overdue,customersHandled:cs.length,closedDeals:closed,lostLeads:ls.filter(item=>['Closed Lost','Lost'].includes(item.status)).length,conversionRate:conversion,conversionRateLabel:`${conversion}%`,performance,status:agent.status,presenceStatus:agent.presence_status||null,lastActivity:agent.last_login_at||agent.last_activity_at||agent.updated_at,lastActivityAt:agent.last_activity_at||agent.updated_at};}); }
 
-  return { listSavedNotes, editSavedNote, noteHistory, resetTemporaryPassword, workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, bulkAssignLeads, changeLeadStatus, addLeadActivity, convertLeadToCustomer, createCustomerFromLead, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listCustomerFollowUpHistory, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, addFollowUpNote, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+  return { listSavedNotes, editSavedNote, noteHistory, resetTemporaryPassword, workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, createAppRelease, listAppReleases, getAppRelease, getLatestAppRelease, publishAppRelease, unpublishAppRelease, recordAppReleaseDownload, registerMobilePushToken, removeMobilePushToken, listMobilePushTokens, registerWebPushSubscription, removeWebPushSubscription, listWebPushSubscriptions, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, bulkAssignLeads, changeLeadStatus, addLeadActivity, convertLeadToCustomer, createCustomerFromLead, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listCustomerFollowUpHistory, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, addFollowUpNote, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
 }
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }

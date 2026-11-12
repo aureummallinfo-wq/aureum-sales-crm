@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Aureum CRM",
+    "slug": "aureum-crm-mobile",
+    "version": "0.1.2",
+    "orientation": "portrait",
+    "scheme": "aureumcrm",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "color": "#C6A15B",
+          "defaultChannel": "crm-alerts",
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      "expo-status-bar"
+    ],
+    "android": {
+      "package": "info.aureummall.crm",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "backgroundColor": "#171513"
+      }
+    },
+    "extra": {
+      "router": {
+        "origin": false,
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "7b84de2f-79d6-4094-8d2a-0f779f2a0924"
+      }
+    },
+    "owner": "aureummalls-team"
+  }
+}

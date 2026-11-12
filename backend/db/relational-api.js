@@ -5,7 +5,22 @@ const { deriveAureumEmail } = require('../user-email');
 const { notePlan, uniqueFollowUps, isCompletedFollowUp } = require('../followup-workflow');
 const { parsePagination, PaginationValidationError } = require('../pagination');
 
-function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword = () => `Aureum${crypto.randomBytes(8).toString('hex')}!9`, temporaryPasswordExpiry = () => new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone }) {
+function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword = () => `Aureum${crypto.randomBytes(8).toString('hex')}!9`, temporaryPasswordExpiry = () => new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone, appReleaseStorage, appReleaseDownloadSecret = process.env.AUREUM_APP_RELEASE_DOWNLOAD_SECRET || process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret' }) {
+  const APP_RELEASE_DOWNLOAD_TTL_MS = 15 * 60 * 1000;
+  function createAppReleaseDownloadToken(release) {
+    const expiresAt = Date.now() + APP_RELEASE_DOWNLOAD_TTL_MS;
+    const payload = `${workspaceId}:${release.id}:${expiresAt}`;
+    const signature = crypto.createHmac('sha256', appReleaseDownloadSecret).update(payload).digest('hex');
+    return `${expiresAt}.${signature}`;
+  }
+  function validAppReleaseDownloadToken(release, token) {
+    const [expiresAtText, signature] = String(token || '').split('.');
+    const expiresAt = Number(expiresAtText);
+    if (!Number.isSafeInteger(expiresAt) || expiresAt < Date.now() || !/^[a-f0-9]{64}$/.test(signature || '')) return false;
+    const payload = `${workspaceId}:${release.id}:${expiresAt}`;
+    const expected = crypto.createHmac('sha256', appReleaseDownloadSecret).update(payload).digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(signature, 'hex'), Buffer.from(expected, 'hex'));
+  }
   function deny(res, message = 'Access denied — insufficient permission') { json(res, 403, { error: message }); return true; }
   function unauthenticated(res) { json(res, 401, { error: 'Authentication required' }); return true; }
   function role(user, roles, res) { if (!user) { unauthenticated(res); return false; } if (roles.includes(user.role) || (user.role === 'hr' && roles.includes('project_manager'))) return true; deny(res); return false; }
@@ -158,6 +173,51 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     const pathname = url.pathname;
     if (user?.workspace_id && user.workspace_id !== workspaceId) return deny(res,'Access denied — account belongs to another portal.');
     if (user?.must_change_password && !pathname.startsWith('/api/account/') && !pathname.startsWith('/api/auth/')) return json(res, 403, { error: 'Password change required before accessing the workspace.', code: 'PASSWORD_CHANGE_REQUIRED' });
+
+    const releaseDownload = pathname.match(/^\/api\/app\/releases\/([^/]+)\/download$/);
+    if (releaseDownload && req.method === 'GET') {
+      const release = await repository.getAppRelease(workspaceId, releaseDownload[1]);
+      if (!release || !release.isPublished || !appReleaseStorage?.fileExists(release.storageKey)) return json(res, 404, { error: 'Published Android release not found.' });
+      const hasSignedDownload = validAppReleaseDownloadToken(release, url.searchParams.get('token'));
+      if (!user && !hasSignedDownload) return unauthenticated(res);
+      await repository.recordAppReleaseDownload(workspaceId, release.id);
+      res.writeHead(200, { 'Content-Type': 'application/vnd.android.package-archive', 'Content-Length': String(release.fileSize), 'Content-Disposition': `attachment; filename="${release.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+      appReleaseStorage.createReadStream(release.storageKey).on('error', error => { console.error('APK download failed:', error.message); if (!res.headersSent) res.writeHead(500); res.end(); }).pipe(res);
+      return true;
+    }
+    if (req.method === 'GET' && pathname === '/api/app/releases/latest') {
+      if (!user) return unauthenticated(res);
+      const release = await repository.getLatestAppRelease(workspaceId);
+      if (!release) return json(res, 200, { data: null });
+      const { storageKey, ...publicRelease } = release;
+      return json(res, 200, { data: { ...publicRelease, downloadUrl: `/api/app/releases/${release.id}/download?token=${encodeURIComponent(createAppReleaseDownloadToken(release))}` } });
+    }
+    if (req.method === 'GET' && pathname === '/api/app/releases') {
+      if (!role(user, ['super_admin'], res)) return true;
+      return json(res, 200, { data: await repository.listAppReleases(workspaceId) });
+    }
+    const releaseAction = pathname.match(/^\/api\/app\/releases\/([^/]+)\/(publish|unpublish)$/);
+    if (releaseAction && req.method === 'POST') {
+      if (!role(user, ['super_admin'], res)) return true;
+      const result = releaseAction[2] === 'publish' ? await repository.publishAppRelease(workspaceId, releaseAction[1]) : await repository.unpublishAppRelease(workspaceId, releaseAction[1]);
+      return result ? json(res, 200, { data: result }) : json(res, 404, { error: 'Android release not found.' });
+    }
+    if (req.method === 'POST' && pathname === '/api/app/releases') {
+      if (!role(user, ['super_admin'], res)) return true;
+      if (!appReleaseStorage) return json(res, 503, { error: 'Android release storage is not configured.' });
+      const contentLength = Number(req.headers['content-length'] || 0);
+      if (contentLength > appReleaseStorage.MAX_APK_BYTES) return json(res, 413, { error: 'APK file is too large.' });
+      const versionName = String(url.searchParams.get('versionName') || '').trim();
+      const versionCode = Number(url.searchParams.get('versionCode') || 0);
+      const minimumVersionCode = Number(url.searchParams.get('minimumVersionCode') || 1);
+      const fileName = String(url.searchParams.get('fileName') || 'aureum-crm.apk');
+      const releaseNotes = String(url.searchParams.get('releaseNotes') || '');
+      if (!versionName || !Number.isInteger(versionCode) || versionCode < 1 || !Number.isInteger(minimumVersionCode) || minimumVersionCode < 1) return json(res, 422, { error: 'Version name and positive version codes are required.' });
+      const storageKey = `android-${crypto.randomUUID()}.apk`;
+      let uploaded;
+      try { uploaded = await appReleaseStorage.writeApkRequest(req, storageKey); const release = await repository.createAppRelease(workspaceId, user, { versionName, versionCode, minimumVersionCode, fileName, releaseNotes, ...uploaded }); return release ? json(res, 201, { data: release }) : json(res, 422, { error: 'Android release could not be saved.' }); }
+      catch (error) { await appReleaseStorage.remove(storageKey).catch(() => undefined); if (error.code === '23505') return json(res, 409, { error: 'That Android version code already exists.' }); if (error.code === 'PAYLOAD_TOO_LARGE') return json(res, 413, { error: error.message }); if (error.code === 'INVALID_APK') return json(res, 422, { error: error.message }); throw error; }
+    }
 
     if (req.method === 'POST' && pathname === '/api/presence/heartbeat') {
       if (!user) return unauthenticated(res);
@@ -332,6 +392,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (!user) return unauthenticated(res); const current = await repository.getLead(workspaceId, leadAction[1]); if (!current) return json(res, 404, { error: 'Lead not found' }); if (!canViewLead(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
       const action = leadAction[2];
       if (req.method === 'GET' && action === 'activity') return json(res, 200, { data: await repository.listLeadActivities(workspaceId, current.id) });
+      if (req.method === 'GET' && action === 'notes') return json(res, 200, { data: (await repository.listLeadActivities(workspaceId, current.id)).filter(item => item.activity_type === 'Note added').map(item => ({ ...item, note: item.description, user_name: item.user_name || item.actor_name || 'Aureum teammate' })) });
       if (req.method === 'PATCH' && action === 'assign') { if (!['super_admin', 'sales_manager'].includes(user.role)) return deny(res, 'Only managers can assign leads'); const body = await readBody(req); const lead = await repository.assignLead(workspaceId, current.id, user, body.assigned_agent_id); return lead ? json(res, 200, { data: leadView(lead) }) : json(res, 400, { error: 'A valid active advisor from your permitted scope is required' }); }
       if (req.method === 'PATCH' && action === 'status') { const body = await readBody(req); const lead = await repository.changeLeadStatus(workspaceId, current.id, user, body.status || current.status, body.priority, body.closure_reason); return lead ? json(res, 200, { data: leadView(lead) }) : json(res, 422, { error: 'Invalid lead status.' }); }
       if (req.method === 'POST' && action === 'notes') { const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) return json(res, 400, { error: 'Note is required' }); try { notePlan(body); } catch(error) { return json(res,422,{error:error.message}); } const item = await repository.addLeadActivity(workspaceId, current.id, user, 'Note added', note, { note_input: body }); return json(res, 201, { data: item }); }
@@ -436,6 +497,31 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res,201,{data:followUpView(await repository.addFollowUpNote(workspaceId,item.id,user,note,body))});
     } if (action === 'reschedule' && req.method === 'PATCH') { if (!validateIsoDate(body.due_date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(body.due_time))) return json(res,422,{error:'Choose a valid date and time.'}); return json(res, 200, { data: followUpView(await repository.updateFollowUp(workspaceId, item.id, user, { due_date: body.due_date, due_time: body.due_time, reason: safeText(body.reason,500) })) }); } const statusMap = { complete: 'Completed', missed: 'Missed', cancel: 'Cancelled' }; if (req.method === 'PATCH' && statusMap[action]) return json(res, 200, { data: followUpView(await repository.transitionFollowUp(workspaceId, item.id, user, statusMap[action], body)) }); return json(res, 405, { error: 'Method not allowed' }); }
 
+    if (pathname === '/api/mobile/push-tokens' && (req.method === 'POST' || req.method === 'DELETE')) {
+      if (!user) return unauthenticated(res);
+      const body = await readBody(req);
+      if (req.method === 'POST') {
+        const token = String(body.token || '').trim();
+        if (!token || token.length > 512) return json(res, 422, { error: 'A valid mobile push token is required.' });
+        const device = await repository.registerMobilePushToken(workspaceId, user.id, body);
+        return device ? json(res, 200, { data: device }) : json(res, 422, { error: 'The mobile push token could not be registered.' });
+      }
+      await repository.removeMobilePushToken(workspaceId, user.id, body.token);
+      return json(res, 200, { ok: true });
+    }
+    if (req.method === 'GET' && pathname === '/api/web-push/public-key') return json(res, 200, { publicKey: webPushPublicKey || null });
+    if (pathname === '/api/web-push/subscription' && (req.method === 'POST' || req.method === 'DELETE')) {
+      if (!user) return unauthenticated(res);
+      const body = await readBody(req);
+      const subscription = body.subscription || body;
+      if (req.method === 'POST') {
+        if (!validSubscription(subscription)) return json(res, 422, { error: 'A valid browser push subscription is required.' });
+        const saved = await repository.registerWebPushSubscription(workspaceId, user.id, { subscription, user_agent: req.headers['user-agent'] });
+        return saved ? json(res, 200, { data: saved }) : json(res, 422, { error: 'The browser push subscription could not be saved.' });
+      }
+      await repository.removeWebPushSubscription(workspaceId, user.id, subscription.endpoint);
+      return json(res, 200, { ok: true });
+    }
     if (req.method === 'GET' && pathname === '/api/notifications') { if (!user) return unauthenticated(res); const data = await repository.listNotifications(workspaceId, user.id); return json(res, 200, { data: data.map(notificationView), unread: data.filter(item => !item.is_read).length }); }
     const notification = pathname.match(/^\/api\/notifications\/([^/]+)\/read$/); if (notification && req.method === 'PATCH') { if (!user) return unauthenticated(res); await repository.markNotificationRead(workspaceId, user.id, notification[1]); return json(res, 200, { ok: true }); }
     if (req.method === 'PATCH' && pathname === '/api/notifications/read-all') { if (!user) return unauthenticated(res); await repository.markAllNotificationsRead(workspaceId, user.id); return json(res, 200, { ok: true }); }
@@ -515,6 +601,25 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (req.method === 'GET' && pathname === '/api/search') { if (!user) return unauthenticated(res); const query=String(url.searchParams.get('q')||'').trim(); if(query.length<2)return json(res,200,{data:{leads:[],customers:[],followUps:[]}}); return json(res,200,{data:searchView(await repository.search(workspaceId,user,query))}); }
     if (req.method === 'GET' && pathname === '/api/activity-logs') { if (!user) return unauthenticated(res); return json(res,200,{data:await repository.auditEvents(workspaceId)}); }
 
+    if (req.method === 'GET' && pathname === '/api/dashboard/initial') {
+      if (!user) return unauthenticated(res);
+      const params = Object.fromEntries(url.searchParams.entries());
+      const report = await reportData(user, params);
+      const reportUser = ['project_manager', 'hr'].includes(user.role) ? { ...user, role: 'super_admin' } : user;
+      const recent = await repository.listLeads({ workspaceId, user: reportUser, pagination: { page: 1, pageSize: 8, offset: 0 } });
+      const recentRows = Array.isArray(recent) ? recent : recent.rows;
+      return json(res, 200, { scope: report.scope, data: {
+        summary: report.summary,
+        leadInflow: report.leadInflow,
+        leadSources: report.charts.leadSourcePerformance.map(item => ({ name: item.label, value: item.value, count: item.value })),
+        followUpPerformance: report.charts.followUpStatusPerformance,
+        conversionOverview: report.charts.conversionOverview,
+        recentLeads: recentRows.slice(0, 8).map(leadView),
+        todayFollowUps: report.followUps.filter(item => item.due_date === localDate()).slice(0, 8).map(followUpView),
+        agentPerformance: report.agentReports,
+        meta: report.meta
+      } });
+    }
     const dashboardRoutes = new Set(['/api/dashboard/summary','/api/dashboard/lead-inflow','/api/dashboard/lead-sources','/api/dashboard/follow-up-performance','/api/dashboard/conversion-overview','/api/dashboard/recent-leads','/api/dashboard/today-follow-ups','/api/dashboard/agent-performance']);
      if (req.method === 'GET' && dashboardRoutes.has(pathname)) { if (!user) return unauthenticated(res); if (pathname === '/api/dashboard/agent-performance' && !role(user, ['super_admin', 'sales_manager', 'project_manager'], res)) return true; const params=Object.fromEntries(url.searchParams.entries()); const report=await reportData(user,params); const key=pathname.split('/').pop(); const selectedAgentId = String(url.searchParams.get('assignedAgentId') || ''); const data=key==='summary'?report.summary:key==='lead-inflow'?report.leadInflow:key==='lead-sources'?report.charts.leadSourcePerformance.map(item=>({ name:item.label, source:item.label, value:item.value, count:item.value, percentage:report.leadReport.totalLeads ? Number((item.value / report.leadReport.totalLeads * 100).toFixed(1)) : 0 })):key==='follow-up-performance'?report.charts.followUpStatusPerformance.map(item=>({ name:item.label, status:item.label, value:item.value, count:item.value })):key==='conversion-overview'?report.charts.conversionOverview:key==='recent-leads'?(await repository.listLeads({workspaceId,user: user.role === 'project_manager' ? { ...user, role: 'super_admin' } : user})).filter(item => !selectedAgentId || item.assigned_agent_id === selectedAgentId).filter(item => { const range = String(url.searchParams.get('recentDateRange') || params.dateRange || 'all'); if (range === 'all') return true; return inDateRange(item.created_at || item.updated_at, dateBounds({ ...params, dateRange: range })); }).slice(0,10).map(leadView):key==='today-follow-ups'?report.followUps.map(followUpView):report.agentReports.filter(item => item.agentRole === 'Sales Agent'); return json(res,200,{scope:report.scope,data}); }
 
@@ -564,3 +669,4 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
 }
 
 module.exports = { createRelationalApi };
+const { publicKey: webPushPublicKey, validSubscription } = require('../web-push-notifications');
