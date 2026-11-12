@@ -113,11 +113,31 @@ function bindMobileSidebar9() {
 
 function handleMobileSidebarClick9(event) {
   const origin = event.target;
-  const target = origin && typeof origin.closest === 'function' ? origin.closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]') : null;
+  const closest = origin && typeof origin.closest === 'function' ? origin.closest.bind(origin) : null;
+  if (!closest) return;
+
+  // A navigation click must collapse the global mobile drawer before the route
+  // renders. Let the existing data-screen handler continue the navigation.
+  const navigationTarget = closest('.sidebar [data-screen]');
+  if (navigationTarget) {
+    state.mobileSidebarOpen = false;
+    return;
+  }
+
+  const target = closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]');
   if (!target) return;
   event.preventDefault();
   event.stopPropagation();
+
+  const opening = target.matches('[data-mobile-sidebar-toggle]') && !state.mobileSidebarOpen;
   state.mobileSidebarOpen = target.matches('[data-mobile-sidebar-toggle]') ? !state.mobileSidebarOpen : false;
+
+  // The CRM drawer and Team Chat inbox are both mobile overlays. Never leave
+  // them open together or their headers can visually stack/splice.
+  if (opening) {
+    state.chatSidebarOpen = false;
+    state.chatRightInfoOpen = false;
+  }
   render();
 }
 
