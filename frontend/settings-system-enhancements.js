@@ -120,9 +120,6 @@ function bindMobileSidebarControls9() {
     if (control.dataset.mobileSidebarCloseBound === 'true') return;
     control.dataset.mobileSidebarCloseBound = 'true';
     control.addEventListener('click', closeMobileSidebar9);
-    control.addEventListener('pointerup', event => {
-      if (event.pointerType === 'touch' || event.pointerType === 'pen') closeMobileSidebar9(event);
-    });
   });
 }
 
@@ -146,13 +143,8 @@ function handleMobileSidebarClick9(event) {
     return;
   }
 
-  const target = closest('[data-mobile-sidebar-toggle], [data-mobile-sidebar-close]');
+  const target = closest('[data-mobile-sidebar-toggle]');
   if (!target) return;
-
-  if (target.matches('[data-mobile-sidebar-close]')) {
-    closeMobileSidebar9(event);
-    return;
-  }
 
   event.preventDefault();
   event.stopPropagation();
