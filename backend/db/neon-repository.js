@@ -636,7 +636,28 @@ function createNeonRepository(sql) {
     if (interest) { params.push(interest); conditions.push('l.interested_in = $' + params.length); }
     if (priority) { params.push(priority); conditions.push('l.priority = $' + params.length); }
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
-    if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(l.full_name) LIKE ${p} OR lower(coalesce(l.email, '')) LIKE ${p} OR lower(coalesce(l.phone, '')) LIKE ${p} OR lower(coalesce(l.whatsapp_number, '')) LIKE ${p} OR lower(coalesce(l.interested_in, '')) LIKE ${p} OR lower(coalesce(l.external_lead_id, '')) LIKE ${p} OR lower(coalesce(l.idempotency_key, '')) LIKE ${p} OR lower(coalesce(l.metadata::text, '')) LIKE ${p} OR lower(coalesce(au.full_name, '')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(a.description) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(a.after_data::text) LIKE ${p}))`); }
+
+    if (search) {
+      const normalizedSearch = String(search).normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+      const searchTokens = normalizedSearch.split(' ').filter(Boolean);
+      const searchableFields = [
+        "lower(regexp_replace(coalesce(l.full_name, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.email, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.phone, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.whatsapp_number, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.interested_in, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.external_lead_id, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.idempotency_key, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(l.metadata::text, ''), '\\s+', ' ', 'g'))",
+        "lower(regexp_replace(coalesce(au.full_name, ''), '\\s+', ' ', 'g'))"
+      ];
+      const tokenConditions = searchTokens.map(token => {
+        params.push(`%${token}%`);
+        const p = '$' + params.length;
+        return `(${searchableFields.map(field => `${field} LIKE ${p}`).join(' OR ')} OR EXISTS (SELECT 1 FROM crm.lead_notes n WHERE n.lead_id=l.id AND n.deleted_at IS NULL AND lower(regexp_replace(n.note, '\\s+', ' ', 'g')) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.lead_activities a WHERE a.lead_id=l.id AND lower(regexp_replace(a.description, '\\s+', ' ', 'g')) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.audit_events a WHERE a.entity_id=l.id AND a.workspace_id=l.workspace_id AND lower(regexp_replace(a.after_data::text, '\\s+', ' ', 'g')) LIKE ${p}))`;
+      });
+      if (tokenConditions.length) conditions.push(tokenConditions.join(' AND '));
+    }
     if (imported === 'true' || imported === 'imported' || imported === 'webhook') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE`);
     if (imported === 'unassigned') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE AND l.assigned_agent_id IS NULL`);
     if (imported === 'webhook') conditions.push(`l.metadata->>'webhook_connection_id' IS NOT NULL`);

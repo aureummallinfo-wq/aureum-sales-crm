@@ -996,16 +996,26 @@ function renderDashboard() {
   return pageHeader(data?.scopeLabel || (isAgent ? 'My workspace · Personal overview' : 'Aureum Mall & Residences · Executive view'), `Welcome back, ${safeWelcomeName}`, isAgent ? 'Your assigned pipeline, customer relationships, and next actions in one focused view.' : 'Track permitted leads, follow-ups, customers, and sales performance from one calm command center.', actions) + `<section class="grid grid-4">${kpi(isAgent ? 'My leads' : 'Total leads', summary.totalLeads ?? '—', isAgent ? 'Assigned scope' : 'Permitted scope')} ${kpi(isAgent ? 'My new leads' : 'New leads', summary.newLeads ?? '—', 'Current pipeline')} ${kpi(isAgent ? 'My hot leads' : 'Hot leads', summary.hotLeads ?? '—', 'High intent')} ${kpi(isAgent ? 'Follow-ups today' : 'Follow-ups due', summary.followUpsDue ?? '—', `${summary.overdueFollowUps ?? 0} overdue`, 'down')}</section><section class="grid grid-2" style="margin-top:18px"><div class="card chart-card"><div class="section-title"><div><h3>Lead inflow trend</h3><p>Role-filtered inquiry velocity</p></div><span class="section-link">Last 12 months</span></div><div class="bar-chart">${inflow.map((value, index) => `<div class="bar-group"><div class="bar alt" style="height:${Math.max(18, (value / maxInflow) * 75)}%"></div><div class="bar" style="height:${Math.max(24, (value / maxInflow) * 100)}%"></div></div>`).join('')}</div><div class="bar-labels"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span><span>Nov</span><span>Dec</span></div></div><div class="card chart-card"><div class="section-title"><div><h3>Lead sources</h3><p>Visible acquisition channels</p></div></div><div class="donut-wrap"><div style="position:relative"><div class="donut"></div><div class="donut-label"><strong>${summary.totalLeads ?? '—'}</strong><span>${isAgent ? 'My leads' : 'Visible leads'}</span></div></div><div class="source-list">${dashboardSourceRows(data?.leadSources)}</div></div></div></section><section class="grid grid-2" style="margin-top:18px"><div class="card chart-card"><div class="section-title"><div><h3>Follow-up performance</h3><p>Current workload and outcomes</p></div></div>${(data?.followUpPerformance || []).map(item => `<div class="progress-row"><span>${item.name}</span><div class="progress-track"><div class="progress-value" style="width:${Math.min(100, item.value * 4)}%;background:${item.name === 'Overdue' || item.name === 'Missed' ? 'var(--red)' : item.name === 'Completed' ? 'var(--green)' : 'var(--gold)'}"></div></div><b>${item.value}</b></div>`).join('')}</div>${!isAgent ? `<div class="card chart-card"><div class="section-title"><div><h3>Agent performance</h3><p>${state.role === 'SALES_MANAGER' ? 'Team advisor benchmark' : 'Company advisor benchmark'}</p></div><span class="section-link" data-screen="reports">Leaderboard ${icons.arrow}</span></div>${(data?.agentPerformance || []).map(item => `<div class="progress-row"><span>${item.name}</span><div class="progress-track"><div class="progress-value" style="width:${parseFloat(item.conversion) * 4}%"></div></div><b>${item.conversion}</b></div>`).join('')}</div>` : `<div class="card chart-card"><div class="section-title"><div><h3>Conversion overview</h3><p>Your lead movement</p></div></div>${(data?.conversionOverview || []).slice(-5).map(item => `<div class="progress-row"><span>${item.name}</span><div class="progress-track"><div class="progress-value" style="width:${Math.min(100, item.value)}%"></div></div><b>${item.value}</b></div>`).join('')}</div>`}</section><section class="two-col" style="margin-top:18px"><div class="card table-card"><div class="table-head"><div><h3>Recent leads</h3><p class="page-subtitle">Latest permitted inquiries</p></div><button class="section-link" data-screen="${isAgent ? 'my-leads' : 'leads'}">View all ${icons.arrow}</button></div>${recent.length ? leadTable(recent, false) : '<div class="empty-state">No recent leads in your scope.</div>'}</div><div class="card card-pad"><div class="section-title"><div><h3>Today’s follow-ups</h3><p>${isAgent ? 'Your scheduled touchpoints' : 'Scheduled team touchpoints'}</p></div><button class="section-link" data-screen="follow-ups">View all</button></div><div class="timeline">${(data?.todayFollowUps || []).map(item => `<div class="timeline-item"><div class="timeline-dot" style="background:${item.status === 'Overdue' ? 'var(--red)' : item.status === 'Completed' ? 'var(--green)' : 'var(--gold)'}"></div><div><div class="timeline-title">${item.time} · ${item.customer}</div><div class="timeline-copy">${item.type} · ${item.agent}</div><div class="timeline-time">${badge(item.status)}</div></div></div>`).join('') || '<div class="empty-state">No follow-ups for today.</div>'}</div></div></section>`;
 }
 
-async function loadLeads(my = false, force = false) {
+async function loadLeads(my = false, force = false, options = {}) {
   if (!state.authUser) return;
   state.leadModule = state.leadModule || {};
   const paging = state.leadModule.pagination = { page: 1, pageSize: 25, ...(state.leadModule.pagination || {}) };
   const requestToken = (state.leads.requestToken || 0) + 1;
+  const searchOnly = Boolean(options.searchOnly);
+  const queryAtRequest = String(state.leadFilters?.q || '');
+  const searchFocus = options.searchFocus || null;
   const badgeScope = my ? 'my-leads' : 'leads';
   if (state.screen === badgeScope) {
     window.AureumSidebarBadges?.markLeadsSeen(sidebarLeadSnapshots[badgeScope] || state.leads.items || []);
   }
-  state.leads = { ...state.leads, requestToken, loading: true, error: '', items: state.leads.items || [] }; render();
+  // Search refreshes run in the background. Do not render a loading state while
+  // the user is typing because replacing the input element drops keyboard focus.
+  if (!searchOnly) {
+    state.leads = { ...state.leads, requestToken, loading: true, error: '', items: state.leads.items || [] };
+    render();
+  } else {
+    state.leads = { ...state.leads, requestToken, error: '', items: state.leads.items || [] };
+  }
   const query = new URLSearchParams({ page: String(paging.page), pageSize: String(paging.pageSize) });
   const filters = state.leadFilters || {};
   if (filters.q) query.set('q', filters.q);
@@ -1017,12 +1027,27 @@ async function loadLeads(my = false, force = false) {
   const endpoint = `${my ? '/api/leads/my' : '/api/leads'}?${query}`;
   try {
     const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
+    // A newer keystroke may have changed the query while this request was in
+    // flight. Its response is stale and must not replace the current results
+    // or re-render the search field.
     if (requestToken !== state.leads.requestToken) return;
+    if (queryAtRequest !== String(state.leadFilters?.q || '')) {
+      state.leads = { ...state.leads, requestToken, loading: false };
+      return;
+    }
     state.leads = { requestToken, loading: false, error: '', items: result.data || [], meta: result.meta || null };
     if (state.screen === (my ? 'my-leads' : 'leads')) window.AureumSidebarBadges?.markLeadsSeen(state.leads.items);
   }
-  catch (error) { if (requestToken !== state.leads.requestToken) return; state.leads = { ...state.leads, requestToken, loading: false, error: error.message, items: state.leads.items || [] }; }
+  catch (error) {
+    if (requestToken !== state.leads.requestToken) return;
+    if (queryAtRequest !== String(state.leadFilters?.q || '')) {
+      state.leads = { ...state.leads, requestToken, loading: false };
+      return;
+    }
+    state.leads = { ...state.leads, requestToken, loading: false, error: error.message, items: state.leads.items || [] };
+  }
   render();
+  if (searchFocus) AureumSearch.restore('[data-leads-search]', searchFocus);
 }
 
 function liveLeadTable(items, my) {

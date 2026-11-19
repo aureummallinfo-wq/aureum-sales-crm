@@ -190,9 +190,14 @@
   function leadModuleItems(my) {
     return Array.isArray(state.leads?.items) ? state.leads.items.filter(lead => {
       const filters = state.leadFilters || {};
-      const q = String(filters.q || '').trim().toLowerCase();
-      const haystack = [lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.area, lead.interested_in, lead.property_type, lead.assigned_agent, lead.lead_source, lead.status].join(' ').toLowerCase();
-      if (q && !haystack.includes(q)) return false;
+      const normalizeSearchText = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+      const q = normalizeSearchText(filters.q);
+      const haystack = normalizeSearchText([lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.area, lead.interested_in, lead.property_type, lead.assigned_agent, lead.lead_source, lead.status].join(' '));
+      const compact = value => normalizeSearchText(value).replace(/[\s().-]/g, '');
+      const queryTokens = q.split(' ').filter(Boolean);
+      const tokenMatch = queryTokens.every(token => haystack.includes(token));
+      const compactMatch = Boolean(q) && compact(haystack).includes(compact(q));
+      if (q && !tokenMatch && !compactMatch) return false;
       if (filters.status && lead.status !== filters.status) return false;
       if (filters.source && (lead.lead_source || lead.source) !== filters.source) return false;
       // The screen label is "Interested in" and the table renders
@@ -340,7 +345,10 @@
     return `<div class="drawer-backdrop" data-lead-module-close></div><aside class="drawer lead-detail-drawer"><div class="drawer-header"><div><div class="eyebrow">Lead record</div><h2>${escape(lead.full_name)}</h2><p class="page-subtitle">${escape(lead.assigned_agent || 'Unassigned')} · ${statusBadge(lead.status)}</p></div><button class="drawer-close" data-lead-module-close aria-label="Close lead details">×</button></div>${state.leadModule.editing || creatingCustomer ? '' : `<div class="lead-drawer-tabs"><button class="${tab === 'overview' ? 'active' : ''}" data-lead-drawer-tab="overview">Overview</button><button class="${tab === 'notes' ? 'active' : ''}" data-lead-drawer-tab="notes">Notes <span>${notes.length}</span></button><button class="${tab === 'activity' ? 'active' : ''}" data-lead-drawer-tab="activity">Activity <span>${activity.length}</span></button></div>`}${body}</aside>`;
   }
 
-  async function refreshLeads() { try { await loadLeads(state.screen === 'my-leads', true); } catch { /* loadLeads renders its own error state */ } }
+  async function refreshLeads(options = {}) {
+    try { await loadLeads(state.screen === 'my-leads', true, options); }
+    catch { /* loadLeads renders its own error state */ }
+  }
   async function leadModuleAction(action, id) {
     const lead = (state.leads?.items || []).find(item => item.id === id) || currentLead();
     if (!lead) return;
@@ -475,7 +483,19 @@
       if (row) { row[edit.dataset.importField] = edit.value; state.leadModule.importDialog.errors = importRowErrors(state.leadModule.importDialog.rows || []); }
       return;
     }
-    const input = event.target.closest('[data-leads-search]'); if (input) { const snapshot = AureumSearch.capture(input); state.leadFilters.q = input.value; state.leadModule.pagination.page = 1; render(); AureumSearch.restore('[data-leads-search]', snapshot); window.clearTimeout(window.__aureumLeadSearchTimer); window.__aureumLeadSearchTimer = window.setTimeout(() => refreshLeads(), 300); }
+    const input = event.target.closest('[data-leads-search]'); if (input) {
+      const snapshot = AureumSearch.capture(input);
+      state.leadFilters.q = input.value;
+      state.leadModule.pagination.page = 1;
+      render();
+      AureumSearch.restore('[data-leads-search]', snapshot);
+      window.clearTimeout(window.__aureumLeadSearchTimer);
+      window.__aureumLeadSearchTimer = window.setTimeout(() => {
+        const currentInput = document.querySelector('[data-leads-search]');
+        const focusSnapshot = currentInput && document.activeElement === currentInput ? AureumSearch.capture(currentInput) : null;
+        refreshLeads({ searchOnly: true, searchFocus: focusSnapshot });
+      }, 300);
+    }
   });
   document.addEventListener('change', event => {
     const input = event.target;

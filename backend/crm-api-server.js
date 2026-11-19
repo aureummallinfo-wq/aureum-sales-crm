@@ -1478,12 +1478,20 @@ async function handle(req, res) {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
     if (user) {
       let data = leads.filter(lead => canViewLead(user, lead));
-      const q = (url.searchParams.get('q') || '').toLowerCase();
+      const normalizeLeadSearch = value => String(value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
+      const q = normalizeLeadSearch(url.searchParams.get('q'));
       const status = url.searchParams.get('status');
       const source = url.searchParams.get('source');
       const agentId = url.searchParams.get('agentId');
       const imported = url.searchParams.get('imported');
-      if (q) data = data.filter(lead => [lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.area, lead.interested_in, lead.property_type, lead.assigned_agent, lead.lead_source, lead.status].some(value => String(value || '').toLowerCase().includes(q)));
+      if (q) {
+        const tokens = q.split(' ').filter(Boolean);
+        const compact = value => normalizeLeadSearch(value).replace(/[\s().-]/g, '');
+        data = data.filter(lead => {
+          const haystack = normalizeLeadSearch([lead.full_name, lead.phone, lead.whatsapp_number, lead.email, lead.city, lead.area, lead.interested_in, lead.property_type, lead.assigned_agent, lead.lead_source, lead.status].join(' '));
+          return tokens.every(token => haystack.includes(token)) || compact(haystack).includes(compact(q));
+        });
+      }
       if (status) data = data.filter(lead => lead.status === status);
       if (source) data = data.filter(lead => lead.lead_source === source);
       if (agentId) data = data.filter(lead => lead.assigned_agent_id === agentId);
