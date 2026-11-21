@@ -35,10 +35,10 @@ test('date filters propagate to both relational and fallback data paths', () => 
   assert.match(agents, /query\.set\('dateTo'/);
   assert.match(relational, /dateFrom: url\.searchParams\.get\('dateFrom'/);
   assert.match(relational, /dateTo: url\.searchParams\.get\('dateTo'/);
-  assert.match(repository, /l\.created_at AT TIME ZONE 'Asia\/Karachi'/);
+  assert.match(repository, /COALESCE\(l\.received_at, l\.created_at\) AT TIME ZONE 'Asia\/Karachi'/);
   assert.match(repository, /c\.created_at AT TIME ZONE 'Asia\/Karachi'/);
   assert.match(repository, /t\.due_at AT TIME ZONE 'Asia\/Karachi'/);
-  assert.match(fallback, /filterDateInRange\(lead\.created_at/);
+  assert.match(fallback, /filterDateInRange\(lead\.received_at \|\| lead\.created_time \|\| lead\.submitted_at \|\| lead\.created_at/);
   assert.match(fallback, /filterDateInRange\(customer\.created_at/);
   assert.match(fallback, /filterDateInRange\(target\.created_at/);
   assert.match(relational, /dateInRange\(item\.created_at,dateFrom,dateTo\)/);

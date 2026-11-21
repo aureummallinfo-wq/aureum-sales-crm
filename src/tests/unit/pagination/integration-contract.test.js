@@ -53,7 +53,7 @@ test('list APIs keep legacy callers compatible and page only explicit pagination
   assert.match(api, /parsePagination/);
   assert.match(api, /paginationRequest\(url, res\)/);
   assert.match(repository, /pagination = null/);
-  assert.match(repository, /ORDER BY l\.created_at DESC, l\.id DESC/);
+  assert.match(repository, /ORDER BY COALESCE\(l\.received_at, l\.created_at\) DESC, l\.id DESC/);
   assert.match(repository, /ORDER BY c\.created_at DESC, c\.id DESC/);
   assert.match(repository, /t\.created_at DESC, t\.id DESC/);
   assert.match(repository, /ON CONFLICT \(user_id,dedupe_key\) DO NOTHING/);

@@ -1533,7 +1533,10 @@ async function handle(req, res) {
       if (status) data = data.filter(lead => lead.status === status);
       if (source) data = data.filter(lead => lead.lead_source === source);
       if (agentId) data = data.filter(lead => lead.assigned_agent_id === agentId);
-      if (dateFrom || dateTo) data = data.filter(lead => filterDateInRange(lead.created_at, dateFrom, dateTo));
+      // A Meta lead may reach the CRM after it was submitted. In the fallback
+      // store, keep date filtering aligned with the relational path: prefer
+      // the source submission time and fall back to the CRM creation time.
+      if (dateFrom || dateTo) data = data.filter(lead => filterDateInRange(lead.received_at || lead.created_time || lead.submitted_at || lead.created_at, dateFrom, dateTo));
       if (imported === 'true' || imported === 'imported') data = data.filter(lead => lead.is_imported);
       if (imported === 'unassigned') data = data.filter(lead => lead.is_imported && !lead.assigned_agent_id);
       if (imported === 'webhook') data = data.filter(lead => lead.is_imported && lead.webhook_connection_id);
@@ -1548,7 +1551,8 @@ async function handle(req, res) {
     if (user) {
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
-      const data = leads.filter(lead => lead.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(lead.created_at, dateFrom, dateTo))).sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
+      const leadReceivedAt = lead => lead.received_at || lead.created_time || lead.submitted_at || lead.created_at;
+      const data = leads.filter(lead => lead.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(leadReceivedAt(lead), dateFrom, dateTo))).sort((left, right) => (Date.parse(leadReceivedAt(right) || '') || 0) - (Date.parse(leadReceivedAt(left) || '') || 0));
       json(res, 200, { scope: 'my', requestedBy: user.role, data: data.map(leadView) });
     }
     return;
