@@ -515,12 +515,13 @@ function createNeonRepository(sql) {
     const platform = String(input.platform || '').toLowerCase();
     if (!userId || !token || !['android', 'ios'].includes(platform)) return null;
     const tokenHash = hashToken(token);
-    const rows = await sql.query(`
+    let rows;
+    try { rows = await sql.query(`
       INSERT INTO crm.mobile_push_tokens (workspace_id,user_id,token,token_hash,platform,device_name,app_version,enabled,last_seen_at,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,true,now(),now())
       ON CONFLICT (workspace_id,token_hash) DO UPDATE SET user_id=EXCLUDED.user_id,token=EXCLUDED.token,platform=EXCLUDED.platform,device_name=EXCLUDED.device_name,app_version=EXCLUDED.app_version,enabled=true,last_seen_at=now(),updated_at=now()
       RETURNING id,platform,device_name,app_version,enabled,last_seen_at`,
-    [workspace, userId, token.slice(0, 512), tokenHash, platform, String(input.device_name || '').slice(0, 160) || null, String(input.app_version || '').slice(0, 40) || null]);
+    [workspace, userId, token.slice(0, 512), tokenHash, platform, String(input.device_name || '').slice(0, 160) || null, String(input.app_version || '').slice(0, 40) || null]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('mobile_push_tokens')) return null; throw error; }
     return rows[0] || null;
   }
 
@@ -528,14 +529,15 @@ function createNeonRepository(sql) {
     const userId = await resolveUserId(workspace, userIdentifier);
     const value = String(token || '').trim();
     if (!userId || !value) return false;
-    const result = await sql.query('DELETE FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND token_hash=$3', [workspace, userId, hashToken(value)]);
+    let result;
+    try { result = await sql.query('DELETE FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND token_hash=$3', [workspace, userId, hashToken(value)]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('mobile_push_tokens')) return false; throw error; }
     return Number(result.rowCount || 0) > 0;
   }
 
   async function listMobilePushTokens(workspace, userIdentifier) {
     const userId = await resolveUserId(workspace, userIdentifier);
     if (!userId) return [];
-    return sql.query('SELECT token,platform,device_name,app_version FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+    try { return await sql.query('SELECT token,platform,device_name,app_version FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('mobile_push_tokens')) return []; throw error; }
   }
 
   async function registerWebPushSubscription(workspace, userIdentifier, input = {}) {
@@ -545,12 +547,13 @@ function createNeonRepository(sql) {
     const p256dh = String(subscription.keys?.p256dh || '').trim();
     const auth = String(subscription.keys?.auth || '').trim();
     if (!userId || !endpoint || !p256dh || !auth) return null;
-    const rows = await sql.query(`
+    let rows;
+    try { rows = await sql.query(`
       INSERT INTO crm.web_push_subscriptions (workspace_id,user_id,endpoint,p256dh_key,auth_key,user_agent,enabled,last_seen_at,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,true,now(),now())
       ON CONFLICT (workspace_id,endpoint) DO UPDATE SET user_id=EXCLUDED.user_id,p256dh_key=EXCLUDED.p256dh_key,auth_key=EXCLUDED.auth_key,user_agent=EXCLUDED.user_agent,enabled=true,last_seen_at=now(),updated_at=now()
       RETURNING id,endpoint,enabled,last_seen_at`,
-    [workspace, userId, endpoint.slice(0, 2048), p256dh.slice(0, 512), auth.slice(0, 512), String(input.user_agent || '').slice(0, 500) || null]);
+    [workspace, userId, endpoint.slice(0, 2048), p256dh.slice(0, 512), auth.slice(0, 512), String(input.user_agent || '').slice(0, 500) || null]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('web_push_subscriptions')) return null; throw error; }
     return rows[0] || null;
   }
 
@@ -558,14 +561,16 @@ function createNeonRepository(sql) {
     const userId = await resolveUserId(workspace, userIdentifier);
     const value = String(endpoint || '').trim();
     if (!userId || !value) return false;
-    const result = await sql.query('DELETE FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND endpoint=$3', [workspace, userId, value]);
+    let result;
+    try { result = await sql.query('DELETE FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND endpoint=$3', [workspace, userId, value]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('web_push_subscriptions')) return false; throw error; }
     return Number(result.rowCount || 0) > 0;
   }
 
   async function listWebPushSubscriptions(workspace, userIdentifier) {
     const userId = await resolveUserId(workspace, userIdentifier);
     if (!userId) return [];
-    const rows = await sql.query('SELECT endpoint,p256dh_key,auth_key FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+    let rows;
+    try { rows = await sql.query('SELECT endpoint,p256dh_key,auth_key FROM crm.web_push_subscriptions WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]); } catch (error) { if (error?.code === '42P01' && String(error.message || '').includes('web_push_subscriptions')) return []; throw error; }
     return rows.map(row => ({ endpoint: row.endpoint, keys: { p256dh: row.p256dh_key, auth: row.auth_key } }));
   }
 
@@ -629,14 +634,23 @@ function createNeonRepository(sql) {
     LEFT JOIN crm.lead_sources src ON src.id = l.source_id LEFT JOIN crm.users au ON au.id = l.assigned_agent_id
     LEFT JOIN crm.teams t ON t.id = l.assigned_team_id LEFT JOIN crm.users cu ON cu.id = l.created_by`;
 
-  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, allSalesManagerLeads = false, pagination = null }) {
+  function addDateBounds(conditions, params, expression, dateFrom, dateTo) {
+    const valid = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+    let start = valid(dateFrom) ? String(dateFrom) : '';
+    let end = valid(dateTo) ? String(dateTo) : '';
+    if (start && end && end < start) [start, end] = [end, start];
+    if (start) { params.push(start); conditions.push(`(${expression}) >= $${params.length}::date`); }
+    if (end) { params.push(end); conditions.push(`(${expression}) <= $${params.length}::date`); }
+  }
+
+  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, dateFrom = '', dateTo = '', allSalesManagerLeads = false, pagination = null }) {
     const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push('ls.name = $' + params.length); }
     if (source) { params.push(source); conditions.push('src.name = $' + params.length); }
     if (interest) { params.push(interest); conditions.push('l.interested_in = $' + params.length); }
     if (priority) { params.push(priority); conditions.push('l.priority = $' + params.length); }
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
-
+    addDateBounds(conditions, params, "l.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
     if (search) {
       const normalizedSearch = String(search).normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
       const searchTokens = normalizedSearch.split(' ').filter(Boolean);
@@ -904,6 +918,36 @@ function createNeonRepository(sql) {
     }
     const plan = customerCreationPlan(input, lead);
     const leadId = await resolveLeadId(workspace, identifier);
+    const existingRow = (await sql.query('SELECT coalesce(legacy_id,id::text) AS id FROM crm.customers WHERE workspace_id=$1 AND lead_id=$2 AND deleted_at IS NULL LIMIT 1', [workspace, leadId]))[0];
+    if (existingRow) {
+      const customer = await getCustomer(workspace, existingRow.id);
+      if (!customer || !canViewOwnedRecord(actor, customer)) throw new Error('The linked customer is unavailable in your scope.');
+      if (!plan.schedule) return { customer, created: false, follow_up_id: null };
+
+      // Non-terminal leads are auto-linked to customers. Reusing the lead-to-
+      // customer action must still schedule the requested first reminder.
+      const reminder = await createFollowUp(workspace, actor, {
+        customer_id: customer.id,
+        lead_id: lead.id,
+        due_date: plan.schedule.due_date,
+        due_time: plan.schedule.due_time,
+        notes: plan.note,
+        note: plan.note,
+        follow_up_type: 'General Follow-up',
+        priority: lead.priority || 'Medium',
+        followup_tag: plan.tag,
+        followup_tags: plan.tags
+      });
+      if (!reminder) throw new Error('The follow-up could not be scheduled for this customer.');
+      const actorId = await resolveUserId(workspace, actor.id);
+      const customerId = await resolveCustomerId(workspace, customer.id);
+      const existingNote = await sql.query('SELECT id FROM crm.customer_notes WHERE customer_id=$1 AND author_user_id=$2 AND note=$3 AND deleted_at IS NULL LIMIT 1', [customerId, actorId, plan.note]);
+      if (!existingNote[0]) await sql.query('INSERT INTO crm.customer_notes (customer_id,author_user_id,note) VALUES ($1,$2,$3)', [customerId, actorId, plan.note]);
+      const tagJson = JSON.stringify(plan.tags || []);
+      await sql.query(`UPDATE crm.leads SET metadata=metadata || jsonb_build_object('tags',$2::jsonb,'followup_tag',$3::text,'followup_tags',$2::jsonb),updated_at=now() WHERE id=$1`, [leadId, tagJson, plan.tag || null]);
+      await sql.query(`UPDATE crm.customers SET metadata=metadata || jsonb_build_object('tags',$2::jsonb,'followup_tag',$3::text,'followup_tags',$2::jsonb),updated_at=now() WHERE id=$1`, [customerId, tagJson, plan.tag || null]);
+      return { customer: await getCustomer(workspace, customer.id), created: false, follow_up_id: reminder.id };
+    }
     const result = await insertLeadCustomer(sql, { workspace, lead, leadId, actor, plan,
       actorId: await resolveUserId(workspace, actor.id), teamId: await resolveTeamId(workspace, actor.team_id) });
     const existing = result ? null : (await sql.query('SELECT coalesce(legacy_id,id::text) AS id FROM crm.customers WHERE workspace_id=$1 AND lead_id=$2 AND deleted_at IS NULL', [workspace, leadId]))[0];
@@ -912,7 +956,7 @@ function createNeonRepository(sql) {
     return { customer, created: Boolean(result), follow_up_id: result?.follow_up_id || null };
   }
 
-  async function listCustomers({ workspaceId: workspace, user, status, source, search, city, interest, priority, agentId, pagination = null }) {
+  async function listCustomers({ workspaceId: workspace, user, status, source, search, city, interest, priority, agentId, dateFrom = '', dateTo = '', pagination = null }) {
     const scoped = await scope(workspace, user, 'c'); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push('c.customer_status = $' + params.length); }
     if (source) { params.push(source); conditions.push("coalesce(c.metadata->>'lead_source','') = $" + params.length); }
@@ -923,6 +967,7 @@ function createNeonRepository(sql) {
       if (agentId === '__unassigned__') conditions.push('c.assigned_agent_id IS NULL');
       else { params.push(await resolveUserId(workspace, agentId)); conditions.push('c.assigned_agent_id = $' + params.length); }
     }
+    addDateBounds(conditions, params, "c.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
     if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.whatsapp_number,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p} OR lower(coalesce(c.metadata->>'interested_in','')) LIKE ${p} OR lower(coalesce(au.full_name,'')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.customer_notes n WHERE n.customer_id=c.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.customer_activities a WHERE a.customer_id=c.id AND lower(a.description) LIKE ${p}))`); }
     const where = conditions.join(' AND ');
     if (pagination) {
@@ -1086,7 +1131,9 @@ function createNeonRepository(sql) {
     const userId = await resolveUserId(workspace, assignedAgentId); if (!userId || !followUpId) return;
     const definition = await sql.query('SELECT event_name FROM crm.notification_definitions WHERE event_key=$1 LIMIT 1', [eventKey]); if (!definition[0]) return;
     const setting = await sql.query('SELECT in_app_enabled FROM crm.notification_settings WHERE user_id=$1 AND event_key=$2 LIMIT 1', [userId, eventKey]); if (setting[0] && setting[0].in_app_enabled === false) return;
-    const personal = await sql.query("SELECT preference_value->>$2 AS enabled FROM crm.user_preferences WHERE user_id=$1 AND preference_key='notifications' LIMIT 1", [userId, eventKey]); if (personal[0]?.enabled === 'false') return;
+    let personal = [];
+    try { personal = await sql.query("SELECT preference_value->>$2 AS enabled FROM crm.user_preferences WHERE user_id=$1 AND preference_key='notifications' LIMIT 1", [userId, eventKey]); } catch (error) { if (!(error?.code === '42P01' && String(error.message || '').includes('user_preferences'))) throw error; }
+    if (personal[0]?.enabled === 'false') return;
     const customer = followUp?.customer_name || followUp?.lead_name || 'Customer';
     const type = followUp?.follow_up_type || 'Follow-up';
     const due = followUp?.due_date ? ` due ${followUp.due_date}${followUp.due_time ? ` at ${followUp.due_time}` : ''}` : '';
@@ -1094,7 +1141,7 @@ function createNeonRepository(sql) {
     const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
     const notification = await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING RETURNING id`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}:${followUp?.due_date}:${followUp?.due_time}`]);
     if (notification[0]) {
-      const devices = await sql.query('SELECT token FROM crm.mobile_push_tokens WHERE workspace_id=$1 AND user_id=$2 AND enabled=true', [workspace, userId]);
+      const devices = await listMobilePushTokens(workspace, userId);
       sendExpoPushMessages(devices.map(device => ({ to: device.token, title, body: copy, data: { route: '/(tabs)/follow-ups', notificationId: notification[0].id, entityId: followUpId } }))).catch(error => console.error('Mobile push delivery failed:', error.message));
       const subscriptions = await listWebPushSubscriptions(workspace, assignedAgentId);
       sendWebPushMessages(subscriptions, { title, body: copy, priority: 'high', data: { route: '/follow-ups', notificationId: notification[0].id, entityId: followUpId } }).catch(error => console.error('Browser push delivery failed:', error.message));
@@ -1219,6 +1266,7 @@ function createNeonRepository(sql) {
     if (filters.priority && filters.priority !== 'all') { params.push(filters.priority); conditions.push('t.priority = $' + params.length); }
     if (filters.assignedTo && filters.assignedTo !== 'all') { params.push(await resolveUserId(workspace, filters.assignedTo)); conditions.push('t.assigned_to = $' + params.length); }
     if (filters.search) { params.push(`%${String(filters.search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(t.title) LIKE ${p} OR lower(coalesce(t.description, '')) LIKE ${p} OR lower(coalesce(l.full_name, '')) LIKE ${p} OR lower(coalesce(c.full_name, '')) LIKE ${p})`); }
+    addDateBounds(conditions, params, "t.due_at AT TIME ZONE 'Asia/Karachi'", filters.dateFrom, filters.dateTo);
     const where = conditions.join(' AND ');
     const orderBy = "CASE WHEN t.status = 'Overdue' THEN 0 WHEN t.status = 'In Progress' THEN 1 WHEN t.status = 'Pending' THEN 2 ELSE 3 END, t.due_at NULLS LAST, t.created_at DESC, t.id DESC";
     if (filters.pagination) {
@@ -1267,14 +1315,19 @@ function createNeonRepository(sql) {
     await insertAudit(workspace, actor, 'task_created', 'task', taskId, { legacy_id: legacyId, title, assigned_to: assignment.user.id });
     await enqueueOutbox(workspace, 'task_created', 'task', taskId, { legacy_id: legacyId, assigned_to: assignment.user.id }, `task_created:${legacyId}`);
     if (assignment.userId && assignment.userId !== actorId) {
-      const setting = await sql.query('SELECT in_app_enabled FROM crm.notification_settings WHERE user_id=$1 AND event_key=$2 LIMIT 1', [assignment.userId, 'task_assigned']);
-      if (!setting[0] || setting[0].in_app_enabled !== false) {
+      // Notification definitions are migration-backed. A missing optional definition
+      // must not roll back the task itself while a workspace finishes its migration.
+      const definition = await sql.query('SELECT event_key FROM crm.notification_definitions WHERE event_key=$1 LIMIT 1', ['task_assigned']);
+      if (definition[0]) {
+        const setting = await sql.query('SELECT in_app_enabled FROM crm.notification_settings WHERE user_id=$1 AND event_key=$2 LIMIT 1', [assignment.userId, 'task_assigned']);
+        if (!setting[0] || setting[0].in_app_enabled !== false) {
         const notification = await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,'task_assigned',$2,$3,'task',$4,$5) ON CONFLICT (user_id, dedupe_key) DO NOTHING RETURNING id`, [assignment.userId, 'New task assigned', `${actor.full_name || 'A manager'} assigned you: ${title}`, taskId, `task_assigned:${legacyId}`]);
         if (notification[0]) {
           const devices = await listMobilePushTokens(workspace, assignment.userId);
           sendExpoPushMessages(devices.map(device => ({ to: device.token, title: 'New task assigned', body: `${actor.full_name || 'A manager'} assigned you: ${title}`, data: { route: '/(tabs)/tasks', notificationId: notification[0].id, entityId: taskId } }))).catch(error => console.error('Mobile push delivery failed:', error.message));
           const subscriptions = await listWebPushSubscriptions(workspace, assignment.userId);
           sendWebPushMessages(subscriptions, { title: 'New task assigned', body: `${actor.full_name || 'A manager'} assigned you: ${title}`, priority: 'high', data: { route: '/tasks', notificationId: notification[0].id, entityId: taskId } }).catch(error => console.error('Browser push delivery failed:', error.message));
+        }
         }
       }
     }
@@ -1531,4 +1584,3 @@ function createNeonRepositoryWithVerification(sql) {
 }
 
 module.exports = { createNeonRepository: createNeonRepositoryWithVerification, hashToken };
-

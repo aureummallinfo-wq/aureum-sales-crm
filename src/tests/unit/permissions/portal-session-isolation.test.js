@@ -110,7 +110,7 @@ test('dashboard rejects an older account response after the new account has load
     if (endpoint.includes('/presence/')) return {};
     const owner = context.portalState.authUser.id;
     await (owner === 'agent-a' ? pendingA.promise : pendingB.promise);
-    return { data: endpoint.includes('/summary') ? { totalLeads: owner === 'agent-a' ? 9 : 1 } : [{ id: owner, customer_name: owner }] };
+    return { data: { summary: { totalLeads: owner === 'agent-a' ? 9 : 1 }, todayFollowUps: [{ id: owner, customer_name: owner }] } };
   };
   const requestA = context.loadDashboard();
   context.portalState.authUser = agent('agent-b');

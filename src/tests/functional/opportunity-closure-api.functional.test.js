@@ -14,7 +14,7 @@ test('Sales Manager and Sales Agent closure propagates across API screens withou
     assert.equal(converted.response.status,200,converted.text);
     const customer=converted.body.data;
     const scheduled = await request('/api/follow-ups','POST',{customer_id:customer.id,lead_id:lead.id,due_date:'2099-01-01',due_time:'10:00',follow_up_type:'General Follow-up',notes:'Preserve original call note'});
-    assert.equal(scheduled.response.status,201,scheduled.text);
+    assert.equal(scheduled.response.status,200,scheduled.text);
     const before=(await request('/api/follow-ups/my')).body.data.find(f=>f.lead_id===lead.id);
     assert.ok(before);
     const summaryBefore=(await request('/api/dashboard/summary?dateRange=custom&startDate=2020-01-01&endDate=2100-01-01')).body.data;

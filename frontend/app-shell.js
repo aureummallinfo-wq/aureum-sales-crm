@@ -33,6 +33,16 @@ const API_CACHE = new Map();
 const API_INFLIGHT = new Map();
 let apiDataRevision = 0;
 let portalSessionRevision = 0;
+function defaultApiCacheTtl(path, method) {
+  if (!['GET', 'HEAD'].includes(method)) return 0;
+  const pathname = String(path || '').split('?')[0];
+  if (pathname.startsWith('/api/auth/') || pathname.includes('/download')) return 0;
+  if (pathname === '/api/chat/unread-counts') return 0;
+  if (pathname === '/api/search' || pathname.startsWith('/api/notifications')) return 5000;
+  if (pathname.startsWith('/api/dashboard/')) return 30000;
+  if (pathname.startsWith('/api/account/preferences/') || pathname.startsWith('/api/users') || pathname.startsWith('/api/agents')) return 60000;
+  return 15000;
+}
 function portalUserScope(user) {
   return JSON.stringify([user?.workspace_id || user?.workspaceId || '', user?.id || user?.db_id || '', user?.role || '', user?.team_id || '']);
 }
@@ -53,8 +63,9 @@ window.apiInvalidateCache = apiInvalidateCache;
 async function apiFetch(path, options = {}) {
   const sessionKey = portalSessionKey();
   const dataRevision = apiDataRevision;
-  const { cacheTtl = 0, force = false, ...requestOptions } = options;
+  const { cacheTtl: requestedCacheTtl, force = false, ...requestOptions } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
+  const cacheTtl = requestedCacheTtl === undefined ? defaultApiCacheTtl(path, method) : Number(requestedCacheTtl);
   const cacheable = method === 'GET' && Number(cacheTtl) > 0;
   const mutation = !['GET', 'HEAD'].includes(method) && typeof requestOptions.body === 'string';
   const key = cacheable ? apiCacheKey(path, requestOptions) : mutation ? `${apiCacheKey(path, requestOptions)}:${requestOptions.body}` : '';
@@ -205,7 +216,7 @@ const state = {
   ready: false,
   dashboard: { loading: true, error: '', data: null },
   leads: { loading: false, error: '', items: [] },
-  leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' },
+  leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '', dateRange: 'all', startDate: '', endDate: '' },
   leadDetail: null,
   customers: { loading: false, error: '', items: [] },
   followups: { loading: false, error: '', items: [] },
@@ -232,11 +243,11 @@ function clearPortalData() {
   Object.assign(state, {
     dashboard: { loading: false, error: '', data: null },
     leads: collection(), customers: collection(), followups: collection(), agents: collection(),
-    leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '' },
+    leadFilters: { q: '', status: '', source: '', interest: '', propertyType: '', priority: '', agentId: '', assignment: '', dateRange: 'all', startDate: '', endDate: '' },
     leadModule: { drawerTab: 'overview', notice: '', editing: false, agents: [], agentsLoading: false, agentsLoaded: false, agentsError: '', selectedLeadIds: [], bulkAssignment: null, importDialog: null, pagination: { page: 1, pageSize: 25 } },
-    customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '' }, pagination: { page: 1, pageSize: 25 } },
+    customerModule: { tab: 'overview', editing: false, filters: { search: '', status: '', source: '', city: '', interestedIn: '', priority: '', agentId: '', dateRange: 'all', startDate: '', endDate: '' }, pagination: { page: 1, pageSize: 25 } },
     followupModule: { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: new Date().toISOString().slice(0, 7), tab: 'overview', form: '', pagination: { page: 1, pageSize: 25 } },
-    tasks: { ...collection(), users: [], leads: [], customers: [], followUps: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '' }, pagination: { page: 1, pageSize: 25 }, formOpen: false, editing: null },
+    tasks: { ...collection(), users: [], leads: [], customers: [], followUps: [], filters: { status: 'all', priority: 'all', assignedTo: 'all', search: '', dateRange: 'all', startDate: '', endDate: '' }, pagination: { page: 1, pageSize: 25 }, formOpen: false, editing: null },
     users: { ...collection(), teams: [], detail: null, filters: { search: '', role: 'All', status: 'All', inviteStatus: 'All', teamId: 'All', activityStatus: 'All' }, drawer: '' },
     account: { loading: false, error: '', data: null },
     chat: { loading: false, error: '', channels: [], groups: [], direct: [], users: [], messages: [], attachments: [], links: [], unread: {} },
@@ -712,6 +723,8 @@ async function loadCustomers(force = false) {
     if (filters.interestedIn) query.set('interest', filters.interestedIn);
     if (filters.priority) query.set('priority', filters.priority);
     if (filters.agentId) query.set('agentId', filters.agentId);
+    const customerDate = window.AureumDateFilter?.query(filters.dateRange || 'all', filters.startDate || '', filters.endDate || '');
+    if (customerDate) { query.set('dateFrom', customerDate.start); query.set('dateTo', customerDate.end); }
     const queryString = [...query].map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
     const endpoint = `${state.role === 'SALES_AGENT' ? '/api/customers/my' : '/api/customers'}?${queryString}`;
     const result = await apiFetch(endpoint, { cacheTtl: 30 * 1000, force });
@@ -1023,6 +1036,8 @@ async function loadLeads(my = false, force = false, options = {}) {
   if (filters.source) query.set('source', filters.source);
   if (filters.interest || filters.propertyType) query.set('interest', filters.interest || filters.propertyType);
   if (filters.priority) query.set('priority', filters.priority);
+  const leadDate = window.AureumDateFilter?.query(filters.dateRange || 'all', filters.startDate || '', filters.endDate || '');
+  if (leadDate) { query.set('dateFrom', leadDate.start); query.set('dateTo', leadDate.end); }
   if (!my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && filters.agentId) query.set('agentId', filters.agentId);
   const endpoint = `${my ? '/api/leads/my' : '/api/leads'}?${query}`;
   try {

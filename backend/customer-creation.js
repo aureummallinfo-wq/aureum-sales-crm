@@ -2,7 +2,7 @@ const { safeText, validateEmail, validatePhone } = require('./security-utils');
 const { notePlan } = require('./followup-workflow');
 
 const PROFILE_FIELDS = ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'preferred_contact_method'];
-const FOLLOWUP_TAGS = require('../frontend/shared/crm-status-tags').values;
+const CRM_STATUS_TAGS = require('../frontend/shared/crm-status-tags');
 
 function customerCreationPlan(input = {}, lead, now = new Date()) {
   const profile = {};
@@ -19,10 +19,12 @@ function customerCreationPlan(input = {}, lead, now = new Date()) {
   const note = safeText(input.note, 2000);
   if (!note) throw new Error('Add a note for the follow-up.');
   const selected = input.followup_tags ?? input.followup_tag;
-  if (!(Array.isArray(selected) ? selected.length && selected.every(tag => FOLLOWUP_TAGS.includes(tag)) : FOLLOWUP_TAGS.includes(selected))) throw new Error('Choose existing CRM status tags.');
+  const selectedValues = Array.isArray(selected) ? selected : [selected];
+  const normalizedTags = selectedValues.map(tag => CRM_STATUS_TAGS.normalize(tag, '')).filter(Boolean);
+  if (!selectedValues.length || normalizedTags.length !== selectedValues.length || normalizedTags.some(tag => !CRM_STATUS_TAGS.isValid(tag))) throw new Error('Choose existing CRM status tags.');
   if (!lead.assigned_agent_id) throw new Error('Assign this lead to an advisor before scheduling a follow-up.');
-  const { schedule, tag, tags } = notePlan({ ...input, customer_contacted: false, next_followup_days: 'custom' }, now);
-  profile.tags = require('../frontend/shared/crm-status-tags').withStatus(profile.tags, tags);
+  const { schedule, tag, tags } = notePlan({ ...input, followup_tags: normalizedTags, customer_contacted: false, next_followup_days: 'custom' }, now);
+  profile.tags = CRM_STATUS_TAGS.withStatus(profile.tags, tags);
   return { profile, note, schedule, tag, tags };
 }
 

@@ -7,6 +7,8 @@ function createMemoryTaskRepository({ tasks, users, records, onChange, notify })
   const visible = (actor, task) => !task.deleted_at && (actor.role === 'super_admin' || (actor.role === 'sales_manager' ? task.assigned_team_id === actor.team_id || task.created_by === actor.id : task.assigned_to === actor.id));
   const assignment = (actor, id) => users.find(user => user.id === id && user.status === 'active' && ['sales_agent', 'sales_manager'].includes(user.role) && (actor.role === 'super_admin' || user.team_id === actor.team_id));
   const date = value => !value ? null : new Date(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+05:00` : value).toISOString();
+  const crmDate = value => { if (!value) return ''; const raw = String(value); if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const parsed = new Date(raw); if (Number.isNaN(parsed.getTime())) return ''; const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(parsed); const map = Object.fromEntries(parts.map(item => [item.type, item.value])); return `${map.year}-${map.month}-${map.day}`; };
+  const inDateRange = (value, start, end) => { const current = crmDate(value); if (!current) return false; if (start && current < start) return false; if (end && current > end) return false; return Boolean(start || end); };
   function enrich(task) {
     const owner = users.find(user => user.id === task.assigned_to);
     return { ...task, assigned_agent_id: task.assigned_to, assigned_agent: owner?.full_name || 'Unassigned', assigned_agent_email: owner?.email || null, created_by_name: users.find(user => user.id === task.created_by)?.full_name || '', lead_name: records('lead_id').find(row => row.id === task.lead_id)?.full_name || null, customer_name: records('customer_id').find(row => row.id === task.customer_id)?.full_name || null };
@@ -20,6 +22,7 @@ function createMemoryTaskRepository({ tasks, users, records, onChange, notify })
       (!filters.status || filters.status === 'all' || task.status === filters.status) &&
       (!filters.priority || filters.priority === 'all' || task.priority === filters.priority) &&
       (!filters.assignedTo || filters.assignedTo === 'all' || task.assigned_to === filters.assignedTo) &&
+      (!(filters.dateFrom || filters.dateTo) || inDateRange(task.due_at, filters.dateFrom, filters.dateTo)) &&
       (!search || [task.title, task.description, task.lead_name, task.customer_name].some(value => String(value || '').toLowerCase().includes(search)))
     ).sort((a, b) => String(a.due_at || '9999').localeCompare(String(b.due_at || '9999')));
   }

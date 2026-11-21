@@ -920,6 +920,8 @@ function reportLocalDateTime(date, endOfDay = false) { return new Date(`${date}T
 function reportDateBounds(params = {}) { const range = params.dateRange || 'this_month'; const today = reportCalendarDate(); const todayDate = new Date(`${today}T00:00:00Z`); let start = today; let end = today; if (range === 'yesterday') { const previous = new Date(todayDate); previous.setUTCDate(previous.getUTCDate() - 1); start = end = previous.toISOString().slice(0, 10); } else if (range === 'this_week') { const mondayOffset = (todayDate.getUTCDay() + 6) % 7; const monday = new Date(todayDate); monday.setUTCDate(monday.getUTCDate() - mondayOffset); const sunday = new Date(monday); sunday.setUTCDate(sunday.getUTCDate() + 6); start = monday.toISOString().slice(0, 10); end = sunday.toISOString().slice(0, 10); } else if (range === 'this_month' || !['today', 'last_month', 'custom'].includes(range)) { start = `${today.slice(0, 7)}-01`; const next = new Date(`${start}T00:00:00Z`); next.setUTCMonth(next.getUTCMonth() + 1); next.setUTCDate(0); end = next.toISOString().slice(0, 10); } else if (range === 'last_month') { const first = new Date(`${today.slice(0, 7)}-01T00:00:00Z`); first.setUTCMonth(first.getUTCMonth() - 1); const last = new Date(`${today.slice(0, 7)}-01T00:00:00Z`); last.setUTCDate(0); start = first.toISOString().slice(0, 10); end = last.toISOString().slice(0, 10); } else if (range === 'custom') { start = /^\d{4}-\d{2}-\d{2}$/.test(params.startDate || '') ? params.startDate : today; end = /^\d{4}-\d{2}-\d{2}$/.test(params.endDate || '') ? params.endDate : start; if (end < start) [start, end] = [end, start]; } return { startDateTime: reportLocalDateTime(start), endDateTime: reportLocalDateTime(end, true), startDate: start, endDate: end, timezone: REPORT_TIMEZONE, dateRange: range }; }
 function reportValueDate(value, fallbackTime = '00:00') { if (!value) return null; const raw = String(value); if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return reportLocalDateTime(raw); if (/^\d{4}-\d{2}-\d{2} · \d{2}:\d{2}$/.test(raw)) return reportLocalDateTime(raw.slice(0, 10), false); if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) return new Date(raw); const iso = new Date(raw); return Number.isNaN(iso.getTime()) ? null : iso; }
 function reportInRange(value, bounds) { const date = reportValueDate(value); return Boolean(date && date >= bounds.startDateTime && date <= bounds.endDateTime); }
+function filterRecordDate(value) { const raw = String(value || ''); if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10); const date = new Date(raw); return Number.isNaN(date.getTime()) ? '' : reportCalendarDate(date); }
+function filterDateInRange(value, dateFrom, dateTo) { const date = filterRecordDate(value); const valid = item => /^\d{4}-\d{2}-\d{2}$/.test(String(item || '')); const hasStart = valid(dateFrom); const hasEnd = valid(dateTo); if (!hasStart && !hasEnd) return true; if (!date || (hasStart && date < dateFrom) || (hasEnd && date > dateTo)) return false; return true; }
 function reportScopedAgents(user, params) { const teamId = user.role === 'sales_manager' ? user.team_id : (params.teamId && params.teamId !== 'all' ? params.teamId : ''); const requestedAgent = params.agentId && params.agentId !== 'all' ? params.agentId : ''; return reportUsersFor(user).filter(agent => (!teamId || agent.team_id === teamId) && (!requestedAgent || agent.id === requestedAgent)); }
 function reportAgentRow(user, agent, bounds, params = {}) {
   const leadStatus = params.leadStatus && params.leadStatus !== 'all' ? params.leadStatus : '';
@@ -1465,7 +1467,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/users') {
     const user = requireRole(req, res, ['super_admin', 'sales_manager']);
-    if (user) { const query = String(url.searchParams.get('search') || '').toLowerCase(); const role = url.searchParams.get('role') || ''; const status = url.searchParams.get('status') || ''; const inviteStatus = url.searchParams.get('inviteStatus') || ''; const activityStatus = url.searchParams.get('activityStatus') || ''; const teamId = url.searchParams.get('teamId') || ''; const scoped = users.filter(target => userScopedTo(user, target)); const filtered = scoped.filter(target => (!query || [target.full_name, target.email, target.phone].some(value => String(value || '').toLowerCase().includes(query))) && (!role || target.role === role) && (!status || USER_STATUS_LABELS[target.status] === status || target.status === status.toLowerCase()) && (!inviteStatus || target.invite_status === inviteStatus) && (!activityStatus || userActivityStatus(target) === activityStatus) && (!teamId || target.team_id === teamId)); json(res, 200, { data: filtered.map(target => userManagementView(user, target)), teams: userManagementTeams(user), meta: { total: filtered.length, page: 1, pageSize: filtered.length || 25, totalPages: 1 }, timezone: CRM_TIMEZONE }); }
+    if (user) { const query = String(url.searchParams.get('search') || '').toLowerCase(); const role = url.searchParams.get('role') || ''; const status = url.searchParams.get('status') || ''; const inviteStatus = url.searchParams.get('inviteStatus') || ''; const activityStatus = url.searchParams.get('activityStatus') || ''; const teamId = url.searchParams.get('teamId') || ''; const dateFrom = url.searchParams.get('dateFrom') || ''; const dateTo = url.searchParams.get('dateTo') || ''; const scoped = users.filter(target => userScopedTo(user, target)); const filtered = scoped.filter(target => (!query || [target.full_name, target.email, target.phone].some(value => String(value || '').toLowerCase().includes(query))) && (!role || target.role === role) && (!status || USER_STATUS_LABELS[target.status] === status || target.status === status.toLowerCase()) && (!inviteStatus || target.invite_status === inviteStatus) && (!activityStatus || userActivityStatus(target) === activityStatus) && (!teamId || target.team_id === teamId) && filterDateInRange(target.created_at, dateFrom, dateTo)); json(res, 200, { data: filtered.map(target => userManagementView(user, target)), teams: userManagementTeams(user), meta: { total: filtered.length, page: 1, pageSize: filtered.length || 25, totalPages: 1 }, timezone: CRM_TIMEZONE }); }
     return;
   }
 
@@ -1518,6 +1520,8 @@ async function handle(req, res) {
       const source = url.searchParams.get('source');
       const agentId = url.searchParams.get('agentId');
       const imported = url.searchParams.get('imported');
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
       if (q) {
         const tokens = q.split(' ').filter(Boolean);
         const compact = value => normalizeLeadSearch(value).replace(/[\s().-]/g, '');
@@ -1529,6 +1533,7 @@ async function handle(req, res) {
       if (status) data = data.filter(lead => lead.status === status);
       if (source) data = data.filter(lead => lead.lead_source === source);
       if (agentId) data = data.filter(lead => lead.assigned_agent_id === agentId);
+      if (dateFrom || dateTo) data = data.filter(lead => filterDateInRange(lead.created_at, dateFrom, dateTo));
       if (imported === 'true' || imported === 'imported') data = data.filter(lead => lead.is_imported);
       if (imported === 'unassigned') data = data.filter(lead => lead.is_imported && !lead.assigned_agent_id);
       if (imported === 'webhook') data = data.filter(lead => lead.is_imported && lead.webhook_connection_id);
@@ -1541,8 +1546,64 @@ async function handle(req, res) {
   if (req.method === 'GET' && url.pathname === '/api/leads/my') {
     const user = requireAuth(req, res);
     if (user) {
-      const data = leads.filter(lead => lead.assigned_agent_id === user.id).sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
+      const data = leads.filter(lead => lead.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(lead.created_at, dateFrom, dateTo))).sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
       json(res, 200, { scope: 'my', requestedBy: user.role, data: data.map(leadView) });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/leads/import/parse') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'sales_agent']);
+    if (user) {
+      try {
+        const body = await readBodyLimited(req, 10_000_000);
+        const fileName = safeText(body.file_name, 180);
+        const encoded = String(body.file_base64 || '').replace(/^data:.*?;base64,/, '');
+        if (!fileName || !/\.(xlsx|xls)$/i.test(fileName) || !encoded) { json(res, 422, { error: 'Upload a valid Excel file.' }); return; }
+        const csv = spreadsheetToCsv(Buffer.from(encoded, 'base64'), fileName);
+        json(res, 200, { data: { csv, fileName } });
+      } catch (error) { json(res, 422, { error: error.message || 'The Excel file could not be read.' }); }
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/leads/import') {
+    const user = requireRole(req, res, ['super_admin', 'sales_manager', 'sales_agent']);
+    if (user) {
+      try {
+        const body = await readBodyLimited(req, 500_000);
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        if (!rows.length) { json(res, 400, { error: 'Add at least one CSV row to import.' }); return; }
+        if (rows.length > 250) { json(res, 413, { error: 'Import up to 250 leads at a time.' }); return; }
+        const duplicateMode = body.duplicate_mode === 'allow' ? 'allow' : 'skip';
+        const created = []; const skipped = []; const failed = []; const seen = new Set();
+        const value = (row, ...keys) => { for (const key of keys) { if (row?.[key] !== undefined && row?.[key] !== null && String(row[key]).trim()) return row[key]; } return ''; };
+        for (let index = 0; index < rows.length; index += 1) {
+          const row = rows[index] || {}; const rowNumber = Number(row.__row_number) || index + 2;
+          const fullName = safeText(value(row, 'full_name', 'fullName', 'name'), 120); const phone = safeText(value(row, 'phone', 'phone_number', 'mobile'), 32); const email = safeText(value(row, 'email'), 160).toLowerCase(); const interestedIn = safeText(value(row, 'interested_in', 'interestedIn', 'interest'), 160);
+          if (!fullName || !phone || !interestedIn) { failed.push({ row: rowNumber, error: 'Full name, phone, and interested in are required.' }); continue; }
+          if (!validatePhone(phone) || (email && !validateEmail(email))) { failed.push({ row: rowNumber, error: 'Enter a valid phone number and email address.' }); continue; }
+          const key = `${phone.replace(/\D/g, '')}|${email}`;
+          if (seen.has(key) && duplicateMode === 'skip') { skipped.push({ row: rowNumber, reason: 'Duplicate row in this file.' }); continue; }
+          seen.add(key);
+          const duplicate = duplicateMode === 'skip' ? leads.find(item => (phone && item.phone === phone) || (email && item.email && item.email.toLowerCase() === email)) : null;
+          if (duplicate) { skipped.push({ row: rowNumber, reason: `Matches existing lead ${duplicate.full_name || duplicate.id}.` }); continue; }
+          const requestedAssignedAgentId = safeText(value(row, 'assigned_agent_id', 'assignedAgentId'), 120);
+          const assignToImporter = ['sales_agent', 'sales_manager'].includes(user.role) && !requestedAssignedAgentId;
+          const assignedAgentId = user.role === 'sales_agent' || assignToImporter ? user.id : requestedAssignedAgentId;
+          const assigned = assignedAgentId ? users.find(item => item.id === assignedAgentId && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id) && (user.role !== 'sales_agent' || item.id === user.id)) : null;
+          if ((assignToImporter || user.role === 'sales_agent' || requestedAssignedAgentId) && !assigned) { failed.push({ row: rowNumber, error: 'Assigned agent is outside your permitted scope.' }); continue; }
+          const source = safeText(value(row, 'lead_source', 'leadSource') || 'Manual Entry', 80); const status = safeText(value(row, 'status') || 'New', 80);
+          if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { failed.push({ row: rowNumber, error: 'Lead source or status is not valid.' }); continue; }
+          const rawTags = value(row, 'tags', 'tag'); const tags = [...new Set(String(rawTags || '').split(/[|;]/).map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 20);
+          const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(value(row, 'whatsapp_number', 'whatsapp') || phone, 32), email, city: safeText(value(row, 'city'), 80), area: safeText(value(row, 'area'), 80), interested_in: interestedIn, property_type: safeText(value(row, 'property_type', 'propertyType'), 80), budget: safeText(value(row, 'budget'), 80), preferred_location: safeText(value(row, 'preferred_location', 'preferredLocation'), 120), purpose: safeText(value(row, 'purpose'), 80), buying_timeline: safeText(value(row, 'buying_timeline', 'buyingTimeline'), 80), financing_required: ['true', 'yes', '1'].includes(String(value(row, 'financing_required', 'financingRequired')).toLowerCase()), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(value(row, 'priority')) ? value(row, 'priority') : 'Medium', tags, assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || (['sales_agent', 'sales_manager'].includes(user.role) ? user.team_id : null), created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: 'Not scheduled', created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10), is_imported: true, imported_from: 'CSV' };
+          leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead imported', `Lead imported by ${user.full_name}`); if (!statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); created.push({ row: rowNumber, id: lead.id, name: lead.full_name });
+        }
+        if (created.length) persistState();
+        json(res, 200, { data: { created, skipped, failed, total: rows.length, imported: created.length, skippedCount: skipped.length, failedCount: failed.length } });
+      } catch (error) { json(res, 400, { error: error.message || 'Leads could not be imported.' }); }
     }
     return;
   }
@@ -1608,7 +1669,21 @@ async function handle(req, res) {
     const existing = customers.find(item => item.lead_id === lead.id);
     if (existing) {
       if (!canViewCustomer(user, existing)) { json(res, 403, { error: 'Linked customer is outside your ownership scope' }); return; }
-      json(res, 200, { data: customerView(existing), created: false }); return;
+      let reminder = null;
+      if (plan.schedule) {
+        const now = new Date().toISOString();
+        const scheduled = memoryFollowUpWorkflow().schedule(user, existing, { ...plan.schedule, notes: plan.note, priority: lead.priority || 'Medium', followup_tag: plan.tag, followup_tags: plan.tags });
+        reminder = scheduled.item;
+        // A lead may already have a profile because non-terminal leads are
+        // auto-linked. Scheduling from that lead must still persist the note,
+        // status tag, and reminder without creating a second profile.
+        if (scheduled.created && plan.note) customerNotes.set(existing.id, [{ id: crypto.randomUUID(), note: plan.note, user_id: user.id, user_name: user.full_name, created_at: now }, ...(customerNotes.get(existing.id) || [])]);
+        lead.tags = statusTags.withStatus(lead.tags, plan.tags);
+        existing.tags = statusTags.withStatus(existing.tags, plan.tags);
+        memoryFollowUpWorkflow().refresh(lead.id, existing.id);
+        persistState();
+      }
+      json(res, 200, { data: customerView(existing), created: false, follow_up_id: reminder?.id || null }); return;
     }
     if (statusTags.isTerminal(lead.status, lead.tags)) { json(res, 422, { error: 'Closed opportunities do not create customer profiles.' }); return; }
     const customer = ensureCustomerForLead(user, lead);
@@ -1704,9 +1779,12 @@ async function handle(req, res) {
       const q = (url.searchParams.get('q') || '').toLowerCase();
       const status = url.searchParams.get('status');
       const source = url.searchParams.get('source');
+      const dateFrom = url.searchParams.get('dateFrom') || '';
+      const dateTo = url.searchParams.get('dateTo') || '';
       if (q) data = data.filter(customer => [customer.full_name, customer.phone, customer.whatsapp_number, customer.email, customer.city].some(value => String(value || '').toLowerCase().includes(q)));
       if (status) data = data.filter(customer => customer.customer_status === status);
       if (source) data = data.filter(customer => customer.lead_source === source);
+      if (dateFrom || dateTo) data = data.filter(customer => filterDateInRange(customer.created_at, dateFrom, dateTo));
       json(res, 200, { scope: user.role === 'super_admin' ? 'company' : 'team', data: data.map(customerView), meta: { total: data.length, page: 1, pageSize: data.length, totalPages: data.length ? 1 : 0 } });
     }
     return;
@@ -1714,7 +1792,7 @@ async function handle(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/customers/my') {
     const user = requireAuth(req, res);
-    if (user) json(res, 200, { scope: 'assigned', data: customers.filter(customer => customer.assigned_agent_id === user.id).map(customerView) });
+    if (user) { const dateFrom = url.searchParams.get('dateFrom') || ''; const dateTo = url.searchParams.get('dateTo') || ''; json(res, 200, { scope: 'assigned', data: customers.filter(customer => customer.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(customer.created_at, dateFrom, dateTo))).map(customerView) }); }
     return;
   }
 
@@ -1888,7 +1966,7 @@ async function handle(req, res) {
       const body = await readBody(req);
       const allowedTypes = ['agent_report', 'lead_report', 'customer_report', 'followup_report', 'conversion_report'];
       const reportType = allowedTypes.includes(body.reportType) ? body.reportType : 'agent_report';
-      const params = new URLSearchParams();
+  const params = new URLSearchParams();
       ['dateRange', 'teamId', 'agentId', 'leadStatus', 'leadSource', 'followUpStatus', 'startDate', 'endDate'].forEach(key => { if (body[key] && body[key] !== 'all') params.set(key, String(body[key])); });
       const csv = reportCsvFor(user, params, reportType);
       const stamp = new Date().toISOString().slice(0, 10);
@@ -1899,7 +1977,7 @@ async function handle(req, res) {
   }
   if (req.method === 'GET' && url.pathname.match(/^\/api\/reports\/export\/(pdf|excel)$/)) { const user = requireRole(req, res, ['super_admin', 'sales_manager', 'project_manager']); if (user) { const rows = reportRowsFor(user); const csv = ['Agent,Role,Assigned Leads,Follow-ups Completed,Overdue Follow-ups,Closed Deals,Conversion Rate', ...rows.map(row => [row.name, row.role, row.assignedLeads, row.followUpsCompleted, row.overdueFollowUps, row.closedDeals, row.conversionRate].join(','))].join('\n'); res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="aureum-agent-report.csv"' }); res.end(csv); } return; }
 
-  if (req.method === 'GET' && url.pathname === '/api/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) json(res, 200, { data: reportUsersFor(user).map(target => agentView(user, target)) }); return; }
+  if (req.method === 'GET' && url.pathname === '/api/agents') { const user = requireRole(req, res, ['super_admin', 'sales_manager']); if (user) { const dateFrom = url.searchParams.get('dateFrom') || ''; const dateTo = url.searchParams.get('dateTo') || ''; const scoped = reportUsersFor(user).filter(target => filterDateInRange(target.created_at, dateFrom, dateTo)); json(res, 200, { data: scoped.map(target => agentView(user, target)), timezone: CRM_TIMEZONE }); } return; }
   if (req.method === 'POST' && url.pathname === '/api/agents') { const actor = requireRole(req, res, ['super_admin', 'sales_manager']); if (actor) { const body = await readBody(req); const role = body.role || 'sales_agent'; if (!body.full_name || !body.email || !body.password || !['sales_agent', 'sales_manager', 'hr', 'project_manager'].includes(role) || (actor.role === 'sales_manager' && role !== 'sales_agent')) { json(res, 400, { error: 'Name, email, password, and an allowed role are required' }); return; } if (users.some(item => item.email === String(body.email).toLowerCase())) { json(res, 409, { error: 'Email already exists' }); return; } const created = { id: `usr_${String(users.length + 1).padStart(3, '0')}`, full_name: body.full_name, email: String(body.email).toLowerCase(), phone: body.phone || '', password_hash: passwordHash(body.password), role, team_id: actor.role === 'sales_manager' ? actor.team_id : body.team_id || null, status: body.status || 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; users.push(created); userActivities.set(created.id, [{ id: crypto.randomUUID(), activity_type: 'Staff user created', description: `${created.full_name} added to the workspace as ${USER_ROLE_LABELS[created.role]}.`, created_at: new Date().toISOString() }]); json(res, 201, { data: agentView(actor, created) }); } return; }
   const agentMatch = url.pathname.match(/^\/api\/agents\/([^/]+)(?:\/(status|team|leads|follow-ups|customers|activity))?$/);
   if (agentMatch) { const actor = requireRole(req, res, ['super_admin', 'sales_manager']); const target = users.find(item => item.id === agentMatch[1]); if (!target) { json(res, 404, { error: 'Agent not found' }); return; } if (!agentInScope(actor, target)) { json(res, 403, { error: 'Access denied — agent is outside your management scope' }); return; } const action = agentMatch[2]; if (req.method === 'GET') { if (action === 'leads') { json(res, 200, { data: leads.filter(item => item.assigned_agent_id === target.id).map(leadView) }); return; } if (action === 'follow-ups') { json(res, 200, { data: followUps.filter(item => item.assigned_agent_id === target.id).map(followUpView) }); return; } if (action === 'customers') { json(res, 200, { data: customers.filter(item => item.assigned_agent_id === target.id).map(customerView) }); return; } if (action === 'activity') { json(res, 200, { data: userActivities.get(target.id) || [] }); return; } json(res, 200, { data: agentView(actor, target) }); return; } if (req.method === 'PATCH') { const body = await readBody(req); if (action === 'status') target.status = body.status || target.status; else if (action === 'team') { if (actor.role !== 'super_admin') { json(res, 403, { error: 'Only Super Admin can change teams' }); return; } target.team_id = body.team_id || null; } else { if (actor.role === 'sales_manager' && (target.role !== 'sales_agent' || body.role === 'super_admin')) { json(res, 403, { error: 'Managers can only edit team sales agents' }); return; } ['full_name', 'email', 'phone', 'role', 'team_id', 'status'].forEach(field => { if (body[field] !== undefined) target[field] = body[field]; }); if (body.password) target.password_hash = passwordHash(body.password); } target.updated_at = new Date().toISOString(); userActivities.set(target.id, [{ id: crypto.randomUUID(), activity_type: 'Agent updated', description: `${target.full_name} profile was updated.`, created_at: new Date().toISOString() }, ...(userActivities.get(target.id) || [])]); json(res, 200, { data: agentView(actor, target) }); return; } json(res, 405, { error: 'Method not allowed' }); return; }
@@ -2088,13 +2166,18 @@ async function handle(req, res) {
       const type = url.searchParams.get('type');
       const priority = url.searchParams.get('priority');
       const date = url.searchParams.get('date');
+      const customStart = url.searchParams.get('customStart') || '';
+      const customEnd = url.searchParams.get('customEnd') || '';
+      const selectedDate = url.searchParams.get('selectedDate') || '';
       const q = (url.searchParams.get('q') || '').toLowerCase();
       if (status) data = data.filter(item => displayStatus(item) === status);
       if (type) data = data.filter(item => item.follow_up_type === type);
       if (priority) data = data.filter(item => item.priority === priority);
       if (q) data = data.filter(item => [item.customer_name, item.customer_phone, item.assigned_agent, item.notes].some(value => String(value || '').toLowerCase().includes(q)));
       if (date === 'overdue') data = data.filter(item => item.status === 'Overdue');
-      if (date && date !== 'overdue') {
+      if (selectedDate) data = data.filter(item => item.due_date === selectedDate);
+      if (date === 'custom') data = data.filter(item => (!customStart || item.due_date >= customStart) && (!customEnd || item.due_date <= customEnd));
+      if (date && !['overdue', 'custom'].includes(date)) {
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const target = new Date(today);
         if (date === 'tomorrow') target.setDate(target.getDate() + 1);

@@ -69,3 +69,7 @@ html[data-theme="light"] .followup-detail-drawer .badge-overdue { color: #8d2727
 .form-field .tag-dropdown-option { display: flex; align-items: center; gap: 10px; margin: 0; padding: 9px 8px; border-radius: 6px; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 500; }
 .tag-dropdown-option:hover { background: rgba(198, 161, 91, .12); }
 .form-field .tag-dropdown-option input { width: 16px; height: 16px; min-height: 0; margin: 0; flex: 0 0 auto; accent-color: var(--aureum-gold); }
+/* Shared record-date controls used by Leads, Customers, Follow-ups, and Tasks. */
+.date-filter-control { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; }
+.date-filter-control > span { color: var(--muted, #8f8b84); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.date-filter-control select, .date-filter-control input { min-height: 36px; }

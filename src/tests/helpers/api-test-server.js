@@ -26,14 +26,24 @@ async function startApiServer(t, { env = {} } = {}) {
   server.stderr.on('data', chunk => { output += chunk.toString(); });
   t.after(() => { if (!server.killed) server.kill(); });
 
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  // Cold starts can include module loading and database-driver initialization;
+  // keep this generous enough for slower CI/Windows runners without masking a
+  // genuinely unavailable server.
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    if (output.includes('Aureum CRM local server running at')) break;
     try {
-      const response = await fetch(`${base}/`);
-      if (response.ok) break;
+      // Check the listener directly while the child process is still starting.
+      await new Promise((resolve, reject) => {
+        const socket = net.createConnection({ host: '127.0.0.1', port });
+        const timer = setTimeout(() => { socket.destroy(); reject(new Error('listener timeout')); }, 500);
+        socket.once('connect', () => { clearTimeout(timer); socket.end(); resolve(); });
+        socket.once('error', error => { clearTimeout(timer); socket.destroy(); reject(error); });
+      });
+      break;
     } catch {
       await wait(80);
     }
-    if (attempt === 49) throw new Error(`API server did not start. Output: ${output}`);
+    if (attempt === 119) throw new Error(`API server did not start. Output: ${output}`);
   }
 
   async function request(route, options = {}) {

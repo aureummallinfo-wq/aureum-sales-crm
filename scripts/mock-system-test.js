@@ -33,7 +33,7 @@ function client(api, cookie) {
   };
 }
 const noteOnly = { customer_contacted: false, next_followup_days: 'none' };
-const schedule = { schedule_followup: true, note: 'Mock test: discuss the payment plan.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up Needed' };
+const schedule = { schedule_followup: true, note: 'Mock test: discuss the payment plan.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up' };
 
 async function runPortal(api, role, email, id, label) {
   let cookie;
@@ -74,7 +74,7 @@ async function runPortal(api, role, email, id, label) {
   await check(role, 'Leads', 'Create a lead with tags and safe ownership', async () => {
     lead = (await request('/api/leads', 'POST', { full_name: `${label} Mock Client`, phone: manager ? '+923001231001' : '+923001231002', email: `${label.toLowerCase()}@example.test`, interested_in: 'Commercial', property_type: 'Apartment', city: 'Lahore', tags: ['Investor', 'VIP'], assigned_agent_id: manager ? 'usr_003' : 'usr_004' }, 201)).body.data;
     assert.equal(lead.assigned_agent_id, manager ? 'usr_003' : id);
-    assert.equal(lead.customer_id, null);
+    assert.ok(lead.customer_id);
     assert.deepEqual(lead.tags, ['Investor', 'VIP']);
   });
   await check(role, 'Leads', 'Search and open the newly created lead', async () => {
@@ -99,13 +99,13 @@ async function runPortal(api, role, email, id, label) {
   await check(role, 'Customers', 'Reject an invalid schedule without partially creating a customer', async () => {
     need(lead, 'Lead');
     await request(`/api/leads/${lead.id}/customer`, 'POST', { ...schedule, next_due_date: '2099-02-30' }, 422);
-    assert.equal((await request(`/api/leads/${lead.id}`)).body.data.customer_id, null);
+    assert.equal((await request(`/api/leads/${lead.id}`)).body.data.customer_id, lead.customer_id);
   });
   await check(role, 'Customers', 'Create a linked customer and one pending follow-up', async () => {
     need(lead, 'Lead');
-    const created = (await request(`/api/leads/${lead.id}/customer`, 'POST', schedule, 201)).body;
+    const created = (await request(`/api/leads/${lead.id}/customer`, 'POST', schedule, 200)).body;
     customer = created.data;
-    assert.ok(created.created); assert.ok(created.follow_up_id);
+    assert.equal(created.created, false); assert.ok(created.follow_up_id);
     assert.equal(customer.assigned_agent_id, lead.assigned_agent_id);
     const detail = (await request(`/api/customers/${customer.id}`)).body;
     assert.ok(detail.notes.some(row => row.note === schedule.note));
@@ -128,15 +128,15 @@ async function runPortal(api, role, email, id, label) {
   });
   await check(role, 'Customers', 'Save a custom property type and multiple tags', async () => {
     need(customer, 'Customer');
-    await request(`/api/customers/${customer.id}`, 'PATCH', { property_type: 'Rooftop restaurant', tags: ['Investor', 'VIP', 'Follow-up Needed'] });
+    await request(`/api/customers/${customer.id}`, 'PATCH', { property_type: 'Rooftop restaurant', tags: ['Investor', 'VIP', 'Follow-up'] });
     const saved = (await request(`/api/customers/${customer.id}`)).body.data;
     assert.equal(saved.property_type, 'Rooftop restaurant'); assert.ok(saved.tags.includes('VIP')); assert.ok(saved.tags.includes('Investor'));
   });
   await check(role, 'Customers', 'Save status and note; load notes, timeline and follow-up tabs', async () => {
     need(customer, 'Customer');
-    await request(`/api/customers/${customer.id}/status`, 'PATCH', { status: 'Interested' });
+    await request(`/api/customers/${customer.id}/status`, 'PATCH', { status: 'Hot' });
     await request(`/api/customers/${customer.id}/notes`, 'POST', { ...noteOnly, note: 'Mock customer profile note.' }, 201);
-    assert.equal((await request(`/api/customers/${customer.id}`)).body.data.customer_status, 'Interested');
+    assert.equal((await request(`/api/customers/${customer.id}`)).body.data.customer_status, 'Hot');
     for (const tab of ['notes', 'timeline', 'follow-ups']) assert.ok(Array.isArray((await request(`/api/customers/${customer.id}/${tab}`)).body.data));
   });
   await check(role, 'Follow-ups', 'Repeated scheduling from both routes keeps one reminder', async () => {
@@ -148,7 +148,7 @@ async function runPortal(api, role, email, id, label) {
   });
   await check(role, 'Follow-ups', 'Reschedule records contact, note, exact date, time and tag', async () => {
     need(reminder, 'Follow-up');
-    const input = { note: 'Mock customer agreed to the next call.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-11-01', next_due_time: '16:20', followup_tag: 'Follow-up Needed' };
+    const input = { note: 'Mock customer agreed to the next call.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-11-01', next_due_time: '16:20', followup_tag: 'Follow-up' };
     const saved = (await request(`/api/follow-ups/${reminder.id}/notes`, 'POST', input, 201)).body.data;
     assert.equal(saved.id, reminder.id); assert.equal(saved.status, 'Contacted'); assert.equal(saved.due_date, input.next_due_date); assert.equal(saved.due_time, input.next_due_time); assert.equal(saved.followup_tag, input.followup_tag);
     assert.ok((await request(`/api/customers/${customer.id}`)).body.data.tags.includes(input.followup_tag));

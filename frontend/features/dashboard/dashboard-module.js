@@ -143,7 +143,13 @@ function normalizeDashboardData(raw = {}) {
   return { role: dashboardRole().role, scope: dashboardRole().scope, dateRange: state.dashboardDateRange, summary, leadInflow, leadSources, followUpPerformance, agentPerformance: state.role === 'SALES_AGENT' ? [] : agentPerformance, conversionOverview, recentLeads, recentActivities, todayFollowUps, scopeLabel: dashboardSafeString(source.scopeLabel ?? raw?.scopeLabel ?? dashboardRole().scopeLabel), meta: { generatedAt: dashboardSafeString(source.meta?.generatedAt ?? raw?.meta?.generatedAt, new Date().toISOString()), timezone: 'Asia/Karachi', currency: 'PKR' } };
 }
 
-async function dashboardEndpoint(path) { const query = new URLSearchParams({ role: dashboardRole().role, scope: dashboardRole().scope, dateRange: state.dashboardDateRange }); if (state.dashboardCustomStart) query.set('startDate', state.dashboardCustomStart); if (state.dashboardCustomEnd) query.set('endDate', state.dashboardCustomEnd); if (path.endsWith('/recent-leads') && state.dashboardRecentLeadAgentId) query.set('assignedAgentId', state.dashboardRecentLeadAgentId); const result = await apiFetch(`${path}?${query.toString()}`); return result.data ?? result; }
+async function dashboardInitialEndpoint() {
+  const query = new URLSearchParams({ role: dashboardRole().role, scope: dashboardRole().scope, dateRange: state.dashboardDateRange });
+  if (state.dashboardCustomStart) query.set('startDate', state.dashboardCustomStart);
+  if (state.dashboardCustomEnd) query.set('endDate', state.dashboardCustomEnd);
+  if (state.dashboardRecentLeadAgentId) query.set('assignedAgentId', state.dashboardRecentLeadAgentId);
+  return apiFetch(`/api/dashboard/initial?${query.toString()}`);
+}
 
 async function sendPresenceHeartbeat() { try { await apiFetch('/api/presence/heartbeat', { method: 'POST' }); } catch (error) { /* presence is best effort */ } }
 function ensurePresenceHeartbeat() {
@@ -170,12 +176,9 @@ async function loadDashboard(options = {}) {
   state.dashboard = { loading: true, error: '', data: cachedData || previousData || null, cacheKey, cacheHit: Boolean(cachedData), backgroundRefreshing: Boolean(cachedData) };
   render();
   try {
-    const endpoints = ['/api/dashboard/summary', '/api/dashboard/lead-inflow', '/api/dashboard/lead-sources', '/api/dashboard/follow-up-performance', '/api/dashboard/conversion-overview', '/api/dashboard/recent-leads', '/api/dashboard/today-follow-ups'];
-  if (['SUPER_ADMIN', 'SALES_MANAGER', 'PROJECT_MANAGER'].includes(state.role)) endpoints.push('/api/dashboard/agent-performance');
-    const responses = await Promise.all(endpoints.map(dashboardEndpoint));
+    const response = await dashboardInitialEndpoint();
     if (requestId !== dashboardRequestId || cacheKey !== dashboardCacheKey()) return;
-    const [summary, leadInflow, leadSources, followUpPerformance, conversionOverview, recentLeads, todayFollowUps, agentPerformance] = responses;
-    const normalized = normalizeDashboardData({ summary: summary.summary || summary, scopeLabel: summary.scope || '', leadInflow, leadSources, followUpPerformance, conversionOverview, recentLeads, todayFollowUps, agentPerformance });
+    const normalized = normalizeDashboardData(response);
     dashboardWriteCache(normalized, cacheKey);
     state.dashboard = { loading: false, error: '', data: normalized, cacheKey, cacheHit: Boolean(cachedData), backgroundRefreshing: false };
   } catch (error) {
