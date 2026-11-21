@@ -52,6 +52,19 @@ test('E2E webhook lead ingestion validates secret, creates one imported lead, de
   assert.equal(imported.response.status, 200);
   assert.equal(imported.body.duplicate, false);
 
+  const verified = await api.request(`/api/webhooks/leads/${connectionId}/verify?external_lead_id=${encodeURIComponent(payload.external_lead_id)}`, {
+    headers: { 'x-aureum-webhook-secret': secret }
+  });
+  assert.equal(verified.response.status, 200);
+  assert.equal(verified.body.confirmed, true);
+  assert.equal(verified.body.leadId, imported.body.leadId);
+
+  const notYetPersisted = await api.request(`/api/webhooks/leads/${connectionId}/verify?external_lead_id=meta-not-yet-persisted`, {
+    headers: { 'x-aureum-webhook-secret': secret }
+  });
+  assert.equal(notYetPersisted.response.status, 404);
+  assert.equal(notYetPersisted.body.confirmed, false);
+
   const duplicate = await api.request(`/api/webhooks/leads/${connectionId}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-aureum-webhook-secret': secret },

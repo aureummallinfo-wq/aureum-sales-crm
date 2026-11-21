@@ -1498,5 +1498,37 @@ function createNeonRepository(sql) {
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }
 
-module.exports = { createNeonRepository, hashToken };
+async function verifyNeonWebhookLead(sql, workspace, identifier, secret, query = {}) {
+  const connectionRows = await sql.query(
+    'SELECT legacy_id, status, source_platform, secret_hash FROM crm.webhook_connections WHERE workspace_id=$1 AND (id::text=$2 OR legacy_id=$2) LIMIT 1',
+    [workspace, String(identifier)],
+  );
+  const connection = connectionRows[0];
+  if (!connection) return { status: 404, error: 'Webhook connection not found.' };
+  if (String(connection.status).toLowerCase() !== 'active') return { status: 403, error: 'Webhook connection is inactive.' };
+  if (!secret || hashToken(secret) !== connection.secret_hash) return { status: 401, error: 'Webhook authentication failed.' };
+  const externalId = String(query.external_lead_id || query.meta_lead_id || '').trim();
+  const idempotency = String(query.idempotency_key || query.idempotencyKey || '').trim();
+  const crmLeadId = String(query.crm_lead_id || query.crmLeadId || query.lead_id_internal || '').trim();
+  if (!externalId && !idempotency && !crmLeadId) return { status: 422, error: 'external_lead_id, idempotency_key, or crm_lead_id is required.' };
+  const rows = await sql.query(
+    `SELECT legacy_id, external_lead_id
+       FROM crm.leads
+      WHERE workspace_id=$1 AND deleted_at IS NULL
+        AND ((external_lead_id=$2 AND (external_source=$3 OR external_source IS NULL))
+          OR idempotency_key=$4 OR legacy_id=$5)
+      LIMIT 1`,
+    [workspace, externalId || null, connection.source_platform, idempotency || null, crmLeadId || null],
+  );
+  if (!rows[0]) return { status: 404, error: 'Lead has not been persisted in the CRM yet.' };
+  return { ok: true, confirmed: true, lead: { id: rows[0].legacy_id, external_lead_id: rows[0].external_lead_id || null } };
+}
+
+function createNeonRepositoryWithVerification(sql) {
+  const repository = createNeonRepository(sql);
+  repository.verifyWebhookLead = (workspace, identifier, secret, query) => verifyNeonWebhookLead(sql, workspace, identifier, secret, query);
+  return repository;
+}
+
+module.exports = { createNeonRepository: createNeonRepositoryWithVerification, hashToken };
 
