@@ -11,7 +11,7 @@ const migration = file => fs.readFileSync(path.join(__dirname, '../../../db/migr
 test('Meta reconciliation accepts missing lead IDs and keeps imported leads in the manager queue', async t => {
   const db = new PGlite();
   t.after(() => db.close());
-  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql']) await db.exec(migration(file));
+  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql', '023_lead_received_at.sql']) await db.exec(migration(file));
   const sql = { query: async (text, params) => (await db.query(text, params)).rows };
   const repository = createNeonRepository(sql);
   const [workspace] = await sql.query("INSERT INTO crm.workspaces(name,legacy_id) VALUES('Import reconciliation','reconcile') RETURNING id");
@@ -23,12 +23,14 @@ test('Meta reconciliation accepts missing lead IDs and keeps imported leads in t
 
   const noIdLead = await repository.createLead({ workspaceId: workspace.id, actor: manager, lead: {
     full_name: 'No ID Buyer', phone: '+923001234567', email: 'noid@example.test', interested_in: 'Commercial',
-    status: 'New', lead_source: 'Instagram', assigned_team_id: 'team', is_imported: true, imported_from: 'CSV'
+    status: 'New', lead_source: 'Instagram', assigned_team_id: 'team', is_imported: true, imported_from: 'CSV', created_time: '2026-11-21 06:14:21'
   } });
   assert.equal(noIdLead.external_lead_id, null);
   assert.equal(noIdLead.lead_source, 'Instagram');
   assert.equal(noIdLead.assigned_agent_id, null);
+  assert.equal(new Date(noIdLead.received_at).toISOString(), '2026-11-21T01:14:21.000Z');
   assert.equal((await repository.findLeadDuplicate(workspace.id, { phone: '923001234567', email: 'noid@example.test' })).id, noIdLead.id);
+  assert.deepEqual((await repository.listLeads({ workspaceId: workspace.id, user: manager, dateFrom: '2026-11-21', dateTo: '2026-11-21' })).map(item => item.full_name), ['No ID Buyer']);
 
   const withIdLead = await repository.createLead({ workspaceId: workspace.id, actor: manager, lead: {
     full_name: 'Meta ID Buyer', phone: '+923001234568', interested_in: 'Commercial', status: 'New', lead_source: 'Facebook',

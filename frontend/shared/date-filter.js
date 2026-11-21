@@ -9,6 +9,12 @@
     ['last_month', 'Last month'],
     ['custom', 'Custom range']
   ];
+  const scopeLabels = Object.freeze({
+    leads: 'Lead received',
+    customers: 'Customer created',
+    tasks: 'Due date',
+    agents: 'User created'
+  });
 
   function dateParts(value = new Date()) {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -70,7 +76,8 @@
 
   function render(scope, range = 'all', customStart = '', customEnd = '') {
     const selected = options.some(([value]) => value === range) ? range : 'all';
-    const select = `<label class="date-filter-control"><span>Date</span><select data-date-filter="${scope}" aria-label="Filter by date">${options.map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`;
+    const label = scopeLabels[scope] || 'Created date';
+    const select = `<label class="date-filter-control"><span>${label}</span><select data-date-filter="${scope}" aria-label="Filter by ${label.toLowerCase()}">${options.map(([value, label]) => `<option value="${value}" ${value === selected ? 'selected' : ''}>${label}</option>`).join('')}</select></label>`;
     if (selected !== 'custom') return select;
     return `${select}<label class="date-filter-control"><span>From</span><input type="date" data-date-start="${scope}" value="${customStart || ''}" aria-label="Date range start" /></label><label class="date-filter-control"><span>To</span><input type="date" data-date-end="${scope}" value="${customEnd || ''}" aria-label="Date range end" /></label><button class="btn btn-gold btn-sm" type="button" data-date-apply="${scope}">Apply</button>`;
   }
@@ -80,5 +87,5 @@
     return result.start && result.end ? result : null;
   }
 
-  window.AureumDateFilter = { CRM_TIMEZONE, options, today, addDays, bounds, render, query };
+  window.AureumDateFilter = { CRM_TIMEZONE, options, scopeLabels, today, addDays, bounds, render, query };
 })();

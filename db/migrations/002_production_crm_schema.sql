@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS crm.leads (
   last_contacted_at timestamptz,
   next_follow_up_at timestamptz,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  received_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,

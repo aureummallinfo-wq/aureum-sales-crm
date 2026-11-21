@@ -11,7 +11,7 @@ const migration = file => fs.readFileSync(path.join(__dirname, '../../../db/migr
 
 test('Meta lead IDs survive intake and reach n8n with status changes, without free text', async t => {
   const db = new PGlite(); t.after(() => db.close());
-  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql']) await db.exec(migration(file));
+  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql', '023_lead_received_at.sql']) await db.exec(migration(file));
   const sql = { query: async (text, params) => (await db.query(text, params)).rows };
   const repo = createNeonRepository(sql);
   const [w] = await sql.query("INSERT INTO crm.workspaces(name,legacy_id) VALUES('Meta feedback test','meta') RETURNING id");
@@ -28,10 +28,12 @@ test('Meta lead IDs survive intake and reach n8n with status changes, without fr
   const run = (send = async message => { sent.push(message); }, options = {}) => processOutboxBatch({ sql, send, ...options });
 
   await t.test('intake stores the Meta lead ID in its column and queues lead_created', async () => {
-    const result = await intake({ external_lead_id: metaLeadId, idempotency_key: 'first' });
+    const result = await intake({ external_lead_id: metaLeadId, idempotency_key: 'first', created_time: '2026-11-21T06:14:21+05:00' });
     assert.equal(result.duplicate, false);
-    const [row] = await sql.query('SELECT external_source, external_lead_id FROM crm.leads WHERE legacy_id=$1', [result.lead.id]);
-    assert.deepEqual(row, { external_source: 'meta', external_lead_id: metaLeadId });
+    const [row] = await sql.query('SELECT external_source, external_lead_id, received_at FROM crm.leads WHERE legacy_id=$1', [result.lead.id]);
+    assert.equal(row.external_source, 'meta');
+    assert.equal(row.external_lead_id, metaLeadId);
+    assert.equal(row.received_at.toISOString(), '2026-11-21T01:14:21.000Z');
     assert.equal((await sql.query("SELECT count(*)::int AS n FROM crm.outbox_events WHERE event_type='lead_created'"))[0].n, 1);
   });
 

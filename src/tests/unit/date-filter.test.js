@@ -30,3 +30,9 @@ test('custom date range normalizes reversed dates and ignores malformed input', 
   assert.equal(filter.query('custom', 'not-a-date', ''), null);
   assert.equal(filter.query('all', '', ''), null);
 });
+
+test('lead date control makes its Meta submission meaning explicit', () => {
+  const filter = dateFilter();
+  assert.match(filter.render('leads'), /Lead received/);
+  assert.match(filter.render('customers'), /Customer created/);
+});

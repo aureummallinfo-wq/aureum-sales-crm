@@ -65,9 +65,22 @@ function localDateParts(value) {
 
 function timestampValue(value) {
   if (!value) return null;
-  const input = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+05:00` : value;
+  const plainLocalTimestamp = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value);
+  const input = plainLocalTimestamp ? `${String(value).replace(' ', 'T')}+05:00` : value;
   const parsed = new Date(input);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+// The CRM record can be created later than a Meta form submission. Keep the
+// source timestamp separately so operational date filters answer “when did
+// the customer submit?” rather than “when did a sync job insert the row?”.
+function leadReceivedAt(lead = {}) {
+  const values = [lead.received_at, lead.receivedAt, lead.created_time, lead.createdTime, lead.submitted_at, lead.submittedAt];
+  for (const value of values) {
+    const parsed = timestampValue(value);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -584,7 +597,7 @@ function createNeonRepository(sql) {
 
   function leadRecord(row) {
     const metadata = valueObject(row.metadata);
-    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, external_source: row.external_source || metadata.external_source || null, external_lead_id: row.external_lead_id || metadata.external_lead_id || null, idempotency_key: row.idempotency_key || metadata.idempotency_key || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, external_source: row.external_source || metadata.external_source || null, external_lead_id: row.external_lead_id || metadata.external_lead_id || null, idempotency_key: row.idempotency_key || metadata.idempotency_key || null, received_at: row.received_at || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function customerRecord(row) {
@@ -652,7 +665,7 @@ function createNeonRepository(sql) {
     if (assignment === 'assigned') conditions.push('l.assigned_agent_id IS NOT NULL');
     if (assignment === 'unassigned') conditions.push('l.assigned_agent_id IS NULL');
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
-    addDateBounds(conditions, params, "l.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
+    addDateBounds(conditions, params, "(COALESCE(l.received_at, l.created_at) AT TIME ZONE 'Asia/Karachi')::date", dateFrom, dateTo);
     if (search) {
       const normalizedSearch = String(search).normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
       const searchTokens = normalizedSearch.split(' ').filter(Boolean);
@@ -683,10 +696,10 @@ function createNeonRepository(sql) {
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit = params.length + 1; const offset = params.length + 2;
       const limitParam = '$' + limit; const offsetParam = '$' + offset;
-      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
+      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY COALESCE(l.received_at, l.created_at) DESC, l.id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
       return { rows: rows.map(leadRecord), meta };
     }
-    const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC`, params); return rows.map(leadRecord);
+    const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY COALESCE(l.received_at, l.created_at) DESC, l.id DESC`, params); return rows.map(leadRecord);
   }
 
   async function findLeadDuplicate(workspace, { phone = '', email = '', externalLeadId = '' } = {}) {
@@ -746,10 +759,10 @@ function createNeonRepository(sql) {
   async function createLead({ workspaceId: workspace, actor, lead }) {
     if (!statusTags.isValid(lead.status || 'New')) throw new Error('Invalid lead status.');
     await listLeadConfiguration(workspace, 'lead-statuses');
-    const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id);
+    const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id); const receivedAt = leadReceivedAt(lead);
     const configuration = await ensureWebhookLeadConfiguration(workspace, lead.status || 'New', lead.lead_source || 'Manual Entry');
     const statusRows = configuration.statusRows; const sourceRows = configuration.sourceRows;
-    const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, JSON.stringify(lead)]);
+    const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, received_at, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::timestamptz,$26::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, receivedAt, JSON.stringify(lead)]);
      const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId);
      // New leads become customer profiles immediately unless the intake status/tag
      // explicitly closes the opportunity. Keep this server-side so imports and
@@ -1499,10 +1512,10 @@ function createNeonRepository(sql) {
     }
     const legacyId = `lead_${crypto.randomUUID().slice(0, 10)}`;
     const inserted = await sql.query(
-      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,idempotency_key,metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)
+      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,idempotency_key,received_at,metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::timestamptz,$24::jsonb)
        ON CONFLICT DO NOTHING RETURNING id`,
-      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, whatsapp, raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, idempotency, JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, lead_source: sourceName, source_form: webhookFormName(raw), source_form_name: webhookFormName(raw), source_channel: raw.source_channel || raw.channel || null, external_lead_id: externalId || null, idempotency_key: idempotency, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
+      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, whatsapp, raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, idempotency, leadReceivedAt(raw), JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, lead_source: sourceName, source_form: webhookFormName(raw), source_form_name: webhookFormName(raw), source_channel: raw.source_channel || raw.channel || null, external_lead_id: externalId || null, idempotency_key: idempotency, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
     );
     if (!inserted[0]) {
       const existing = await sql.query(
