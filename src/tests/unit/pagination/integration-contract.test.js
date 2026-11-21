@@ -75,9 +75,10 @@ test('direct record routes load their server-paginated datasets on boot and navi
   assert.match(shell, /window\.addEventListener\('popstate',[\s\S]*state\.screen === 'leads'[\s\S]*loadLeads\(false\)/);
 });
 
-test('production deployment requires an explicit marker and remains migration-free', () => {
+test('production deployment requires an explicit marker and makes schema updates opt-in', () => {
   const workflow = read('.github/workflows/deploy-production.yml');
   assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[deploy-vps\]'\)/);
-  assert.match(workflow, /AUREUM_MIGRATION_MODE=require-current/);
+  assert.match(workflow, /contains\(github\.event\.head_commit\.message, '\[migrate-vps\]'\) && 'apply' \|\| 'require-current'/);
+  assert.match(workflow, /AUREUM_MIGRATION_MODE='\$MIGRATION_MODE'/);
   assert.doesNotMatch(workflow, /AUREUM_SCHEMA_BASELINE_THROUGH=013 bash/);
 });
