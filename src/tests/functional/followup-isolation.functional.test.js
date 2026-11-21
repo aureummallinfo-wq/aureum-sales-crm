@@ -13,6 +13,8 @@ test('follow-ups belong to the visible customer relationship, not an imported ow
   await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/002_production_crm_schema.sql'), 'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;', ''));
   await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
   await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/003_workspace_settings.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/019_mobile_push_notifications.sql'), 'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname, '../../../db/migrations/020_web_push_notifications.sql'), 'utf8'));
   const sql = { query: async (query, params) => (await db.query(query, params)).rows };
   const repository = createNeonRepository(sql);
   async function insert(table, fields) {

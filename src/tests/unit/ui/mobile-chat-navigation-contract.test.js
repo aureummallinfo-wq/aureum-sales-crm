@@ -30,7 +30,7 @@ test('Team Chat closes the global CRM drawer when a conversation takes focus', (
 
 test('mobile navigation fix assets are cache busted', () => {
   const html = read('frontend/index.html');
-  assert.match(html, /aureum-design-system\.css\?v=20261112-chat-nav/);
+  assert.match(html, /aureum-design-system\.css\?v=20261112-sidebar-close/);
   assert.match(html, /team-chat-reports-agents\.js\?v=20261112-chat-nav/);
-  assert.match(html, /settings-system-enhancements\.js\?v=20261112-chat-nav/);
+  assert.match(html, /settings-system-enhancements\.js\?v=20261112-sidebar-close/);
 });
