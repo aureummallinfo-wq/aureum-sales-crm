@@ -643,12 +643,14 @@ function createNeonRepository(sql) {
     if (end) { params.push(end); conditions.push(`(${expression}) <= $${params.length}::date`); }
   }
 
-  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, dateFrom = '', dateTo = '', allSalesManagerLeads = false, pagination = null }) {
+  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, assignment, agentId, imported, dateFrom = '', dateTo = '', allSalesManagerLeads = false, pagination = null }) {
     const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push('ls.name = $' + params.length); }
     if (source) { params.push(source); conditions.push('src.name = $' + params.length); }
     if (interest) { params.push(interest); conditions.push('l.interested_in = $' + params.length); }
     if (priority) { params.push(priority); conditions.push('l.priority = $' + params.length); }
+    if (assignment === 'assigned') conditions.push('l.assigned_agent_id IS NOT NULL');
+    if (assignment === 'unassigned') conditions.push('l.assigned_agent_id IS NULL');
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
     addDateBounds(conditions, params, "l.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
     if (search) {
@@ -687,10 +689,11 @@ function createNeonRepository(sql) {
     const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC`, params); return rows.map(leadRecord);
   }
 
-  async function findLeadDuplicate(workspace, { phone = '', email = '' } = {}) {
+  async function findLeadDuplicate(workspace, { phone = '', email = '', externalLeadId = '' } = {}) {
     const conditions = ['l.workspace_id = $1', 'l.deleted_at IS NULL']; const params = [workspace]; const matches = [];
     if (phone) { params.push(phone); matches.push(`regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g') = regexp_replace($${params.length}, '[^0-9]', '', 'g')`); }
     if (email) { params.push(String(email).toLowerCase()); matches.push(`lower(coalesce(l.email, '')) = $${params.length}`); }
+    if (externalLeadId) { params.push(String(externalLeadId)); matches.push(`l.external_lead_id = $${params.length}`); }
     if (!matches.length) return null;
     conditions.push(`(${matches.join(' OR ')})`);
     const rows = await sql.query(`${leadSelect} WHERE ${conditions.join(' AND ')} ORDER BY l.created_at DESC LIMIT 1`, params);
@@ -744,7 +747,8 @@ function createNeonRepository(sql) {
     if (!statusTags.isValid(lead.status || 'New')) throw new Error('Invalid lead status.');
     await listLeadConfiguration(workspace, 'lead-statuses');
     const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id);
-    const statusRows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.status || 'New']); const sourceRows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.lead_source || 'Manual Entry']);
+    const configuration = await ensureWebhookLeadConfiguration(workspace, lead.status || 'New', lead.lead_source || 'Manual Entry');
+    const statusRows = configuration.statusRows; const sourceRows = configuration.sourceRows;
     const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, JSON.stringify(lead)]);
      const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId);
      // New leads become customer profiles immediately unless the intake status/tag
@@ -778,7 +782,7 @@ function createNeonRepository(sql) {
     for (const column of ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'priority']) if (patch[column] !== undefined) assign(column, patch[column]);
     if (patch.financing_required !== undefined) assign('financing_required', Boolean(patch.financing_required));
     if (patch.status !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.status]); assign('status_id', rows[0]?.id || null); }
-    if (patch.lead_source !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.lead_source]); assign('source_id', rows[0]?.id || null); }
+    if (patch.lead_source !== undefined) { const configuration = await ensureWebhookLeadConfiguration(workspace, current.status || 'New', patch.lead_source); assign('source_id', configuration.sourceRows[0]?.id || null); }
     if (patch.next_follow_up_at !== undefined) assign('next_follow_up_at', timestampValue(patch.next_follow_up_at));
     if (patch.tags !== undefined) { params.push(JSON.stringify(normalizeTags(patch.tags))); fields.push(`metadata=jsonb_set(metadata,'{tags}',$${params.length}::jsonb,true)`); }
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
