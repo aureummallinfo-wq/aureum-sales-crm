@@ -134,5 +134,6 @@
   renderDrawer = function renderMetaAwareDrawer() { if (state.drawer === 'meta-staging') return renderMetaStagingDrawer(); return previousRenderDrawer(); };
   const previousBind = bind;
   bind = function bindWithMetaIntake() { previousBind(); bindMetaIntakeEvents(); };
+  window.setTimeout(() => { if (state.authUser && state.ready && state.screen === 'meta-inbox' && !state.metaInbox.startupLoadTriggered) { state.metaInbox.startupLoadTriggered = true; loadMetaIntake(); } }, 1000);
   if (state.authUser && state.ready && state.screen === 'meta-inbox') { render(); loadMetaIntake(); }
 })();
