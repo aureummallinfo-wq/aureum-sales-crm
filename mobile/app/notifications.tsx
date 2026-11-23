@@ -13,7 +13,6 @@ function routeFor(item: NotificationItem) {
   if (item.related_entity_type === 'customer') return `/customer/${item.related_entity_id}`;
   if (item.related_entity_type === 'follow_up') return `/follow-up/${item.related_entity_id}`;
   if (item.related_entity_type === 'task') return '/(tabs)/tasks';
-  if (item.related_entity_type === 'channel' || item.related_entity_type === 'group' || item.event_type === 'team_chat_message') return '/(tabs)/team-chat';
   return null;
 }
 

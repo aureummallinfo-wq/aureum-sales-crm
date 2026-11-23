@@ -1,4 +1,5 @@
 const CRM_ROLES = Object.freeze(['super_admin', 'sales_manager', 'sales_agent', 'hr', 'project_manager']);
+const TEAM_COMMUNICATION_ENABLED = String(process.env.AUREUM_TEAM_COMMUNICATION || (String(process.env.NODE_ENV || 'development').toLowerCase() === 'production' ? 'false' : 'true')).trim().toLowerCase() !== 'false';
 const ROUTE_PERMISSIONS = Object.freeze({
   dashboard: CRM_ROLES,
   'all-leads': ['super_admin', 'sales_manager'],
@@ -7,7 +8,7 @@ const ROUTE_PERMISSIONS = Object.freeze({
   customers: ['super_admin', 'sales_manager', 'sales_agent'],
   'follow-ups': ['super_admin', 'sales_manager', 'sales_agent', 'hr'],
   tasks: CRM_ROLES,
-  'team-chat': ['super_admin', 'sales_manager', 'sales_agent', 'project_manager'],
+  'team-chat': TEAM_COMMUNICATION_ENABLED ? ['super_admin', 'sales_manager', 'sales_agent', 'project_manager'] : [],
   reports: ['super_admin', 'sales_manager', 'hr', 'project_manager'],
   users: ['super_admin', 'sales_manager'],
   settings: ['super_admin'],

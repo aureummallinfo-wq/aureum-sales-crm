@@ -41,7 +41,6 @@ function NavigationDrawer({ visible, onClose }: { visible: boolean; onClose: () 
   const canSeeLeads = canSeeAllLeads || canSeeMyLeads;
   const canSeeFollowUps = ['super_admin', 'sales_manager', 'sales_agent', 'hr'].includes(role);
   const canSeeReports = ['super_admin', 'sales_manager', 'hr', 'project_manager'].includes(role);
-  const canSeeChat = ['super_admin', 'sales_manager', 'sales_agent', 'project_manager'].includes(role);
   const canManageUsers = ['super_admin', 'sales_manager'].includes(role);
   const canManageSettings = role === 'super_admin';
   const links = [
@@ -51,7 +50,6 @@ function NavigationDrawer({ visible, onClose }: { visible: boolean; onClose: () 
     { label: 'Customers', route: '/(tabs)/customers', visible: canSeeLeads },
     { label: 'Follow-ups', route: '/(tabs)/follow-ups', visible: canSeeFollowUps },
     { label: 'Tasks', route: '/(tabs)/tasks', visible: true },
-    { label: 'Team Chat', route: '/(tabs)/team-chat', visible: canSeeChat },
     { label: 'Reports', route: '/(tabs)/reports', visible: canSeeReports },
     { label: 'Users', route: '/(tabs)/users', visible: canManageUsers },
     { label: 'Settings', route: '/(tabs)/settings', visible: canManageSettings },

@@ -179,7 +179,7 @@ async function importProductionState() {
 
   const roles = [['super_admin', 'Super Admin'], ['sales_manager', 'Sales Manager'], ['sales_agent', 'Sales Agent'], ['hr', 'HR'], ['project_manager', 'Project Manager']];
   for (const [key, name] of roles) await upsertGenerated('crm.roles', ['workspace_id', 'key', 'name'], [workspaceId, key, name], ['workspace_id', 'key']);
-  const permissionKeys = ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'];
+  const permissionKeys = ['dashboard', 'leads', 'my-leads', 'customers', 'follow-ups', 'tasks', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'];
   for (const key of permissionKeys) await upsert('crm.permissions', ['key', 'name'], [key, key.replace(/-/g, ' ')], ['key']);
   const roleRows = await sql`SELECT id, key FROM crm.roles WHERE workspace_id = ${workspaceId}`;
   const permissionRows = await sql`SELECT id, key FROM crm.permissions`;
@@ -188,9 +188,9 @@ async function importProductionState() {
   const permissionsByRole = {
     super_admin: permissionKeys,
     sales_manager: permissionKeys.filter(key => key !== 'settings'),
-    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password'],
-    hr: ['dashboard', 'tasks', 'team-chat', 'my-account', 'change-password'],
-    project_manager: ['dashboard', 'tasks', 'team-chat', 'reports', 'my-account', 'change-password']
+    sales_agent: ['dashboard', 'my-leads', 'customers', 'follow-ups', 'tasks', 'my-account', 'change-password'],
+    hr: ['dashboard', 'tasks', 'my-account', 'change-password'],
+    project_manager: ['dashboard', 'tasks', 'reports', 'my-account', 'change-password']
   };
   for (const [role, keys] of Object.entries(permissionsByRole)) for (const key of keys) await sql.query('INSERT INTO crm.role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [roleMap.get(role), permissionMap.get(key)]);
 

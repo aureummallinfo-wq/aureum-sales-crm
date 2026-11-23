@@ -6,6 +6,7 @@ const { notePlan, uniqueFollowUps, isCompletedFollowUp } = require('../followup-
 const { parsePagination, PaginationValidationError } = require('../pagination');
 
 function createRelationalApi({ repository, workspaceId, json, readBody, readBodyLimited, safeText, validateEmail, validatePhone, validateIsoDate, passwordHash, passwordPolicySatisfied, generateTemporaryPassword = () => `Aureum${crypto.randomBytes(8).toString('hex')}!9`, temporaryPasswordExpiry = () => new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), leadView, customerView, followUpView, publicUser, userManagementView, notificationView, rolePermissions, spreadsheetToCsv, crmTimezone, appReleaseStorage, appReleaseDownloadSecret = process.env.AUREUM_APP_RELEASE_DOWNLOAD_SECRET || process.env.AUREUM_SESSION_SECRET || process.env.SESSION_SECRET || 'aureum-sales-crm-development-session-secret' }) {
+  const teamCommunicationEnabled = String(process.env.AUREUM_TEAM_COMMUNICATION || (String(process.env.NODE_ENV || 'development').toLowerCase() === 'production' ? 'false' : 'true')).trim().toLowerCase() !== 'false';
   const APP_RELEASE_DOWNLOAD_TTL_MS = 15 * 60 * 1000;
   function createAppReleaseDownloadToken(release) {
     const expiresAt = Date.now() + APP_RELEASE_DOWNLOAD_TTL_MS;
@@ -180,6 +181,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     const pathname = url.pathname;
     if (user?.workspace_id && user.workspace_id !== workspaceId) return deny(res,'Access denied — account belongs to another portal.');
     if (user?.must_change_password && !pathname.startsWith('/api/account/') && !pathname.startsWith('/api/auth/')) return json(res, 403, { error: 'Password change required before accessing the workspace.', code: 'PASSWORD_CHANGE_REQUIRED' });
+    if (!teamCommunicationEnabled && (pathname === '/api/chat' || pathname.startsWith('/api/chat/'))) return json(res, 410, { error: 'Team Communication has been removed from this CRM.' });
 
     const releaseDownload = pathname.match(/^\/api\/app\/releases\/([^/]+)\/download$/);
     if (releaseDownload && req.method === 'GET') {
@@ -675,7 +677,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (settingRoute && req.method === 'GET') { const key=settingRoute[1].replace('-', '_'); return json(res,200,{data:settings[key]||{}}); }
       if (settingRoute && req.method === 'PATCH') { const body=await readBody(req); const key=settingRoute[1].replace('-', '_'); const merged={...(settings[key]||{}),...body}; await repository.updateWorkspaceSetting(workspaceId,key,merged); return json(res,200,{data:merged}); }
       if (pathname === '/api/settings/notifications' && req.method === 'GET') return json(res,200,{data:await repository.listNotificationSettings(workspaceId,user.id)});
-      if (pathname === '/api/settings/notifications' && req.method === 'PATCH') { const body=await readBody(req); const updates=Array.isArray(body.notifications)?body.notifications:[body]; return json(res,200,{data:await repository.updateNotificationSettings(workspaceId,user.id,updates)}); }
+      if (pathname === '/api/settings/notifications' && req.method === 'PATCH') { const body=await readBody(req); const updates=(Array.isArray(body.notifications)?body.notifications:[body]).filter(item => item?.event_key !== 'team_chat_message'); return json(res,200,{data:await repository.updateNotificationSettings(workspaceId,user.id,updates)}); }
        if (pathname === '/api/settings/permissions' && req.method === 'GET') { const roles={super_admin:'SUPER_ADMIN',sales_manager:'SALES_MANAGER',sales_agent:'SALES_AGENT',hr:'HR',project_manager:'PROJECT_MANAGER'}; const permissions=Object.entries(rolePermissions).flatMap(([roleKey,items])=>(Array.isArray(items)?items:Object.keys(items||{})).map(key=>({key,role:roleKey,allowed:true}))); return json(res,200,{roles,data:permissions}); }
       if (pathname === '/api/settings/activities' && req.method === 'GET') return json(res,200,{data:await repository.settingsActivities(workspaceId)});
       const configuration = pathname.match(/^\/api\/settings\/(lead-statuses|customer-statuses|lead-tags|lead-sources)$/);

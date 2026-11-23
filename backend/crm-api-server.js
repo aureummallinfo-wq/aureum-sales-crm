@@ -31,6 +31,7 @@ const IS_VERCEL_PREVIEW = String(process.env.VERCEL_ENV || '').trim().toLowerCas
 const IS_PRODUCTION_RUNTIME = NODE_ENV === 'production' && !IS_VERCEL_PREVIEW;
 const DATABASE_DRIVER = String(process.env.AUREUM_DATABASE_DRIVER || (NODE_ENV === 'production' ? 'postgres' : 'neon')).trim().toLowerCase();
 const USING_NEON = DATABASE_DRIVER === 'neon';
+const TEAM_COMMUNICATION_ENABLED = String(process.env.AUREUM_TEAM_COMMUNICATION || (IS_PRODUCTION_RUNTIME ? 'false' : 'true')).trim().toLowerCase() !== 'false';
 let neon;
 let neonConfig;
 let databaseConnectionError;
@@ -101,11 +102,11 @@ const webhookLogs = [];
 const failedWebhookLeads = [];
 
 const rolePermissions = {
-  super_admin: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
-  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'reports', 'agents', 'users', 'my-account', 'change-password'],
-  sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', 'team-chat', 'my-account', 'change-password'],
+  super_admin: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', ...(TEAM_COMMUNICATION_ENABLED ? ['team-chat'] : []), 'reports', 'agents', 'users', 'my-account', 'change-password', 'settings'],
+  sales_manager: ['dashboard', 'leads', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', ...(TEAM_COMMUNICATION_ENABLED ? ['team-chat'] : []), 'reports', 'agents', 'users', 'my-account', 'change-password'],
+  sales_agent: ['dashboard', 'my-leads', 'add-lead', 'customers', 'follow-ups', 'tasks', ...(TEAM_COMMUNICATION_ENABLED ? ['team-chat'] : []), 'my-account', 'change-password'],
   hr: ['dashboard', 'follow-ups', 'tasks', 'reports', 'my-account', 'change-password'],
-  project_manager: ['dashboard', 'tasks', 'team-chat', 'reports', 'my-account', 'change-password']
+  project_manager: ['dashboard', 'tasks', ...(TEAM_COMMUNICATION_ENABLED ? ['team-chat'] : []), 'reports', 'my-account', 'change-password']
 };
 
 const dashboardByRole = {
@@ -1128,7 +1129,7 @@ async function handle(req, res) {
     if (!await enforceRequestBudget(req, res, url, null)) return;
     const connectionId = url.pathname.split('/').pop();
     if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
-      try { const payload = await readBodyLimited(req, 100_000); const result = await NEON_REPOSITORY.ingestWebhookLead(NEON_WORKSPACE_ID, connectionId, String(req.headers['x-aureum-webhook-secret'] || ''), payload); if (result.ok) { json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead?.id || null, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } else json(res, result.status || 400, { error: result.error }); } catch (error) { if (!['PAYLOAD_TOO_LARGE', 'INVALID_JSON'].includes(error.code)) throw error; json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, { error: error.code === 'PAYLOAD_TOO_LARGE' ? 'Webhook payload is too large.' : 'Webhook payload is invalid.' }); }
+      try { const payload = await readBodyLimited(req, 100_000); const result = await NEON_REPOSITORY.ingestWebhookLead(NEON_WORKSPACE_ID, connectionId, String(req.headers['x-aureum-webhook-secret'] || ''), payload); if (result.ok) { json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead?.id || null, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } else json(res, result.status || 400, { error: result.error }); } catch (error) { console.error('Public webhook failed:', { requestId: req.id, connectionId, code: error?.code || error?.name, message: error?.message, stack: error?.stack }); if (!['PAYLOAD_TOO_LARGE', 'INVALID_JSON'].includes(error.code)) throw error; json(res, error.code === 'PAYLOAD_TOO_LARGE' ? 413 : 400, { error: error.code === 'PAYLOAD_TOO_LARGE' ? 'Webhook payload is too large.' : 'Webhook payload is invalid.' }); }
       req.__aureumRelationalHandled = true;
       return;
     }
@@ -1409,7 +1410,7 @@ async function handle(req, res) {
       if (req.method === 'PATCH') {
         const body = await readBody(req);
         const allowed = key === 'notifications'
-          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'follow_up_completed', 'task_assigned', 'team_chat_message', 'daily_digest']
+          ? ['new_lead_assigned', 'follow_up_due', 'follow_up_overdue', 'follow_up_completed', 'task_assigned', ...(TEAM_COMMUNICATION_ENABLED ? ['team_chat_message'] : []), 'daily_digest']
           : key === 'appearance' ? ['theme', 'compact_mode', 'sidebar_collapsed'] : ['language', 'date_format', 'time_format'];
         const next = { ...(current[key] || {}) };
         allowed.forEach(field => { if (body[field] !== undefined) next[field] = key === 'notifications' || key === 'appearance' && ['compact_mode', 'sidebar_collapsed'].includes(field) ? Boolean(body[field]) : String(body[field]); });
@@ -1847,6 +1848,9 @@ async function handle(req, res) {
     json(res, 405, { error: 'Method not allowed' }); return;
   }
 
+  if (!TEAM_COMMUNICATION_ENABLED && (url.pathname === '/api/chat' || url.pathname.startsWith('/api/chat/'))) {
+    json(res, 410, { error: 'Team Communication has been removed from this CRM.' }); return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/chat/users') {
     const user = requireAuth(req, res); if (user) { const visible = user.role === 'super_admin' ? users : users.filter(target => target.team_id === user.team_id || target.id === user.id); json(res, 200, { data: visible.filter(target => target.id !== user.id).map(target => ({ ...chatUserView(target), team_id: target.team_id, team_name: target.team_id === 'team_a' || target.team_id === 'team_b' ? 'Sales Team A' : 'Leadership' })) }); } return;
   }

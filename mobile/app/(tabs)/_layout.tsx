@@ -26,7 +26,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="follow-ups" options={{ title: 'Follow-ups', href: canSeeFollowUps ? undefined : null }} />
       <Tabs.Screen name="tasks" options={{ title: 'Tasks' }} />
       <Tabs.Screen name="reports" options={{ title: 'Reports', href: null }} />
-      <Tabs.Screen name="team-chat" options={{ title: 'Team Chat', href: null }} />
       <Tabs.Screen name="users" options={{ title: 'Users', href: null }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings', href: null }} />
       <Tabs.Screen name="account" options={{ title: 'Account' }} />
