@@ -587,7 +587,7 @@ function leadTable(rows, full = true) {
 }
 
 const chatMessages = {
-  'Sales Team': [['Ali Raza', 'AR', '10:20 AM', 'Ahmed Khan requested the payment plan for 1 Bed Apartment (Sector C). I will follow up at 4:00 PM.'], ['Sales Manager', 'SM', '10:23 AM', 'Good. Mark him as Hot Lead and update the follow-up note in the CRM registry immediately after the call.'], ['Sara Ahmed', 'SA', '10:28 AM', 'Fatima Ahmed's site visit is confirmed for 6:00 PM today at Bahria Town show gallery.'], ['Hamza Khan', 'HK', '10:35 AM', 'I have shared the complete commercial floor brochure with Sara Malik on WhatsApp.']],
+  'Sales Team': [['Ali Raza', 'AR', '10:20 AM', 'Ahmed Khan requested the payment plan for 1 Bed Apartment (Sector C). I will follow up at 4:00 PM.'], ['Sales Manager', 'SM', '10:23 AM', 'Good. Mark him as Hot Lead and update the follow-up note in the CRM registry immediately after the call.'], ['Sara Ahmed', 'SA', '10:28 AM', 'Fatima Ahmed\\u2019s site visit is confirmed for 6:00 PM today at Bahria Town show gallery.'], ['Hamza Khan', 'HK', '10:35 AM', 'I have shared the complete commercial floor brochure with Sara Malik on WhatsApp.']],
   'General': [['Admin Console', 'AD', '09:15 AM', 'Weekly sales target updated. Please review the new Q4 pacing notes.'], ['Ali Raza', 'AR', '09:22 AM', 'Acknowledged. Team A will prioritize the Sector C apartment inventory today.']],
   'Follow-ups': [['Sales Manager', 'SM', '10:04 AM', '14 follow-ups are scheduled for today. Please update notes within 30 minutes of every touchpoint.'], ['Ayesha Noor', 'AN', '10:11 AM', 'The Fatima Ahmed gallery booking is confirmed and assigned.']]
 };
