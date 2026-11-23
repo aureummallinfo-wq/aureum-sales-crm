@@ -1565,7 +1565,7 @@ function createNeonRepository(sql) {
   async function listMetaLeadStaging(workspace, filters = {}) {
     const clauses = ['m.workspace_id=$1']; const params = [workspace];
     const add = (value, sqlPart) => { if (value) { params.push(value); clauses.push(sqlPart.replace('?', `$${params.length}`)); } };
-    add(filters.status, 'm.review_status=$?'); add(filters.formId, 'm.form_id=$?'); add(filters.dateFrom, 'm.submitted_at >= $?::date');
+    add(filters.status, 'm.review_status=?'); add(filters.formId, 'm.form_id=?'); add(filters.dateFrom, 'm.submitted_at >= ?::date');
     if (filters.source) { params.push(filters.source); clauses.push(`lower(coalesce(m.source_channel,''))=lower($${params.length})`); }
     if (filters.interest) { params.push(`%${String(filters.interest).toLowerCase()}%`); clauses.push(`(lower(coalesce(m.interested_in,'')) LIKE $${params.length} OR lower(coalesce(m.property_type,'')) LIKE $${params.length} OR lower(coalesce(m.interest_category,'')) LIKE $${params.length})`); }
     if (filters.dateTo) { params.push(filters.dateTo); clauses.push(`m.submitted_at < ($${params.length}::date + interval '1 day')`); }
@@ -1583,7 +1583,7 @@ function createNeonRepository(sql) {
     const platform = String(raw.platform || 'meta').toLowerCase();
     const requestedChannel = String(metaField(raw, 'source_channel', 'channel', 'source_type') || '').toLowerCase().trim();
     const sourceChannel = ({ fb: 'meta_lead_ads', facebook: 'meta_lead_ads', meta: 'meta_lead_ads', 'meta lead ads': 'meta_lead_ads', lead_ads: 'meta_lead_ads', ig: 'meta_instagram', instagram: 'meta_instagram', messenger: 'meta_messenger' }[requestedChannel] || ({ fb: 'meta_lead_ads', facebook: 'meta_lead_ads', meta: 'meta_lead_ads', ig: 'meta_instagram', instagram: 'meta_instagram' }[platform] || requestedChannel || platform)).toLowerCase();
-    const sourceLabel = metaField(raw, 'source_label', 'lead_source', 'source') || ({ meta_lead_ads: 'Meta · Lead Ads', meta_messenger: 'Meta · Messenger', meta_instagram: 'Meta · Instagram', website_form: 'Website · Form', website_chat: 'Website · Chat', whatsapp: 'WhatsApp · Organic' }[sourceChannel] || sourceChannel);
+    const sourceLabel = metaField(raw, 'source_label', 'lead_source', 'source') || ({ meta_lead_ads: 'Meta - Lead Ads', meta_messenger: 'Meta - Messenger', meta_instagram: 'Meta - Instagram', website_form: 'Website - Form', website_chat: 'Website - Chat', whatsapp: 'WhatsApp - Organic' }[sourceChannel] || sourceChannel);
     const interestedIn = metaField(raw, 'interested_in', 'interest', 'what_are_you_interested_in?');
     const propertyType = metaField(raw, 'property_type', 'which_property_type_do_you_want_to_go_for?', 'which_property_type?');
     const residentialBudget = metaField(raw, 'residential_budget', 'what_is_your_booking_budget_for_residential?');

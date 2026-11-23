@@ -16,11 +16,11 @@
   const metaStatus = value => `<span class="badge badge-${statusTone(value)}">${esc(value || 'Pending review')}</span>`;
   const sourceLabel = item => {
     const source = String(rawValue(item, 'source_label', 'source', 'source_channel', 'platform') || 'Meta').toLowerCase();
-    if (source.includes('messenger')) return 'Meta · Messenger';
-    if (source.includes('instagram')) return 'Meta · Instagram';
-    if (source.includes('website')) return 'Website · Form';
-    if (source.includes('whatsapp')) return 'WhatsApp · Organic';
-    return 'Meta · Lead Ads';
+    if (source.includes('messenger')) return 'Meta - Messenger';
+    if (source.includes('instagram')) return 'Meta - Instagram';
+    if (source.includes('website')) return 'Website - Form';
+    if (source.includes('whatsapp')) return 'WhatsApp - Organic';
+    return 'Meta - Lead Ads';
   };
   const interestLabel = item => rawValue(item, 'interested_in', 'interest_category', 'interest') || 'Not provided';
   const budgetLabel = item => rawValue(item, 'budget', 'residential_budget', 'commercial_budget') || 'Budget pending';
@@ -36,7 +36,7 @@
   };
   const statusOptions = ['Pending review', 'Reviewed', 'Sent to CRM', 'Rejected', 'Failed'];
   const sourceOptions = ['meta_lead_ads', 'meta_messenger', 'meta_instagram', 'website_form', 'website_chat', 'whatsapp', 'referral_partner', 'manual_entry', 'import', 'event_qr'];
-  const sourceOptionLabel = value => ({ meta_lead_ads: 'Meta · Lead Ads', meta_messenger: 'Meta · Messenger', meta_instagram: 'Meta · Instagram', website_form: 'Website · Form', website_chat: 'Website · Chat', whatsapp: 'WhatsApp · Organic', referral_partner: 'Referral · Partner', manual_entry: 'Manual · Staff Entry', import: 'Import · CSV/Excel', event_qr: 'Event · QR Code' }[value] || value);
+  const sourceOptionLabel = value => ({ meta_lead_ads: 'Meta - Lead Ads', meta_messenger: 'Meta - Messenger', meta_instagram: 'Meta - Instagram', website_form: 'Website - Form', website_chat: 'Website - Chat', whatsapp: 'WhatsApp - Organic', referral_partner: 'Referral - Partner', manual_entry: 'Manual - Staff Entry', import: 'Import - CSV/Excel', event_qr: 'Event - QR Code' }[value] || value);
 
   function metaFilters() {
     const filters = state.metaInbox.filters || {};
