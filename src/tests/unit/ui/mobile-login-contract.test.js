@@ -11,7 +11,7 @@ test('mobile login viewport supports safe areas and keyboard resizing', () => {
   assert.match(html, /viewport-fit=cover/);
   assert.match(html, /interactive-widget=resizes-content/);
   assert.match(html, /aureum-design-system\.css\?v=20261121-perf/);
-  assert.match(html, /app-shell\.js\?v=20261121-perf/);
+  assert.match(html, /app-shell\.js\?v=20261123-assignment-filter/);
 });
 
 test('mobile login keeps email and phone authentication compatible', () => {
