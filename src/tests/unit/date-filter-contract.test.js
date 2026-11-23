@@ -34,6 +34,7 @@ test('date filters propagate to both relational and fallback data paths', () => 
   const agents = read('frontend/team-chat-reports-agents.js');
   assert.match(appShell, /query\.set\('dateFrom'/);
   assert.match(appShell, /query\.set\('dateTo'/);
+  assert.match(appShell, /query\.set\('assignment', filters\.assignment\)/);
   assert.match(tasks, /query\.set\('dateFrom'/);
   assert.match(agents, /query\.set\('dateFrom'/);
   assert.match(agents, /query\.set\('dateTo'/);

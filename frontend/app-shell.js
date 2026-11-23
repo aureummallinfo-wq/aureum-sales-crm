@@ -1038,6 +1038,7 @@ async function loadLeads(my = false, force = false, options = {}) {
   if (filters.priority) query.set('priority', filters.priority);
   const leadDate = window.AureumDateFilter?.query(filters.dateRange || 'all', filters.startDate || '', filters.endDate || '');
   if (leadDate) { query.set('dateFrom', leadDate.start); query.set('dateTo', leadDate.end); }
+  if (!my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && filters.assignment) query.set('assignment', filters.assignment);
   if (!my && ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role) && filters.agentId) query.set('agentId', filters.agentId);
   const endpoint = `${my ? '/api/leads/my' : '/api/leads'}?${query}`;
   try {
