@@ -108,7 +108,7 @@
   async function loadMetaIntake() {
     if (!state.authUser || state.screen !== 'meta-inbox') return;
     state.metaInbox.loading = true; state.metaInbox.error = ''; render();
-    try { const filters = state.metaInbox.filters || {}; const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { force: true }); state.metaInbox.items = result.data || []; } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
+    try { const filters = state.metaInbox.filters || {}; const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { force: true }); state.metaInbox.items = result.data || []; if (!state.metaInbox.items.length && !Object.keys(filters).some(key => filters[key])) { if (!state.metaInbox.emptyLoadRetried) { state.metaInbox.emptyLoadRetried = true; window.setTimeout(() => { if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(); }, 350); } } else { state.metaInbox.emptyLoadRetried = false; } } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
   }
 
   async function openMetaStaging(id) {
