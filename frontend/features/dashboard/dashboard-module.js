@@ -275,7 +275,19 @@ function dashboardConversionChart(items) { items = dashboardSafeArray(items); co
 
 function dashboardRecentLeads(items) { items = dashboardSafeArray(items); if (!items.length) return '<div class="dashboard-empty">No recent leads found.</div>'; return `<div class="table-wrap dashboard-table-wrap"><table class="dashboard-data-table"><thead><tr><th>Lead Name</th><th>Source</th><th>Interested In</th><th>Assigned Agent</th><th>Status</th><th>Created Date</th></tr></thead><tbody>${items.slice(0, 6).map(item => { const leadName = dashboardLeadName(item); const status = dashboardRecordStatus(item); const leadId = dashboardSafeString(dashboardValue(item, ['id', 'leadId', 'lead_id'], ''), ''); return `<tr><td><button class="profile-link-button" data-lead-open="${dashboardEscape(leadId)}" aria-label="Open ${dashboardEscape(leadName)} lead profile">${person(dashboardEscape(leadName), dashboardEscape(dashboardInitials(leadName)), dashboardEscape(dashboardSafeString(item?.phone, 'No phone')))}</button></td><td>${dashboardEscape(dashboardSafeString(item?.source))}</td><td>${dashboardEscape(dashboardSafeString(item?.interestedIn))}</td><td>${dashboardEscape(dashboardAgentName(item))}</td><td>${badge(status)}</td><td>${dashboardEscape(dashboardSafeString(item?.createdAt, 'No date'))}</td></tr>`; }).join('')}</tbody></table></div>`; }
 
-function dashboardTodayFollowUps(items) { items = dashboardSafeArray(items); if (!items.length) { const range = dashboardDateRangeLabel(); return `<div class="dashboard-empty">${range === 'Today' ? 'No follow-ups due today.' : `No follow-ups found for ${range.toLowerCase()}.`}</div>`; } return `<div class="dashboard-followup-list">${items.slice(0, 6).map(item => { const status = dashboardRecordStatus(item); return `<div class="dashboard-followup-row ${status === 'Overdue' ? 'is-overdue' : ''}"><div class="dashboard-followup-time">${dashboardEscape(dashboardSafeString(item?.dueTime, 'No time'))}</div><div class="dashboard-followup-main"><strong>${dashboardEscape(dashboardCustomerName(item))}</strong><span>${dashboardEscape(dashboardSafeString(item?.followUpType))} · ${dashboardEscape(dashboardAgentName(item))}</span></div><div>${badge(status)}</div></div>`; }).join('')}</div>`; }
+function dashboardFollowUpDateLabel(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dashboardSafeString(value, 'No date');
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return dashboardSafeString(value, 'No date');
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(date);
+}
+function dashboardFollowUpDueLabel(item) {
+  const dueDate = dashboardSafeString(item?.dueDate, 'No date');
+  const dueTime = dashboardSafeString(item?.dueTime, 'No time');
+  return dueDate === 'No date' ? dueTime : `${dashboardFollowUpDateLabel(dueDate)} · ${dueTime}`;
+}
+function dashboardTodayFollowUps(items) { items = dashboardSafeArray(items); if (!items.length) { const range = dashboardDateRangeLabel(); return `<div class="dashboard-empty">${range === 'Today' ? 'No follow-ups due today.' : `No follow-ups found for ${range.toLowerCase()}.`}</div>`; } return `<div class="dashboard-followup-list">${items.slice(0, 6).map(item => { const status = dashboardRecordStatus(item); const id = dashboardSafeString(item?.id, ''); const customer = dashboardCustomerName(item); const due = dashboardFollowUpDueLabel(item); return `<div class="dashboard-followup-row ${status === 'Overdue' ? 'is-overdue' : ''}" ${id ? `data-dashboard-followup-open="${dashboardEscape(id)}" role="button" tabindex="0" aria-label="Open follow-up for ${dashboardEscape(customer)} due ${dashboardEscape(due)}"` : ''}><div class="dashboard-followup-time">${dashboardEscape(due)}</div><div class="dashboard-followup-main"><strong>${dashboardEscape(customer)}</strong><span>${dashboardEscape(dashboardSafeString(item?.followUpType))} · ${dashboardEscape(dashboardAgentName(item))}</span></div><div>${badge(status)}</div></div>`; }).join('')}</div>`; }
 
 function dashboardQuickActions(actions) { return `<div class="dashboard-quick-actions">${actions.map(([screen, label], index) => `<button class="btn ${index === 0 ? 'btn-gold' : 'btn-secondary'}" data-screen="${screen}">${dashboardEscape(label)} ${icons.arrow}</button>`).join('')}</div>`; }
 
@@ -294,6 +306,8 @@ function bindDashboardModuleEvents() {
   document.addEventListener('click', event => {
     const agent = event.target.closest?.('[data-dashboard-agent-open]');
     if (agent) { window.aureumOpenReportAgent?.(agent.dataset.dashboardAgentOpen); return; }
+    const followUp = event.target.closest?.('[data-dashboard-followup-open]');
+    if (followUp) { window.openFollowup?.(followUp.dataset.dashboardFollowupOpen); return; }
     const kpi = event.target.closest?.('[data-dashboard-kpi]');
     if (kpi) { dashboardNavigateFromKpi(kpi); return; }
     const apply = event.target.closest?.('[data-dashboard-apply-range]');
@@ -307,6 +321,7 @@ function bindDashboardModuleEvents() {
   });
   document.addEventListener('change', event => { if (event.target.matches?.('[data-dashboard-date-range]')) { state.dashboardDateRange = event.target.value; if (state.dashboardDateRange === 'custom') render(); else loadDashboard(); } if (event.target.matches?.('[data-dashboard-recent-agent-filter]')) { state.dashboardRecentLeadAgentId = event.target.value || ''; loadDashboard({ force: true }); } if (event.target.matches?.('[data-dashboard-agent-filter-all]') && event.target.checked) document.querySelectorAll('[data-dashboard-agent-filter-option]').forEach(input => { input.checked = false; }); if (event.target.matches?.('[data-dashboard-agent-filter-option]') && event.target.checked) { const all = document.querySelector('[data-dashboard-agent-filter-all]'); if (all) all.checked = false; } });
   document.addEventListener('keydown', event => { if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('[data-dashboard-kpi]')) { event.preventDefault(); dashboardNavigateFromKpi(event.target); } });
+  document.addEventListener('keydown', event => { if ((event.key === 'Enter' || event.key === ' ') && event.target.matches?.('[data-dashboard-followup-open]')) { event.preventDefault(); window.openFollowup?.(event.target.dataset.dashboardFollowupOpen); } });
 }
 
 function renderDashboard() {
@@ -319,4 +334,4 @@ function renderDashboard() {
 
 bindDashboardModuleEvents();
 window.invalidateDashboardCache = invalidateDashboardCache;
-window.dashboardContracts = { dashboardRoleConfig, DASHBOARD_CACHE_TTL_MS, dashboardSafeString, dashboardSafeArray, dashboardLeadName, dashboardCustomerName, dashboardAgentName, dashboardInitials, dashboardWelcomeName, dashboardChartMax, dashboardChartLabel, dashboardLineChart, dashboardCacheKey, dashboardReadCache, dashboardWriteCache, invalidateDashboardCache, normalizeDashboardData, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };
+window.dashboardContracts = { dashboardRoleConfig, DASHBOARD_CACHE_TTL_MS, dashboardSafeString, dashboardSafeArray, dashboardLeadName, dashboardCustomerName, dashboardAgentName, dashboardInitials, dashboardWelcomeName, dashboardChartMax, dashboardChartLabel, dashboardLineChart, dashboardCacheKey, dashboardReadCache, dashboardWriteCache, invalidateDashboardCache, normalizeDashboardData, dashboardFollowUpDateLabel, dashboardFollowUpDueLabel, dashboardTodayFollowUps, useDashboardData, useDashboardSummary, useLeadInflow, useLeadSources, useFollowUpPerformance, useAgentPerformance, useConversionOverview, useRecentLeads, useTodayFollowUps };

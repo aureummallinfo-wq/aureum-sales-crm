@@ -626,7 +626,10 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
         followUpPerformance: report.charts.followUpStatusPerformance,
         conversionOverview: report.charts.conversionOverview,
         recentLeads: recentRows.slice(0, 8).map(leadView),
-        todayFollowUps: report.followUps.filter(item => item.due_date === localDate()).slice(0, 8).map(followUpView),
+        // reportData has already applied the selected dashboard date range.
+        // Keep the card aligned with that range instead of narrowing it back
+        // to today's date here.
+        todayFollowUps: report.followUps.slice(0, 8).map(followUpView),
         agentPerformance: report.agentReports,
         meta: report.meta
       } });

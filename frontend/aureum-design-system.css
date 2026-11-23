@@ -457,6 +457,8 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .dashboard-data-table .person { min-width: 150px; }
 .dashboard-followup-list { display: grid; gap: 0; }
 .dashboard-followup-row { display: grid; grid-template-columns: 65px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.dashboard-followup-row[data-dashboard-followup-open] { cursor: pointer; }
+.dashboard-followup-row[data-dashboard-followup-open]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .dashboard-followup-row:last-child { border-bottom: 0; }
 .dashboard-followup-row.is-overdue { margin: 0 -10px; padding-right: 10px; padding-left: 10px; border-radius: 8px; background: #fcf0ee; }
 .dashboard-followup-time { color: var(--gold); font-size: 11px; font-weight: 700; }

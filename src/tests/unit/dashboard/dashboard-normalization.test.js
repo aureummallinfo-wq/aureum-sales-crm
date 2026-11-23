@@ -12,6 +12,7 @@ function loadDashboardContracts() {
     state: { role: 'SALES_MANAGER', dashboardDateRange: 'this_month' },
     window: { aureumDashboardEventsBound: false },
     document: { addEventListener() {} },
+    badge: value => String(value ?? ''),
     console,
     Date,
     URLSearchParams,
@@ -76,6 +77,16 @@ test('dashboard name and initials helpers never call methods on undefined', () =
   assert.equal(dashboardInitials('Ali Khan'), 'AK');
   assert.equal(dashboardLeadName({}), 'Unknown Lead');
   assert.equal(dashboardAgentName({}), 'Unassigned');
+});
+
+test('dashboard follow-up card uses the due date and exposes a detail action', () => {
+  const { dashboardFollowUpDateLabel, dashboardFollowUpDueLabel, dashboardTodayFollowUps } = loadDashboardContracts();
+
+  assert.equal(dashboardFollowUpDateLabel('2026-11-25'), '25 Nov');
+  assert.equal(dashboardFollowUpDueLabel({ dueDate: '2026-11-25', dueTime: '10:00' }), '25 Nov · 10:00');
+  const html = dashboardTodayFollowUps([{ id: 'followup-1', customerName: 'Test Customer', dueDate: '2026-11-25', dueTime: '10:00', followUpType: 'General Follow-up', assignedAgent: 'Adan Abdul Rehman', status: 'Pending' }]);
+  assert.match(html, /data-dashboard-followup-open="followup-1"/);
+  assert.match(html, /25 Nov · 10:00/);
 });
 
 test('dashboard cache stores only aggregate data, expires quickly, and invalidates', () => {
