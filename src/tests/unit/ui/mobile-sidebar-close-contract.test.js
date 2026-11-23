@@ -23,7 +23,7 @@ test('mobile sidebar close button has a reliable touch target', () => {
 
 test('mobile sidebar close assets are cache busted', () => {
   const html = read('frontend/index.html');
-  assert.match(html, /aureum-design-system\.css\?v=20261112-sidebar-close/);
-  assert.match(html, /settings-system-enhancements\.js\?v=20261112-sidebar-close/);
-  assert.match(html, /module9-settings-account-runtime\.js\?v=20261112-sidebar-close/);
+  assert.match(html, /aureum-design-system\.css\?v=20261121-perf/);
+  assert.match(html, /settings-system-enhancements\.js\?v=20261121-perf/);
+  assert.match(html, /module9-settings-account-runtime\.js\?v=20261121-perf/);
 });

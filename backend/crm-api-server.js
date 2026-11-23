@@ -843,19 +843,6 @@ function ingestWebhookLead(connection, payload, options = {}) {
   const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fields.fullName || 'Inbound lead', initials: (fields.fullName || 'Inbound lead').split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone: fields.phone || fields.whatsapp || '', whatsapp_number: fields.whatsapp || fields.phone || '', email: fields.email, city: fields.city, area: fields.area, interested_in: fields.interestedIn || 'Not specified', property_type: fields.propertyType || 'Not specified', budget: fields.budget || 'Not specified', preferred_location: '', purpose: fields.purpose || 'Not specified', buying_timeline: fields.buyingTimeline || 'Not specified', financing_required: false, lead_source: canonicalWebhookSourceName(fields.raw, connection), status: connection.default_lead_status || 'New', priority: 'Medium', tags, assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || null, created_by: 'system', last_contacted_at: 'Not contacted', next_follow_up_at: 'Not scheduled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), is_imported: true, imported_from: connection.source_platform, webhook_connection_id: connection.id, external_lead_id: fields.externalLeadId || null, idempotency_key: fields.idempotencyKey || null, payload_hash: fields.payloadHash, source_platform: fields.sourcePlatform, source_form_id: fields.formId || null, source_form_name: fields.sourceFormName || null, source_form: fields.sourceFormName || null, campaign_name: fields.campaignName || null, webhook_received_at: new Date().toISOString(), duplicate_checked: true };
   leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, options.actorId || 'system', 'Webhook lead created', `Lead imported from ${connection.connection_name}.`, { connection_id: connection.id, source_form_name: fields.sourceFormName || undefined }); persistState(); createWebhookLog(connection, 'Success', 'Lead created from webhook payload', fields, '', lead, options.actorId); return { ok: true, duplicate: false, lead: leadView(lead), fields };
 }
-function verifyWebhookLead(connection, query = {}) {
-  const externalLeadId = safeText(query.external_lead_id || query.meta_lead_id || query.lead_id, 160);
-  const idempotencyKey = safeText(query.idempotency_key || query.idempotencyKey, 160);
-  const crmLeadId = safeText(query.crm_lead_id || query.crmLeadId || query.lead_id_internal, 160);
-  if (!externalLeadId && !idempotencyKey && !crmLeadId) return { status: 422, error: 'external_lead_id, idempotency_key, or crm_lead_id is required.' };
-  const lead = leads.find(item => (
-    (crmLeadId && String(item.id) === crmLeadId)
-    || (externalLeadId && String(item.external_lead_id || '') === externalLeadId)
-    || (idempotencyKey && String(item.idempotency_key || '') === idempotencyKey)
-  ));
-  if (!lead) return { status: 404, error: 'Lead has not been persisted in the CRM yet.' };
-  return { ok: true, confirmed: true, lead: leadView(lead) };
-}
 
 const demoWebhookSecretHash = webhookHash('aureum-demo-webhook-secret');
 webhookConnections.push({ id: 'wh_demo_meta', connection_name: 'Meta Lead Ads · Demo intake', source_type: 'meta_lead_ads', source_platform: 'meta', webhook_url: '/api/webhooks/leads/wh_demo_meta', secret_hash: demoWebhookSecretHash, secret_token_masked: '••••••••', status: 'Inactive', default_lead_source: 'Meta Lead Ads', default_lead_status: 'New', default_tags: ['Meta Lead', 'Imported Lead'], default_assigned_team: null, default_assigned_agent: null, auto_assign_lead: false, duplicate_check_rule: 'externalLeadId', field_mappings: {}, failed_attempts: 0, unauthorized_attempts: 0, created_by: 'usr_001', created_at: '2026-10-08T08:00:00.000Z', updated_at: '2026-10-08T08:00:00.000Z' });
@@ -1104,7 +1091,8 @@ function staticFile(res, pathname) {
     res.writeHead(404); res.end('Not found'); return;
   }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
-  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
+  const cacheControl = path.extname(filePath) === '.html' ? 'no-store' : 'public, max-age=3600, stale-while-revalidate=86400';
+  res.writeHead(200, { 'Content-Type': types[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': cacheControl, 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'same-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
   fs.createReadStream(filePath).pipe(res);
 }
 
@@ -1131,7 +1119,6 @@ async function handle(req, res) {
     return;
   }
   const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
-  const isPublicWebhookVerification = req.method === 'GET' && /^\/api\/webhooks\/leads\/[^/]+\/verify$/.test(url.pathname);
   if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
     if (!isAllowedFrontendOrigin(req.headers.origin, req)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
   }
@@ -1150,26 +1137,6 @@ async function handle(req, res) {
     if (connection.status !== 'Active') { createWebhookLog(connection, 'Rejected', 'Inactive connection rejected request', null, 'Connection inactive'); json(res, 403, { error: 'Webhook connection is inactive.' }); return; }
     if (!webhookTokenMatches(connection, suppliedSecret)) { createWebhookLog(connection, 'Unauthorized', 'Webhook authentication failed', null, 'Invalid webhook secret'); json(res, 401, { error: 'Webhook authentication failed.' }); return; }
     try { const payload = await readBodyLimited(req, 100_000); const result = ingestWebhookLead(connection, payload, { actorId: 'system' }); if (!result.ok) { json(res, result.statusCode || 400, { error: result.error, failedLeadId: result.failed?.id }); return; } json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead.id, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } catch (error) { const fields = {}; createWebhookLog(connection, error.code === 'PAYLOAD_TOO_LARGE' ? 'Rejected' : 'Failed', 'Webhook payload could not be processed', fields, error.code === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Malformed JSON'); if (error.code === 'PAYLOAD_TOO_LARGE') { json(res, 413, { error: 'Webhook payload is too large.' }); return; } json(res, 400, { error: 'Webhook payload is invalid.' }); }
-    return;
-  }
-  if (isPublicWebhookVerification) {
-    if (!await enforceRequestBudget(req, res, url, null)) return;
-    const connectionId = url.pathname.split('/')[4];
-    const suppliedSecret = String(req.headers['x-aureum-webhook-secret'] || '');
-    if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
-      const result = await NEON_REPOSITORY.verifyWebhookLead(NEON_WORKSPACE_ID, connectionId, suppliedSecret, Object.fromEntries(url.searchParams.entries()));
-      if (result.ok) json(res, 200, { ok: true, confirmed: true, leadId: result.lead.id, externalLeadId: result.lead.external_lead_id || null });
-      else json(res, result.status || 400, { ok: false, confirmed: false, error: result.error });
-      req.__aureumRelationalHandled = true;
-      return;
-    }
-    const connection = webhookConnectionById(connectionId);
-    if (!connection) { json(res, 404, { ok: false, confirmed: false, error: 'Webhook connection not found.' }); return; }
-    if (connection.status !== 'Active') { json(res, 403, { ok: false, confirmed: false, error: 'Webhook connection is inactive.' }); return; }
-    if (!webhookTokenMatches(connection, suppliedSecret)) { json(res, 401, { ok: false, confirmed: false, error: 'Webhook authentication failed.' }); return; }
-    const result = verifyWebhookLead(connection, Object.fromEntries(url.searchParams.entries()));
-    if (result.ok) json(res, 200, { ok: true, confirmed: true, leadId: result.lead.id, externalLeadId: result.lead.external_lead_id || null });
-    else json(res, result.status || 400, { ok: false, confirmed: false, error: result.error });
     return;
   }
 
@@ -1533,10 +1500,7 @@ async function handle(req, res) {
       if (status) data = data.filter(lead => lead.status === status);
       if (source) data = data.filter(lead => lead.lead_source === source);
       if (agentId) data = data.filter(lead => lead.assigned_agent_id === agentId);
-      // A Meta lead may reach the CRM after it was submitted. In the fallback
-      // store, keep date filtering aligned with the relational path: prefer
-      // the source submission time and fall back to the CRM creation time.
-      if (dateFrom || dateTo) data = data.filter(lead => filterDateInRange(lead.received_at || lead.created_time || lead.submitted_at || lead.created_at, dateFrom, dateTo));
+      if (dateFrom || dateTo) data = data.filter(lead => filterDateInRange(lead.created_at, dateFrom, dateTo));
       if (imported === 'true' || imported === 'imported') data = data.filter(lead => lead.is_imported);
       if (imported === 'unassigned') data = data.filter(lead => lead.is_imported && !lead.assigned_agent_id);
       if (imported === 'webhook') data = data.filter(lead => lead.is_imported && lead.webhook_connection_id);
@@ -1551,8 +1515,7 @@ async function handle(req, res) {
     if (user) {
       const dateFrom = url.searchParams.get('dateFrom') || '';
       const dateTo = url.searchParams.get('dateTo') || '';
-      const leadReceivedAt = lead => lead.received_at || lead.created_time || lead.submitted_at || lead.created_at;
-      const data = leads.filter(lead => lead.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(leadReceivedAt(lead), dateFrom, dateTo))).sort((left, right) => (Date.parse(leadReceivedAt(right) || '') || 0) - (Date.parse(leadReceivedAt(left) || '') || 0));
+      const data = leads.filter(lead => lead.assigned_agent_id === user.id && (!(dateFrom || dateTo) || filterDateInRange(lead.created_at, dateFrom, dateTo))).sort((left, right) => (Date.parse(right.created_at || '') || 0) - (Date.parse(left.created_at || '') || 0));
       json(res, 200, { scope: 'my', requestedBy: user.role, data: data.map(leadView) });
     }
     return;
@@ -2172,6 +2135,8 @@ async function handle(req, res) {
       const date = url.searchParams.get('date');
       const customStart = url.searchParams.get('customStart') || '';
       const customEnd = url.searchParams.get('customEnd') || '';
+      const rangeStart = customStart && customEnd && customEnd < customStart ? customEnd : customStart;
+      const rangeEnd = customStart && customEnd && customEnd < customStart ? customStart : customEnd;
       const selectedDate = url.searchParams.get('selectedDate') || '';
       const q = (url.searchParams.get('q') || '').toLowerCase();
       if (status) data = data.filter(item => displayStatus(item) === status);
@@ -2180,7 +2145,7 @@ async function handle(req, res) {
       if (q) data = data.filter(item => [item.customer_name, item.customer_phone, item.assigned_agent, item.notes].some(value => String(value || '').toLowerCase().includes(q)));
       if (date === 'overdue') data = data.filter(item => item.status === 'Overdue');
       if (selectedDate) data = data.filter(item => item.due_date === selectedDate);
-      if (date === 'custom') data = data.filter(item => (!customStart || item.due_date >= customStart) && (!customEnd || item.due_date <= customEnd));
+      if (date === 'custom') data = data.filter(item => (!rangeStart || item.due_date >= rangeStart) && (!rangeEnd || item.due_date <= rangeEnd));
       if (date && !['overdue', 'custom'].includes(date)) {
         const today = new Date(); today.setHours(0, 0, 0, 0);
         const target = new Date(today);

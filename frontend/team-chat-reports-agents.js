@@ -164,7 +164,7 @@ function renderReports() {
   if (!data) return  `<div class="card report-loading-state">${state.reports.error ? `<strong>Unable to load reports</strong><p>${AureumUI.escape(state.reports.error)}</p><button class="btn btn-secondary btn-sm" data-reload-reports>Retry</button>` : '<strong>Loading reports</strong><p>Preparing report data…</p>'}</div>`;
   const summary = data.summary || {}; const agentOptions = data.filters?.agents || []; const teamOptions = data.filters?.teams || []; const leadReport = data.leadReport || {}; const customerReport = data.customerReport || {}; const followUpReport = data.followUpReport || {};
   const agentRows = data.agentReports || []; const statusOptions = [['all', 'All lead statuses'], ...(window.AureumReportEnums?.leadStatuses || []).map(value => [value, value])]; const sourceOptions = [['all', 'All lead sources'], ...(window.AureumReportEnums?.leadSources || []).map(value => [value, value])]; const followUpOptions = [['all', 'All follow-up statuses'], ...(window.AureumReportEnums?.followUpStatuses || []).map(value => [value, value])];
-  const customDates = filters.dateRange === 'custom' ? `<input type="date" data-report-start value="${AureumUI.escape(filters.startDate || '')}" aria-label="Report start date" /><input type="date" data-report-end value="${AureumUI.escape(filters.endDate || '')}" aria-label="Report end date" />` : '';
+  const customDates = filters.dateRange === 'custom' ? `<div class="report-custom-date-fields"><label>From<input type="date" data-report-start value="${AureumUI.escape(filters.startDate || '')}" aria-label="Report start date" /></label><label>To<input type="date" data-report-end value="${AureumUI.escape(filters.endDate || '')}" aria-label="Report end date" /></label><button class="btn btn-gold btn-sm" type="button" data-report-apply-date ${filters.startDate && filters.endDate ? '' : 'disabled'}>Apply dates</button></div>` : '';
   const table = agentRows.length ? `<div class="table-wrap report-table-wrap"><table><thead><tr><th>Agent</th><th>Team</th><th>Assigned</th><th>Contacted</th><th>Hot</th><th>Follow-ups done</th><th>Overdue</th><th>Closed</th><th>Lost</th><th>Last activity</th><th>Action</th></tr></thead><tbody>${agentRows.map(row => { const id = AureumUI.escape(row.agentId); const name = AureumUI.escape(row.agentName); return `<tr><td><button class="profile-link-button" data-report-agent-profile="${id}" aria-label="Open ${name} profile">${person(name, customerInitials(row.agentName), `${row.agentRole} · ${row.status}`)}</button></td><td>${AureumUI.escape(row.teamName || 'Unassigned')}</td><td>${row.assignedLeads}</td><td>${row.contactedLeads}</td><td>${row.hotLeads}</td><td>${row.followUpsCompleted}</td><td>${row.overdueFollowUps}</td><td>${row.closedDeals}</td><td>${row.lostLeads}</td><td>${reportDateText(row.lastActivityAt)}</td><td><button class="table-action" data-report-agent="${id}">View details ${icons.arrow}</button></td></tr>`; }).join('')}</tbody></table></div>` : '<div class="empty-state"><strong>No agents found for this filter.</strong>Try another team or date range.</div>';
   const summaryCards = [reportMetricCard('Total agents', summary.totalAgents, data.scope === 'company' ? 'Company-wide scope' : 'Team scope', 'gold'), reportMetricCard('Assigned leads', summary.assignedLeads, 'Leads in selected range'), reportMetricCard('Contacted leads', summary.contactedLeads, 'Contact activity captured'), reportMetricCard('Hot leads', summary.hotLeads, 'High-intent pipeline', 'warning'), reportMetricCard('Follow-ups completed', summary.followUpsCompleted, 'Resolved touchpoints', 'success'), reportMetricCard('Overdue follow-ups', summary.overdueFollowUps, 'Action required', 'danger'), reportMetricCard('Closed deals', summary.closedDeals, 'Closed Won outcomes', 'success')].join('');
   return  `<section class="report-filter-bar card"><div class="report-filter-grid"><label>Date range<select data-report-date-range>${reportFilterOptions(dateOptions, filters.dateRange)}</select></label><label>Team<select data-report-team><option value="all">All teams</option>${teamOptions.map(team => `<option value="${AureumUI.escape(team)}" ${filters.teamId === team ? 'selected' : ''}>${AureumUI.escape(reportTeamLabel(team, data))}</option>`).join('')}</select></label><label>Agent<select data-report-agent-filter><option value="all">All agents</option>${agentOptions.map(agent => `<option value="${AureumUI.escape(agent.id)}" ${filters.agentId === agent.id ? 'selected' : ''}>${AureumUI.escape(agent.name)}</option>`).join('')}</select></label><label>Lead status<select data-report-lead-status>${reportFilterOptions(statusOptions, filters.leadStatus)}</select></label><label>Lead source<select data-report-lead-source>${reportFilterOptions(sourceOptions, filters.leadSource)}</select></label><label>Follow-up status<select data-report-followup-status>${reportFilterOptions(followUpOptions, filters.followUpStatus)}</select></label>${customDates}</div><div class="report-filter-footer"><span>Generated ${reportDateText(data.meta?.generatedAt)} · ${AureumUI.escape(data.meta?.currency || 'PKR')}</span><button class="btn btn-secondary btn-sm" data-report-clear-filters>Clear filters</button></div></section><section class="report-metric-grid">${summaryCards}</section><section class="card report-table-card"><div class="table-head"><div><div class="eyebrow">PRIMARY REPORT</div><h3>Agent-wise performance</h3><p>Open an agent to inspect leads, customers, follow-ups, and activity.</p></div><div class="report-table-head-actions"><button class="btn btn-gold btn-sm" data-report-export="agent_report">Download CSV</button><button class="btn btn-secondary btn-sm" data-reload-reports>Refresh</button><span class="badge badge-neutral">${agentRows.length} visible agents</span></div></div>${table}</section><section class="report-section-grid">${reportSection('Lead report', 'Canonical lead statuses and source performance.', `<div class="report-mini-grid">${reportMetricCard('Total leads', leadReport.totalLeads, 'Selected range')}${reportMetricCard('New leads', leadReport.newLeads, 'New intake')}${reportMetricCard('Hot leads', leadReport.hotLeads, 'High intent', 'warning')}${reportMetricCard('Closed Won', leadReport.closedWon, 'Successful deals', 'success')}</div><div class="report-bars">${reportBars(data.charts?.leadSourcePerformance)}</div>`)}${reportSection('Customer report', 'Relationship health across the permitted scope.', `<div class="report-mini-grid">${reportMetricCard('Total customers', customerReport.totalCustomers, 'Selected range')}${reportMetricCard('Active customers', customerReport.activeCustomers, 'Active relationships', 'success')}${reportMetricCard('Hot customers', customerReport.hotCustomers, 'High intent', 'warning')}${reportMetricCard('Interested', customerReport.bookingInterestedCustomers, 'Commercial readiness', 'gold')}</div>`)}${reportSection('Follow-up report', 'Completion and recovery health for selected touchpoints.', `<div class="report-mini-grid">${reportMetricCard('Total follow-ups', followUpReport.totalFollowUps, 'Selected range')}${reportMetricCard('Completed', followUpReport.completedFollowUps, `${followUpReport.completionRate || 0}% completion`, 'success')}${reportMetricCard('Overdue', followUpReport.overdueFollowUps, 'Action required', 'danger')}${reportMetricCard('Rescheduled', followUpReport.rescheduledFollowUps, 'Needs review', 'warning')}</div><div class="report-bars">${reportBars(data.charts?.followUpStatusPerformance)}</div>`)}</section>`;
@@ -178,6 +178,68 @@ function renderReportDrawer() { const detail = state.reports.detail; if (!detail
 
 async function downloadReport(reportType = 'agent_report') { const filters = state.reports?.filters || {}; const response = await fetch(apiUrl('/api/reports/export'), { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reportType, ...filters }) }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'Report download failed'); } const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `aureum-${reportType}.csv`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); showToast('Report downloaded as CSV'); }
 function ensureEnhancedReportEvents() { if (state.reportEventsBound) return; state.reportEventsBound = true; document.addEventListener('change', event => { const target = event.target; if (!(target instanceof Element) || !target.matches('[data-report-date-range], [data-report-team], [data-report-agent-filter], [data-report-lead-status], [data-report-lead-source], [data-report-followup-status], [data-report-start], [data-report-end]')) return; const filters = state.reports.filters; if (target.matches('[data-report-date-range]')) filters.dateRange = target.value; if (target.matches('[data-report-team]')) { filters.teamId = target.value; filters.agentId = 'all'; } if (target.matches('[data-report-agent-filter]')) filters.agentId = target.value; if (target.matches('[data-report-lead-status]')) filters.leadStatus = target.value; if (target.matches('[data-report-lead-source]')) filters.leadSource = target.value; if (target.matches('[data-report-followup-status]')) filters.followUpStatus = target.value; if (target.matches('[data-report-start]')) filters.startDate = target.value; if (target.matches('[data-report-end]')) filters.endDate = target.value; loadReports(); }); document.addEventListener('click', async event => { const profile = event.target instanceof Element ? event.target.closest('[data-report-agent-profile]') : null; if (profile) { event.preventDefault(); event.stopPropagation(); openReportAgent(profile.dataset.reportAgentProfile); return; } const target = event.target instanceof Element ? event.target.closest('[data-report-clear-filters], [data-report-export]') : null; if (!target) return; if (target.matches('[data-report-clear-filters]')) { state.reports.filters = { dateRange: 'this_month', teamId: 'all', agentId: 'all', leadStatus: 'all', leadSource: 'all', followUpStatus: 'all' }; loadReports(); return; } if (target.matches('[data-report-export]')) { try { await downloadReport(target.dataset.reportExport || 'agent_report'); } catch (error) { showToast(`Unable to export report: ${error.message}`); } } }); }
+/* Keep custom report dates explicit: selecting Custom opens the controls first,
+   and the query is sent only after both dates have been chosen. */
+function ensureEnhancedReportEvents() {
+  if (state.reportEventsBound) return;
+  state.reportEventsBound = true;
+  document.addEventListener('change', event => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const filters = state.reports.filters;
+    if (target.matches('[data-report-date-range]')) {
+      filters.dateRange = target.value;
+      if (target.value === 'custom') {
+        filters.startDate = '';
+        filters.endDate = '';
+        render();
+        return;
+      }
+      filters.startDate = '';
+      filters.endDate = '';
+      loadReports();
+      return;
+    }
+    if (target.matches('[data-report-start]')) filters.startDate = target.value;
+    if (target.matches('[data-report-end]')) filters.endDate = target.value;
+    if (target.matches('[data-report-start], [data-report-end]')) {
+      render();
+      return;
+    }
+    if (target.matches('[data-report-team]')) { filters.teamId = target.value; filters.agentId = 'all'; }
+    if (target.matches('[data-report-agent-filter]')) filters.agentId = target.value;
+    if (target.matches('[data-report-lead-status]')) filters.leadStatus = target.value;
+    if (target.matches('[data-report-lead-source]')) filters.leadSource = target.value;
+    if (target.matches('[data-report-followup-status]')) filters.followUpStatus = target.value;
+    if (target.matches('[data-report-team], [data-report-agent-filter], [data-report-lead-status], [data-report-lead-source], [data-report-followup-status]')) loadReports();
+  });
+  document.addEventListener('click', async event => {
+    const profile = event.target instanceof Element ? event.target.closest('[data-report-agent-profile]') : null;
+    if (profile) { event.preventDefault(); event.stopPropagation(); openReportAgent(profile.dataset.reportAgentProfile); return; }
+    const target = event.target instanceof Element ? event.target.closest('[data-report-clear-filters], [data-report-export], [data-report-apply-date]') : null;
+    if (!target) return;
+    if (target.matches('[data-report-clear-filters]')) {
+      state.reports.filters = { dateRange: 'this_month', teamId: 'all', agentId: 'all', leadStatus: 'all', leadSource: 'all', followUpStatus: 'all', startDate: '', endDate: '' };
+      loadReports();
+      return;
+    }
+    if (target.matches('[data-report-apply-date]')) {
+      const filters = state.reports.filters;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(filters.startDate || '') || !/^\d{4}-\d{2}-\d{2}$/.test(filters.endDate || '')) {
+        showToast('Choose both report dates first.');
+        return;
+      }
+      if (filters.endDate < filters.startDate) [filters.startDate, filters.endDate] = [filters.endDate, filters.startDate];
+      loadReports();
+      return;
+    }
+    if (target.matches('[data-report-export]')) {
+      try { await downloadReport(target.dataset.reportExport || 'agent_report'); }
+      catch (error) { showToast(`Unable to export report: ${error.message}`); }
+    }
+  });
+}
+
 /* MODULE_8_USERS_ACCESS_RUNTIME */
 state.users = state.users || { loading: false, error: '', items: [], teams: [], detail: null, filters: { search: '', role: 'All', status: 'All', inviteStatus: 'All', teamId: 'All', activityStatus: 'All' }, drawer: '' };
 state.account = state.account || { loading: false, error: '', data: null };

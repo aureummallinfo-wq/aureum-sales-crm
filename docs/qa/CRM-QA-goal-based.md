@@ -62,10 +62,11 @@ The date filter is intentionally not added to Add Lead, My Account, Settings, or
 - Date-filter unit and contract checks: 138/138 passed, including CRM timezone bounds, custom-range normalization, malformed custom input, all operational registries, and both relational/fallback server paths.
 - Mock-system QA: 112 passed, 0 failed, 0 blocked across Sales Manager and Sales Agent workflows, permissions, lead/customer/follow-up lifecycle, search, assignment, reports, tasks, imports, notifications, chat, account controls, and logout.
 - Affected PostgreSQL functional checks: 7/7 passed, including auto-linked customers, atomic reminder creation, retry idempotency, and closure propagation.
-- Full repository suite: 258 passed, 3 skipped, 0 failed under the unrestricted local test runner. The earlier restricted-runner failures were environment-only localhost port errors.
+- Full repository suite: 261 passed, 3 skipped, 0 failed under the unrestricted local test runner. The earlier restricted-runner failures were environment-only localhost port errors.
+- Latest full repository suite: 268 passed, 3 skipped, 0 failed under the unrestricted local test runner. Mobile API requests also have a bounded timeout, honor screen cancellation, and share one token refresh when multiple requests receive an expired session.
 
 ## Live deployment verification
 
-- Post-deployment check on 2026-11-21: `https://crm.aureummall.info/api/health/ready` returned HTTP 200 with `status: ready` and `database: connected`.
-- The live CRM homepage returned HTTP 200 and references `date-filter.js`, confirming the deployed build serves the shared date-filter asset.
-- GitHub Actions run `44893801684` verified and deployed the exact reviewed commit successfully. No production records or database schema changes were required by this release.
+- Read-only check on 2026-11-21: `https://crm.aureummall.info/api/health/ready` returned HTTP 200 with `status: ready` and `database: connected`.
+- The live CRM homepage returned HTTP 200 but did not reference `frontend/shared/date-filter.js` or the date-filter asset. This proves the live service is healthy but is still running the previous release; the new date-filter build has not been deployed.
+- No production records, database schema, or hosting configuration were changed by this feature. Deployment and live-browser sign-off remain the final release gate.

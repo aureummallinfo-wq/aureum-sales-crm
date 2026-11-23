@@ -9,6 +9,7 @@ import { createContext, PropsWithChildren, useCallback, useContext, useEffect, u
 import { apiFetch, getApiBaseUrl, setAccessToken, setRefreshHandler } from '@/api/client';
 import { notificationDevicePlatform, registerForPushNotificationsAsync } from '@/notifications/push';
 import { User } from '@/types/api';
+import { queryClient } from '@/lib/query-client';
 
 const TOKEN_KEY = 'aureum.crm.mobile.access-token';
 
@@ -39,6 +40,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       await SecureStore.deleteItemAsync(TOKEN_KEY);
       setAccessToken(null);
       setUser(null);
+      queryClient.clear();
       throw error;
     }
   }, []);
@@ -56,6 +58,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
       } catch {
         await SecureStore.deleteItemAsync(TOKEN_KEY);
         setAccessToken(null);
+        queryClient.clear();
       } finally {
         if (active) setLoading(false);
       }
@@ -67,10 +70,13 @@ export function SessionProvider({ children }: PropsWithChildren) {
     if (!user) return;
     let active = true;
     const openFromNotification = (response: Notifications.NotificationResponse | null) => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
       const route = response?.notification.request.content.data?.route;
       if (typeof route === 'string' && route.startsWith('/')) router.push(route as never);
     };
-    const receivedSubscription = Notifications.addNotificationReceivedListener(() => undefined);
+    const receivedSubscription = Notifications.addNotificationReceivedListener(() => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    });
     const responseSubscription = Notifications.addNotificationResponseReceivedListener(openFromNotification);
     Notifications.getLastNotificationResponseAsync().then(response => { if (active) openFromNotification(response); }).catch(() => undefined);
     registerForPushNotificationsAsync().then(token => {
@@ -103,6 +109,9 @@ export function SessionProvider({ children }: PropsWithChildren) {
         method: 'POST',
         body: JSON.stringify({ identifier: identifier.trim(), password })
       });
+      // A CRM cache is account-scoped. Clear it before the new account's
+      // observers render so records from a previous session cannot flash.
+      queryClient.clear();
       await SecureStore.setItemAsync(TOKEN_KEY, response.accessToken);
       setAccessToken(response.accessToken);
       setRefreshHandler(refreshAccessToken);
@@ -118,6 +127,7 @@ export function SessionProvider({ children }: PropsWithChildren) {
         setRefreshHandler(null);
         pushTokenRef.current = '';
         setUser(null);
+        queryClient.clear();
       }
     }
   }), [loading, refreshAccessToken, user]);

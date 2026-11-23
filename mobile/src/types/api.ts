@@ -14,11 +14,18 @@ export type Lead = {
   full_name: string;
   customer_id?: string | null;
   phone?: string;
+  whatsapp_number?: string;
   email?: string;
+  city?: string;
+  area?: string;
   status?: string;
   lead_source?: string;
   assigned_agent?: string;
   interested_in?: string;
+  budget?: string;
+  preferred_location?: string;
+  purpose?: string;
+  buying_timeline?: string;
   next_follow_up_at?: string | null;
 };
 
@@ -27,10 +34,17 @@ export type Customer = {
   lead_id?: string | null;
   full_name: string;
   phone?: string;
+  whatsapp_number?: string;
   email?: string;
+  city?: string;
+  area?: string;
   customer_status?: string;
   status?: string;
   interested_in?: string;
+  budget?: string;
+  preferred_location?: string;
+  purpose?: string;
+  buying_timeline?: string;
   assigned_agent?: string;
   next_follow_up_at?: string | null;
 };
@@ -45,11 +59,17 @@ export type Note = {
 
 export type FollowUp = {
   id: string;
+  customer_id?: string | null;
+  lead_id?: string | null;
   customer_name?: string;
+  customer_phone?: string;
+  phone?: string;
+  email?: string;
   follow_up_type?: string;
   due_date?: string;
   due_time?: string;
   status?: string;
+  priority?: string;
   assigned_agent?: string;
   notes?: string;
 };
@@ -62,6 +82,8 @@ export type Task = {
   priority?: string;
   dueAt?: string | null;
   due_at?: string;
+  assignedTo?: string | null;
+  assignedAgentId?: string | null;
   assignedAgent?: string;
   assignedAgentEmail?: string | null;
   leadId?: string | null;
@@ -85,7 +107,19 @@ export type NotificationItem = {
   actor?: string;
 };
 
-export type ApiList<T> = { data: T[]; meta?: { total?: number; nextCursor?: string | null; hasMore?: boolean } };
+export type ApiList<T> = {
+  data: T[];
+  meta?: {
+    total?: number;
+    page?: number;
+    pageSize?: number;
+    totalPages?: number;
+    hasNextPage?: boolean;
+    hasPreviousPage?: boolean;
+    nextCursor?: string | null;
+    hasMore?: boolean;
+  };
+};
 
 export type DashboardSummary = {
   totalLeads?: number;
