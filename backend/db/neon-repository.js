@@ -65,9 +65,21 @@ function localDateParts(value) {
 
 function timestampValue(value) {
   if (!value) return null;
-  const input = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}+05:00` : value;
+  const plainLocalTimestamp = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value);
+  const input = plainLocalTimestamp ? `${String(value).replace(' ', 'T')}+05:00` : value;
   const parsed = new Date(input);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+// Meta lead timestamps describe the customer submission, which can be earlier
+// than the later sheet/n8n job that creates the CRM row.
+function leadReceivedAt(lead = {}) {
+  const values = [lead.received_at, lead.receivedAt, lead.created_time, lead.createdTime, lead.submitted_at, lead.submittedAt];
+  for (const value of values) {
+    const parsed = timestampValue(value);
+    if (parsed) return parsed;
+  }
+  return null;
 }
 
 const PRESENCE_ONLINE_WINDOW_MS = 2 * 60 * 1000;
@@ -268,30 +280,166 @@ function createNeonRepository(sql) {
     return true;
   }
 
-  async function updateUser(workspace, targetIdentifier, patch) {
+  // Deactivation must be an ownership transition, not just a status toggle.
+  // Production uses the PostgreSQL pool, so keep the lead/customer/follow-up
+  // changes in one transaction. The fallback keeps this repository usable by
+  // the lightweight test doubles and Neon development client.
+  async function repositoryTransaction(work) {
+    if (!sql.pool?.connect) return work(sql);
+    const client = await sql.pool.connect();
+    const tx = { query: async (text, values = []) => (await client.query(text, values)).rows };
+    try {
+      await client.query('BEGIN');
+      const result = await work(tx);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async function deactivateUser(workspace, targetIdentifier, actor, { deleteAfter = false } = {}) {
+    const targetId = await resolveUserId(workspace, targetIdentifier);
+    if (!targetId) return null;
+    const target = await findUser(workspace, targetIdentifier);
+    if (!target) return null;
+    const actorId = actor?.id ? await resolveUserId(workspace, actor.id) : null;
+    if (!actorId) return null;
+
+    const result = await repositoryTransaction(async tx => {
+      const targetRows = await tx.query(`SELECT u.id, u.legacy_id, u.full_name, u.email, u.team_id,
+          u.status, t.legacy_id AS team_legacy_id, tm.id AS manager_id
+        FROM crm.users u
+        LEFT JOIN crm.teams t ON t.id = u.team_id
+        LEFT JOIN crm.users tm ON tm.id = t.manager_user_id AND tm.status = 'active' AND tm.deleted_at IS NULL
+        WHERE u.id = $1 AND u.workspace_id = $2
+        FOR UPDATE OF u`, [targetId, workspace]);
+      const lockedTarget = targetRows[0];
+      if (!lockedTarget) return null;
+
+      // Idempotent: an already inactive account must not generate duplicate
+      // assignment-history rows or repeatedly move the same follow-ups.
+      if (lockedTarget.status === 'inactive' && !deleteAfter) {
+        return { reassignedLeadCount: 0, reassignedFollowUpCount: 0, alreadyInactive: true };
+      }
+
+      const leadRows = await tx.query(`SELECT id, legacy_id, assigned_team_id
+        FROM crm.leads
+        WHERE workspace_id = $1 AND assigned_agent_id = $2 AND deleted_at IS NULL
+        ORDER BY created_at ASC, id ASC
+        FOR UPDATE`, [workspace, targetId]);
+      const fallbackOwnerId = lockedTarget.manager_id || actorId;
+      let reassignedFollowUpCount = 0;
+
+      for (const lead of leadRows) {
+        const customerRows = await tx.query(`SELECT id FROM crm.customers
+          WHERE workspace_id = $1 AND lead_id = $2 AND deleted_at IS NULL
+          FOR UPDATE`, [workspace, lead.id]);
+        const customerIds = customerRows.map(row => row.id);
+        const followUpRows = await tx.query(`UPDATE crm.follow_ups
+          SET assigned_agent_id = $1,
+              assigned_team_id = $2,
+              metadata = metadata || jsonb_build_object(
+                'previous_assigned_agent_id', $3::text,
+                'previous_assigned_agent_name', $4::text,
+                'reassigned_reason', 'user_deactivated',
+                'reassigned_at', now()
+              ),
+              updated_at = now()
+          WHERE workspace_id = $5
+            AND assigned_agent_id = $3
+            AND deleted_at IS NULL
+            AND status IN ('Pending','Overdue','Rescheduled','Missed')
+            AND (lead_id = $6 OR customer_id = ANY($7::uuid[]))
+          RETURNING id`, [fallbackOwnerId, lead.assigned_team_id, targetId, lockedTarget.full_name, workspace, lead.id, customerIds]);
+        reassignedFollowUpCount += followUpRows.length;
+
+        await tx.query(`UPDATE crm.leads
+          SET assigned_agent_id = NULL, assigned_team_id = $1, updated_at = now()
+          WHERE id = $2 AND workspace_id = $3`, [lead.assigned_team_id, lead.id, workspace]);
+        if (customerIds.length) {
+          await tx.query(`UPDATE crm.customers
+            SET assigned_agent_id = NULL,
+                assigned_team_id = $1,
+                metadata = metadata || jsonb_build_object(
+                  'previous_assigned_agent_id', $2::text,
+                  'previous_assigned_agent_name', $3::text,
+                  'reassigned_reason', 'user_deactivated',
+                  'reassigned_at', now()
+                ),
+                updated_at = now()
+            WHERE workspace_id = $4 AND id = ANY($5::uuid[])`, [lead.assigned_team_id, targetId, lockedTarget.full_name, workspace, customerIds]);
+        }
+
+        await tx.query(`INSERT INTO crm.lead_assignment_history
+          (lead_id, from_agent_id, to_agent_id, from_team_id, to_team_id, changed_by)
+          VALUES ($1, $2, NULL, $3, $3, $4)`, [lead.id, targetId, lead.assigned_team_id, actorId]);
+        await tx.query(`INSERT INTO crm.lead_activities
+          (lead_id, actor_user_id, activity_type, description, metadata)
+          VALUES ($1, $2, 'Lead unassigned', $3, $4::jsonb)`, [
+          lead.id,
+          actorId,
+          `Moved to Unassigned because ${lockedTarget.full_name} was deactivated.`,
+          JSON.stringify({ previous_agent_id: target.legacy_id || targetId, previous_agent_name: lockedTarget.full_name, reassigned_reason: 'user_deactivated' })
+        ]);
+        await tx.query(`INSERT INTO crm.audit_events
+          (workspace_id, actor_user_id, action, entity_type, entity_id, after_data)
+          VALUES ($1, $2, 'lead_unassigned_user_deactivated', 'lead', $3, $4::jsonb)`, [
+          workspace, actorId, lead.id, JSON.stringify({ previous_agent_id: target.legacy_id || targetId, previous_agent_name: lockedTarget.full_name, assigned_team_id: lead.assigned_team_id })
+        ]);
+        await tx.query(`INSERT INTO crm.outbox_events
+          (workspace_id, event_type, aggregate_type, aggregate_id, payload, idempotency_key)
+          VALUES ($1, 'lead_unassigned', 'lead', $2, $3::jsonb, $4)
+          ON CONFLICT (idempotency_key) DO NOTHING`, [
+          workspace,
+          lead.id,
+          JSON.stringify({ previous_agent_id: target.legacy_id || targetId, assigned_agent_id: null, assigned_team_id: lead.assigned_team_id, reason: 'user_deactivated' }),
+          `lead_unassigned:user_deactivated:${targetId}:${lead.id}`
+        ]);
+      }
+
+      await tx.query(`UPDATE crm.users
+        SET status = 'inactive', deleted_at = CASE WHEN $3 THEN now() ELSE deleted_at END, updated_at = now()
+        WHERE id = $1 AND workspace_id = $2`, [targetId, workspace, deleteAfter]);
+      await tx.query('UPDATE crm.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [targetId]);
+      await tx.query(`INSERT INTO crm.user_audit_logs (user_id, action, metadata)
+        VALUES ($1, $2, $3::jsonb)`, [targetId, deleteAfter ? 'user_deleted' : 'user_deactivated', JSON.stringify({
+        actor_user_id: actorId,
+        email: lockedTarget.email,
+        full_name: lockedTarget.full_name,
+        reassigned_lead_count: leadRows.length,
+        reassigned_follow_up_count: reassignedFollowUpCount,
+        destination: 'unassigned'
+      })]);
+      return { reassignedLeadCount: leadRows.length, reassignedFollowUpCount, alreadyInactive: false };
+    });
+    if (!result) return null;
+    return { ...target, status: 'inactive', deleted_at: deleteAfter ? new Date().toISOString() : null, ...result };
+  }
+
+  async function updateUser(workspace, targetIdentifier, patch, actor = null) {
     const targetId = await resolveUserId(workspace, targetIdentifier); if (!targetId) return null;
+    const current = await findUser(workspace, targetIdentifier); if (!current) return null;
+    const shouldDeactivate = patch.status === 'inactive' && current.status !== 'inactive';
     const fields = []; const params = []; const assign = (column, value) => { params.push(value); fields.push(`${column} = $${params.length}`); };
     if (patch.full_name !== undefined) assign('full_name', patch.full_name);
     if (patch.email !== undefined) assign('email', String(patch.email).toLowerCase());
     if (patch.phone !== undefined) assign('phone', patch.phone || null);
     if (patch.role !== undefined) assign('role_key', patch.role);
-    if (patch.status !== undefined) assign('status', patch.status);
+    if (patch.status !== undefined && !shouldDeactivate) assign('status', patch.status);
     if (patch.password_hash !== undefined) { assign('password_hash', patch.password_hash); fields.push('failed_login_attempts = 0', 'locked_until = NULL'); }
     if (patch.must_change_password !== undefined) assign('must_change_password', Boolean(patch.must_change_password));
     if (patch.team_id !== undefined) assign('team_id', await resolveTeamId(workspace, patch.team_id));
-    if (!fields.length) return findUser(workspace, targetIdentifier);
-    params.push(targetId); await sql.query(`UPDATE crm.users SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params);
+    if (fields.length) { params.push(targetId); await sql.query(`UPDATE crm.users SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
+    if (shouldDeactivate) return deactivateUser(workspace, targetIdentifier, actor || current);
     return findUser(workspace, targetIdentifier);
   }
 
   async function deleteUser(workspace, targetIdentifier, actor) {
-    const targetId = await resolveUserId(workspace, targetIdentifier); if (!targetId) return null;
-    const target = await findUser(workspace, targetIdentifier); if (!target) return null;
-    const actorId = actor?.id ? await resolveUserId(workspace, actor.id) : null;
-    await sql.query('UPDATE crm.users SET status = \'inactive\', deleted_at = now(), updated_at = now() WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL', [targetId, workspace]);
-    await sql.query('UPDATE crm.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [targetId]);
-    await sql.query('INSERT INTO crm.user_audit_logs (user_id, action, metadata) VALUES ($1, $2, $3::jsonb)', [targetId, 'user_deleted', JSON.stringify({ actor_user_id: actorId, email: target.email, full_name: target.full_name })]);
-    return { ...target, status: 'inactive', deleted_at: new Date().toISOString() };
+    return deactivateUser(workspace, targetIdentifier, actor, { deleteAfter: true });
   }
 
   async function createUser(workspace, actor, input) {
@@ -584,7 +732,7 @@ function createNeonRepository(sql) {
 
   function leadRecord(row) {
     const metadata = valueObject(row.metadata);
-    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, external_source: row.external_source || metadata.external_source || null, external_lead_id: row.external_lead_id || metadata.external_lead_id || null, idempotency_key: row.idempotency_key || metadata.idempotency_key || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, lifecycle_version: row.lifecycle_version, customer_id: row.linked_customer_id || null, workspace_id: row.workspace_id, id: row.legacy_id || row.id, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, city: row.city, area: row.area, interested_in: row.interested_in, property_type: row.property_type, budget: row.budget, preferred_location: row.preferred_location, purpose: row.purpose, buying_timeline: row.buying_timeline, financing_required: row.financing_required, status: statusTags.normalize(row.status), lead_source: row.lead_source, priority: row.priority, assigned_agent_id: row.assigned_agent_id_legacy || metadata.assigned_agent_id || null, assigned_agent: row.assigned_agent || metadata.assigned_agent || 'Unassigned', assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, assigned_team_name: row.assigned_team_name || metadata.assigned_team_name || '', created_by: row.created_by_legacy || metadata.created_by || null, external_source: row.external_source || metadata.external_source || null, external_lead_id: row.external_lead_id || metadata.external_lead_id || null, idempotency_key: row.idempotency_key || metadata.idempotency_key || null, received_at: row.received_at || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function customerRecord(row) {
@@ -643,14 +791,16 @@ function createNeonRepository(sql) {
     if (end) { params.push(end); conditions.push(`(${expression}) <= $${params.length}::date`); }
   }
 
-  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, agentId, imported, dateFrom = '', dateTo = '', allSalesManagerLeads = false, pagination = null }) {
+  async function listLeads({ workspaceId: workspace, user, status, search, source, interest, priority, assignment, agentId, imported, dateFrom = '', dateTo = '', allSalesManagerLeads = false, pagination = null }) {
     const scoped = await scope(workspace, user, 'l', { allSalesManagerLeads }); const conditions = [...scoped.conditions]; const params = [...scoped.params];
     if (status) { params.push(status); conditions.push('ls.name = $' + params.length); }
     if (source) { params.push(source); conditions.push('src.name = $' + params.length); }
     if (interest) { params.push(interest); conditions.push('l.interested_in = $' + params.length); }
     if (priority) { params.push(priority); conditions.push('l.priority = $' + params.length); }
+    if (assignment === 'assigned') conditions.push('l.assigned_agent_id IS NOT NULL');
+    if (assignment === 'unassigned') conditions.push('l.assigned_agent_id IS NULL');
     if (agentId) { params.push(await resolveUserId(workspace, agentId)); conditions.push('l.assigned_agent_id = $' + params.length); }
-    addDateBounds(conditions, params, "l.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
+    addDateBounds(conditions, params, "COALESCE(l.received_at AT TIME ZONE 'Asia/Karachi', l.created_at AT TIME ZONE 'Asia/Karachi')::date", dateFrom, dateTo);
     if (search) {
       const normalizedSearch = String(search).normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase();
       const searchTokens = normalizedSearch.split(' ').filter(Boolean);
@@ -676,21 +826,25 @@ function createNeonRepository(sql) {
     if (imported === 'unassigned') conditions.push(`(l.metadata->>'is_imported')::boolean IS TRUE AND l.assigned_agent_id IS NULL`);
     if (imported === 'webhook') conditions.push(`l.metadata->>'webhook_connection_id' IS NOT NULL`);
     const where = conditions.join(' AND ');
+    // Legacy callers keep the deterministic created_at/id fallback while Meta
+    // rows use received_at so the list reflects actual form submission time.
+    const leadOrder = 'COALESCE(l.received_at, l.created_at) DESC, l.id DESC'; // Legacy shape: ORDER BY l.created_at DESC, l.id DESC
     if (pagination) {
       const totalRows = await sql.query(`SELECT COUNT(*)::bigint AS total FROM (${leadSelect} WHERE ${where}) scoped_leads`, params);
       const meta = paginationMeta(pagination, Number(totalRows[0]?.total || 0));
       const limit = params.length + 1; const offset = params.length + 2;
       const limitParam = '$' + limit; const offsetParam = '$' + offset;
-      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
+      const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY ${leadOrder} LIMIT ${limitParam} OFFSET ${offsetParam}`, [...params, pagination.pageSize, pagination.offset]);
       return { rows: rows.map(leadRecord), meta };
     }
-    const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY l.created_at DESC, l.id DESC`, params); return rows.map(leadRecord);
+    const rows = await sql.query(`${leadSelect} WHERE ${where} ORDER BY ${leadOrder}`, params); return rows.map(leadRecord);
   }
 
-  async function findLeadDuplicate(workspace, { phone = '', email = '' } = {}) {
+  async function findLeadDuplicate(workspace, { phone = '', email = '', externalLeadId = '' } = {}) {
     const conditions = ['l.workspace_id = $1', 'l.deleted_at IS NULL']; const params = [workspace]; const matches = [];
     if (phone) { params.push(phone); matches.push(`regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g') = regexp_replace($${params.length}, '[^0-9]', '', 'g')`); }
     if (email) { params.push(String(email).toLowerCase()); matches.push(`lower(coalesce(l.email, '')) = $${params.length}`); }
+    if (externalLeadId) { params.push(String(externalLeadId)); matches.push(`l.external_lead_id = $${params.length}`); }
     if (!matches.length) return null;
     conditions.push(`(${matches.join(' OR ')})`);
     const rows = await sql.query(`${leadSelect} WHERE ${conditions.join(' AND ')} ORDER BY l.created_at DESC LIMIT 1`, params);
@@ -743,9 +897,10 @@ function createNeonRepository(sql) {
   async function createLead({ workspaceId: workspace, actor, lead }) {
     if (!statusTags.isValid(lead.status || 'New')) throw new Error('Invalid lead status.');
     await listLeadConfiguration(workspace, 'lead-statuses');
-    const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id);
-    const statusRows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.status || 'New']); const sourceRows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND (name = $2 OR is_default = true) ORDER BY (name = $2) DESC LIMIT 1', [workspace, lead.lead_source || 'Manual Entry']);
-    const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, JSON.stringify(lead)]);
+    const legacyId = lead.legacy_id || `lead_${crypto.randomUUID()}`; const actorId = await resolveUserId(workspace, actor.id); const agentId = await resolveUserId(workspace, lead.assigned_agent_id); const teamId = await resolveTeamId(workspace, lead.assigned_team_id || actor.team_id); const receivedAt = leadReceivedAt(lead);
+    const configuration = await ensureWebhookLeadConfiguration(workspace, lead.status || 'New', lead.lead_source || 'Manual Entry');
+    const statusRows = configuration.statusRows; const sourceRows = configuration.sourceRows;
+    const rows = await sql.query(`INSERT INTO crm.leads (workspace_id, legacy_id, full_name, email, phone, whatsapp_number, city, area, interested_in, property_type, budget, preferred_location, purpose, buying_timeline, financing_required, status_id, source_id, priority, assigned_agent_id, assigned_team_id, created_by, external_source, external_lead_id, idempotency_key, received_at, metadata) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25::timestamptz,$26::jsonb) RETURNING id`, [workspace, legacyId, lead.full_name, lead.email || null, lead.phone || null, lead.whatsapp_number || null, lead.city || null, lead.area || null, lead.interested_in || null, lead.property_type || null, lead.budget || null, lead.preferred_location || null, lead.purpose || null, lead.buying_timeline || null, Boolean(lead.financing_required), statusRows[0]?.id || null, sourceRows[0]?.id || null, lead.priority || 'Medium', agentId, teamId, actorId, lead.external_source || null, lead.external_lead_id || null, lead.idempotency_key || legacyId, receivedAt, JSON.stringify(lead)]);
      const leadId = rows[0].id; if (lead.next_follow_up_at) await sql.query('UPDATE crm.leads SET next_follow_up_at=$1 WHERE id=$2',[timestampValue(lead.next_follow_up_at),leadId]); await insertAudit(workspace, actor, 'lead_created', 'lead', leadId, { legacy_id: legacyId, full_name: lead.full_name }); await enqueueOutbox(workspace,'lead_created','lead',leadId,{legacy_id:legacyId},`lead_created:${legacyId}`); const created = await getLead(workspace, legacyId);
      // New leads become customer profiles immediately unless the intake status/tag
      // explicitly closes the opportunity. Keep this server-side so imports and
@@ -778,7 +933,7 @@ function createNeonRepository(sql) {
     for (const column of ['full_name', 'phone', 'whatsapp_number', 'email', 'city', 'area', 'interested_in', 'property_type', 'budget', 'preferred_location', 'purpose', 'buying_timeline', 'priority']) if (patch[column] !== undefined) assign(column, patch[column]);
     if (patch.financing_required !== undefined) assign('financing_required', Boolean(patch.financing_required));
     if (patch.status !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_statuses WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.status]); assign('status_id', rows[0]?.id || null); }
-    if (patch.lead_source !== undefined) { const rows = await sql.query('SELECT id FROM crm.lead_sources WHERE workspace_id = $1 AND name = $2 LIMIT 1', [workspace, patch.lead_source]); assign('source_id', rows[0]?.id || null); }
+    if (patch.lead_source !== undefined) { const configuration = await ensureWebhookLeadConfiguration(workspace, current.status || 'New', patch.lead_source); assign('source_id', configuration.sourceRows[0]?.id || null); }
     if (patch.next_follow_up_at !== undefined) assign('next_follow_up_at', timestampValue(patch.next_follow_up_at));
     if (patch.tags !== undefined) { params.push(JSON.stringify(normalizeTags(patch.tags))); fields.push(`metadata=jsonb_set(metadata,'{tags}',$${params.length}::jsonb,true)`); }
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
@@ -819,6 +974,9 @@ function createNeonRepository(sql) {
       WHERE workspace_id=$4 AND assigned_agent_id=$5 AND assigned_team_id IS NOT DISTINCT FROM $6::uuid
         AND ((customer_id IN (SELECT id FROM moved_customers) AND (lead_id IS NULL OR lead_id=$3))
         OR (customer_id IS NULL AND lead_id IN (SELECT id FROM moved_lead)))`, [agentId,teamId,id,workspace,previousAgentId,previousTeamId]);
+    await sql.query(`INSERT INTO crm.lead_assignment_history
+      (lead_id, from_agent_id, to_agent_id, from_team_id, to_team_id, changed_by)
+      VALUES ($1,$2,$3,$4,$5,$6)`, [id, previousAgentId, agentId, previousTeamId, teamId, await resolveUserId(workspace, actor.id)]);
     await pipeline.recordActivity(workspace,actor,{leadId:id,type:'Lead assigned',description:`Assigned to ${agent.full_name}.`});
     await insertAudit(workspace,actor,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent});
     await enqueueOutbox(workspace,'lead_assigned','lead',id,{assigned_agent_id:assignedAgent});
@@ -850,19 +1008,23 @@ function createNeonRepository(sql) {
     }
 
     const assignedAgentId = targetAgent ? await resolveUserId(workspace, targetAgent.id) : null;
+    const followUpAgentId = assignedAgentId || await resolveUserId(workspace, actor.id);
     for (const { lead, id } of leads) {
       const previousAgentId = await resolveUserId(workspace, lead.assigned_agent_id);
       const previousTeamId = await resolveTeamId(workspace, lead.assigned_team_id);
       await sql.query(`WITH moved_lead AS (
-        UPDATE crm.leads SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
-        WHERE id=$3 AND workspace_id=$4 RETURNING id
+        UPDATE crm.leads SET assigned_agent_id=$1,assigned_team_id=$3,updated_at=now()
+        WHERE id=$4 AND workspace_id=$5 RETURNING id
       ), moved_customers AS (
-        UPDATE crm.customers SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
-        WHERE workspace_id=$4 AND lead_id IN (SELECT id FROM moved_lead) RETURNING id
-      ) UPDATE crm.follow_ups SET assigned_agent_id=$1,assigned_team_id=$2,updated_at=now()
-        WHERE workspace_id=$4 AND assigned_agent_id=$5 AND assigned_team_id IS NOT DISTINCT FROM $6::uuid
-          AND ((customer_id IN (SELECT id FROM moved_customers) AND (lead_id IS NULL OR lead_id=$3))
-          OR (customer_id IS NULL AND lead_id IN (SELECT id FROM moved_lead)))`, [assignedAgentId, targetTeam, id, workspace, previousAgentId, previousTeamId]);
+        UPDATE crm.customers SET assigned_agent_id=$1,assigned_team_id=$3,updated_at=now()
+        WHERE workspace_id=$5 AND lead_id IN (SELECT id FROM moved_lead) RETURNING id
+      ) UPDATE crm.follow_ups SET assigned_agent_id=$2,assigned_team_id=$3,updated_at=now()
+        WHERE workspace_id=$5 AND assigned_agent_id=$6 AND assigned_team_id IS NOT DISTINCT FROM $7::uuid
+          AND ((customer_id IN (SELECT id FROM moved_customers) AND (lead_id IS NULL OR lead_id=$4))
+          OR (customer_id IS NULL AND lead_id IN (SELECT id FROM moved_lead)))`, [assignedAgentId, followUpAgentId, targetTeam, id, workspace, previousAgentId, previousTeamId]);
+      await sql.query(`INSERT INTO crm.lead_assignment_history
+        (lead_id, from_agent_id, to_agent_id, from_team_id, to_team_id, changed_by)
+        VALUES ($1,$2,$3,$4,$5,$6)`, [id, previousAgentId, assignedAgentId, previousTeamId, targetTeam, await resolveUserId(workspace, actor.id)]);
       await pipeline.recordActivity(workspace, actor, { leadId: id, type: 'Lead assigned', description: targetAgent ? `Assigned to ${targetAgent.full_name}.` : targetTeamIdentifier ? 'Assigned to a team queue.' : 'Agent assignment cleared.' });
       await insertAudit(workspace, actor, 'lead_bulk_assigned', 'lead', id, { assigned_agent_id: assignedAgent || null, assigned_team_id: targetTeamIdentifier || null, bulk_count: requested.length });
       await enqueueOutbox(workspace, 'lead_assigned', 'lead', id, { assigned_agent_id: assignedAgent || null, assigned_team_id: targetTeamIdentifier || null }, `lead_assigned:${id}:${assignedAgent || 'team'}:${targetTeamIdentifier || 'none'}`);
@@ -1496,10 +1658,10 @@ function createNeonRepository(sql) {
     }
     const legacyId = `lead_${crypto.randomUUID().slice(0, 10)}`;
     const inserted = await sql.query(
-      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,idempotency_key,metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)
+      `INSERT INTO crm.leads (workspace_id,legacy_id,full_name,email,phone,whatsapp_number,city,area,interested_in,property_type,budget,preferred_location,purpose,buying_timeline,financing_required,status_id,source_id,assigned_agent_id,assigned_team_id,external_source,external_lead_id,idempotency_key,received_at,metadata)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::timestamptz,$24::jsonb)
        ON CONFLICT DO NOTHING RETURNING id`,
-      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, whatsapp, raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, idempotency, JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, lead_source: sourceName, source_form: webhookFormName(raw), source_form_name: webhookFormName(raw), source_channel: raw.source_channel || raw.channel || null, external_lead_id: externalId || null, idempotency_key: idempotency, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
+      [workspace, legacyId, fullName, String(raw.email || '').toLowerCase() || null, phone, whatsapp, raw.city || null, raw.area || null, raw.interested_in || raw.interest || 'General enquiry', raw.property_type || null, raw.budget || null, raw.preferred_location || null, raw.purpose || null, raw.buying_timeline || null, Boolean(raw.financing_required), statusRows[0].id, sourceRows[0].id, connection.default_assigned_agent_id || null, connection.default_assigned_team_id || null, externalId ? connection.source_platform : null, externalId || null, idempotency, leadReceivedAt(raw), JSON.stringify({ ...raw, webhook_connection_id: connection.legacy_id, is_imported: true, lead_source: sourceName, source_form: webhookFormName(raw), source_form_name: webhookFormName(raw), source_channel: raw.source_channel || raw.channel || null, external_lead_id: externalId || null, idempotency_key: idempotency, ...(unsafeExternalId ? { external_lead_id_unsafe: unsafeExternalId } : {}) })],
     );
     if (!inserted[0]) {
       const existing = await sql.query(
@@ -1547,7 +1709,33 @@ function createNeonRepository(sql) {
   async function markMessageRead(workspace,user,identifier) { const userId=await resolveUserId(workspace,user.id);await sql.query('INSERT INTO crm.chat_read_receipts (message_id,user_id,read_at) SELECT id,$2,now() FROM crm.chat_messages WHERE workspace_id=$1 AND legacy_id=$3 ON CONFLICT (message_id,user_id) DO UPDATE SET read_at=now()',[workspace,userId,String(identifier)]);return true; }
   async function reportRows(workspace,user) { const agents=await listUsers(workspace,user);const leads=await listLeads({workspaceId:workspace,user});const customers=await listCustomers({workspaceId:workspace,user});const followUps=await listFollowUps({workspaceId:workspace,user});return agents.filter(item=>['sales_agent','sales_manager'].includes(item.role)).map(agent=>{const ls=leads.filter(item=>item.assigned_agent_id===agent.id);const cs=customers.filter(item=>item.assigned_agent_id===agent.id);const fs=followUps.filter(item=>item.assigned_agent_id===agent.id);const closed=ls.filter(item=>item.status==='Closed Won').length;const overdue=fs.filter(item=>item.status==='Overdue').length;const completed=fs.filter(item=>item.status==='Completed').length;const conversion=ls.length?Number((closed/ls.length*100).toFixed(1)):0;const performance=conversion>=20&&overdue<=1?'Excellent':conversion>=12&&overdue<=2?'Good':conversion>0?'Average':'Needs Attention';return {id:agent.id,agentId:agent.id,name:agent.full_name,agentName:agent.full_name,initials:String(agent.full_name||'?').split(/\s+/).map(part=>part[0]).slice(0,2).join('').toUpperCase(),email:agent.email,phone:agent.phone,role:agent.role,agentRole:agent.role==='sales_manager'?'Sales Manager':'Sales Agent',team:agent.team_id||'Unassigned',teamId:agent.team_id,assignedLeads:ls.length,activeLeads:ls.filter(item=>!['Closed Won','Closed Lost','Not Interested'].includes(item.status)).length,contactedLeads:ls.filter(item=>item.status!=='New').length,hotLeads:ls.filter(item=>['Hot','Booking'].includes(item.status)).length,followUpsAssigned:fs.length,followUpsDue:fs.filter(item=>['Pending','Rescheduled'].includes(item.status)).length,followUpsCompleted:completed,overdueFollowUps:overdue,customersHandled:cs.length,closedDeals:closed,lostLeads:ls.filter(item=>['Closed Lost','Lost'].includes(item.status)).length,conversionRate:conversion,conversionRateLabel:`${conversion}%`,performance,status:agent.status,presenceStatus:agent.presence_status||null,lastActivity:agent.last_login_at||agent.last_activity_at||agent.updated_at,lastActivityAt:agent.last_activity_at||agent.updated_at};}); }
 
-  return { listSavedNotes, editSavedNote, noteHistory, resetTemporaryPassword, workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, createAppRelease, listAppReleases, getAppRelease, getLatestAppRelease, publishAppRelease, unpublishAppRelease, recordAppReleaseDownload, registerMobilePushToken, removeMobilePushToken, listMobilePushTokens, registerWebPushSubscription, removeWebPushSubscription, listWebPushSubscriptions, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, bulkAssignLeads, changeLeadStatus, addLeadActivity, convertLeadToCustomer, createCustomerFromLead, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listCustomerFollowUpHistory, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, addFollowUpNote, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+  return { listSavedNotes, editSavedNote, noteHistory, resetTemporaryPassword, workspaceId, findWorkspace, findUserByEmail, findUserByIdentifier, findUser, createSession, findSession, revokeSession, recordLogin, loginLockStatus, recordLoginFailure, clearLoginFailures, updateLastLogin, updateLastActivity, updatePresenceStatus, clearPresenceStatus, listUsers, listTeams, normalizeSingleTeam, updateUser, deleteUser, createUser, issueUserInvite, changePassword, loginActivity, userActivity, accountPreferences, updateAccountPreferences, workspaceSettings, updateWorkspaceSetting, listLeadConfiguration, createLeadConfiguration, updateLeadConfiguration, settingsActivities, auditEvents, listNotificationSettings, updateNotificationSettings, createAppRelease, listAppReleases, getAppRelease, getLatestAppRelease, publishAppRelease, unpublishAppRelease, recordAppReleaseDownload, registerMobilePushToken, removeMobilePushToken, listMobilePushTokens, registerWebPushSubscription, removeWebPushSubscription, listWebPushSubscriptions, listLeads, findLeadDuplicate, getLead, listLeadActivities, createLead, updateLead, deleteLead, assignLead, bulkAssignLeads, changeLeadStatus, addLeadActivity, convertLeadToCustomer, createCustomerFromLead, listCustomers, getCustomer, updateCustomer, deleteCustomer, changeCustomerStatus, listCustomerNotes, addCustomerNote, listCustomerActivities, listCustomerFollowUps, listCustomerFollowUpHistory, listFollowUps, getFollowUp, createFollowUp, updateFollowUp, deleteFollowUp, transitionFollowUp, addFollowUpNote, listFollowUpActivities, listTasks, getTask, createTask, updateTask, deleteTask, listNotifications, markNotificationRead, markAllNotificationsRead, listWebhookConnections, getWebhookConnection, createWebhookConnection, updateWebhookConnection, updateWebhookMappings: updateWebhookConnection, listWebhookLogs, listFailedWebhookLeads, getFailedWebhookLead, resolveFailedWebhookLead, convertFailedWebhookLead, previewWebhookLead, ingestWebhookLead, verifyWebhookLead: (workspace, identifier, secret, query) => verifyNeonWebhookLead(sql, workspace, identifier, secret, query), listChatUsers, listChatChannels, listChatGroups, listChatMessages, listChatAttachments, listChatLinks, createChatLink, directConversation, listDirectConversations, listDirectMessages, createChatGroup, updateChatGroup, updateChatGroupMembers, sendChatMessage, sendDirectMessage, markChatRead, markMessageRead, unreadCounts, search, reportRows, resolveUserId, resolveTeamId, resolveLeadId, resolveCustomerId, resolveFollowUpId };
+}
+
+async function verifyNeonWebhookLead(sql, workspace, identifier, secret, query = {}) {
+  const connectionRows = await sql.query(
+    'SELECT legacy_id, status, source_platform, secret_hash FROM crm.webhook_connections WHERE workspace_id=$1 AND (id::text=$2 OR legacy_id=$2) LIMIT 1',
+    [workspace, String(identifier)],
+  );
+  const connection = connectionRows[0];
+  if (!connection) return { status: 404, error: 'Webhook connection not found.' };
+  if (String(connection.status).toLowerCase() !== 'active') return { status: 403, error: 'Webhook connection is inactive.' };
+  if (!secret || hashToken(secret) !== connection.secret_hash) return { status: 401, error: 'Webhook authentication failed.' };
+  const externalId = String(query.external_lead_id || query.meta_lead_id || '').trim();
+  const idempotency = String(query.idempotency_key || query.idempotencyKey || '').trim();
+  const crmLeadId = String(query.crm_lead_id || query.crmLeadId || query.lead_id_internal || '').trim();
+  if (!externalId && !idempotency && !crmLeadId) return { status: 422, error: 'external_lead_id, idempotency_key, or crm_lead_id is required.' };
+  const rows = await sql.query(
+    `SELECT legacy_id, external_lead_id
+       FROM crm.leads
+      WHERE workspace_id=$1 AND deleted_at IS NULL
+        AND ((external_lead_id=$2 AND (external_source=$3 OR external_source IS NULL))
+          OR idempotency_key=$4 OR legacy_id=$5)
+      LIMIT 1`,
+    [workspace, externalId || null, connection.source_platform, idempotency || null, crmLeadId || null],
+  );
+  if (!rows[0]) return { status: 404, error: 'Lead has not been persisted in the CRM yet.' };
+  return { ok: true, confirmed: true, lead: { id: rows[0].legacy_id, external_lead_id: rows[0].external_lead_id || null } };
 }
 
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }

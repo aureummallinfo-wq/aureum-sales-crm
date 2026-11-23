@@ -100,6 +100,7 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          MIGRATION_MODE: ${{ contains(github.event.head_commit.message, '[migrate-vps]') && 'apply' || 'require-current' }}
         shell: bash
         run: |
           set -euo pipefail

@@ -1119,6 +1119,7 @@ async function handle(req, res) {
     return;
   }
   const isPublicWebhook = req.method === 'POST' && /^\/api\/webhooks\/leads\/[^/]+$/.test(url.pathname);
+  const isPublicWebhookVerification = req.method === 'GET' && /^\/api\/webhooks\/leads\/[^/]+\/verify$/.test(url.pathname);
   if (!isPublicWebhook && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin) {
     if (!isAllowedFrontendOrigin(req.headers.origin, req)) { json(res, 403, { error: 'Request origin is not allowed.' }); return; }
   }
@@ -1137,6 +1138,28 @@ async function handle(req, res) {
     if (connection.status !== 'Active') { createWebhookLog(connection, 'Rejected', 'Inactive connection rejected request', null, 'Connection inactive'); json(res, 403, { error: 'Webhook connection is inactive.' }); return; }
     if (!webhookTokenMatches(connection, suppliedSecret)) { createWebhookLog(connection, 'Unauthorized', 'Webhook authentication failed', null, 'Invalid webhook secret'); json(res, 401, { error: 'Webhook authentication failed.' }); return; }
     try { const payload = await readBodyLimited(req, 100_000); const result = ingestWebhookLead(connection, payload, { actorId: 'system' }); if (!result.ok) { json(res, result.statusCode || 400, { error: result.error, failedLeadId: result.failed?.id }); return; } json(res, 200, { ok: true, duplicate: Boolean(result.duplicate), leadId: result.lead.id, message: result.duplicate ? 'Existing lead matched; no duplicate created.' : 'Lead accepted.' }); } catch (error) { const fields = {}; createWebhookLog(connection, error.code === 'PAYLOAD_TOO_LARGE' ? 'Rejected' : 'Failed', 'Webhook payload could not be processed', fields, error.code === 'PAYLOAD_TOO_LARGE' ? 'Payload too large' : 'Malformed JSON'); if (error.code === 'PAYLOAD_TOO_LARGE') { json(res, 413, { error: 'Webhook payload is too large.' }); return; } json(res, 400, { error: 'Webhook payload is invalid.' }); }
+    return;
+  }
+
+  if (isPublicWebhookVerification) {
+    if (!await enforceRequestBudget(req, res, url, null)) return;
+    const connectionId = url.pathname.split('/')[4];
+    const suppliedSecret = String(req.headers['x-aureum-webhook-secret'] || '');
+    if (NEON_REPOSITORY && NEON_WORKSPACE_ID) {
+      const result = await NEON_REPOSITORY.verifyWebhookLead(NEON_WORKSPACE_ID, connectionId, suppliedSecret, Object.fromEntries(url.searchParams.entries()));
+      if (result.ok) json(res, 200, { ok: true, confirmed: true, leadId: result.lead.id, externalLeadId: result.lead.external_lead_id || null });
+      else json(res, result.status || 400, { ok: false, confirmed: false, error: result.error });
+      return;
+    }
+    const connection = webhookConnectionById(connectionId);
+    if (!connection) { json(res, 404, { ok: false, confirmed: false, error: 'Webhook connection not found.' }); return; }
+    if (connection.status !== 'Active') { json(res, 403, { ok: false, confirmed: false, error: 'Webhook connection is inactive.' }); return; }
+    if (!webhookTokenMatches(connection, suppliedSecret)) { json(res, 401, { ok: false, confirmed: false, error: 'Webhook authentication failed.' }); return; }
+    const externalId = String(url.searchParams.get('external_lead_id') || url.searchParams.get('meta_lead_id') || '').trim();
+    const idempotency = String(url.searchParams.get('idempotency_key') || '').trim();
+    const lead = [...leads.values()].find(item => (externalId && item.external_lead_id === externalId) || (idempotency && item.idempotency_key === idempotency));
+    if (!lead) { json(res, 404, { ok: false, confirmed: false, error: 'Lead has not been persisted in the CRM yet.' }); return; }
+    json(res, 200, { ok: true, confirmed: true, leadId: lead.id, externalLeadId: lead.external_lead_id || null });
     return;
   }
 

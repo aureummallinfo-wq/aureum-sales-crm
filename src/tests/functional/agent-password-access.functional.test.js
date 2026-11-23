@@ -124,7 +124,21 @@ test('database reset stores hashes only, scopes manager access, revokes sessions
   const resetAgain = await call('/api/users/agent/reset-password', admin);
   assert.equal(resetAgain.status, 200);
   assert.notEqual(resetAgain.body.credentials.temporaryPassword, temporary);
-  await repository.updateUser(workspace.id, 'agent', { status: 'inactive' });
+  const [assignedLead] = await sql.query(`INSERT INTO crm.leads
+    (workspace_id, legacy_id, full_name, phone, assigned_agent_id, assigned_team_id)
+    VALUES ($1, 'deactivation-lead', 'Assigned before deactivation', '03000000000', $2, $3)
+    RETURNING id`, [workspace.id, agent.db_id, team.id]);
+  await sql.query(`INSERT INTO crm.follow_ups
+    (workspace_id, legacy_id, lead_id, assigned_agent_id, assigned_team_id, follow_up_type, due_at)
+    VALUES ($1, 'deactivation-follow-up', $2, $3, $4, 'General Follow-up', now() + interval '1 day')`, [workspace.id, assignedLead.id, agent.db_id, team.id]);
+  await repository.updateUser(workspace.id, 'agent', { status: 'inactive' }, manager);
   assert.equal((await call('/api/users/agent/reset-password', admin)).status, 409);
   assert.equal((await repository.findUser(workspace.id, 'agent')).status, 'inactive');
+  const [unassignedLead] = await sql.query('SELECT assigned_agent_id FROM crm.leads WHERE id=$1', [assignedLead.id]);
+  assert.equal(unassignedLead.assigned_agent_id, null);
+  const [movedFollowUp] = await sql.query('SELECT assigned_agent_id FROM crm.follow_ups WHERE lead_id=$1', [assignedLead.id]);
+  assert.equal(movedFollowUp.assigned_agent_id, manager.db_id);
+  const [history] = await sql.query('SELECT from_agent_id, to_agent_id FROM crm.lead_assignment_history WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 1', [assignedLead.id]);
+  assert.equal(history.from_agent_id, agent.db_id);
+  assert.equal(history.to_agent_id, null);
 });
