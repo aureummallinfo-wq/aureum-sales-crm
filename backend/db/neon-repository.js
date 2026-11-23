@@ -1709,7 +1709,11 @@ function createNeonRepository(sql) {
 
     if (connection.intake_mode === 'staging') {
       const staged = await createMetaLeadStaging(workspace, raw);
-      await sql.query("UPDATE crm.webhook_events SET status='staged',processed_at=now(),error_message=NULL WHERE id=$1", [eventId]);
+      // `webhook_events.status` intentionally tracks delivery lifecycle and
+      // only accepts received/processed/failed/duplicate.  The staging
+      // destination is represented by the webhook log and staging row, so a
+      // staged intake must still complete the event as processed.
+      await sql.query("UPDATE crm.webhook_events SET status='processed',processed_at=now(),error_message=NULL WHERE id=$1", [eventId]);
       await sql.query('INSERT INTO crm.webhook_logs (event_id,connection_id,status,message,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)', [eventId, connection.id, 'Staged', 'Meta lead saved to the intake review page', JSON.stringify({ staging_id: staged.id, external_lead_id: externalId || null })]);
       return { ok: true, staged: true, staging: staged };
     }
