@@ -26,4 +26,3 @@ CREATE INDEX IF NOT EXISTS meta_lead_staging_workspace_adset_idx
   ON crm.meta_lead_staging (workspace_id, adset_id);
 CREATE INDEX IF NOT EXISTS meta_lead_staging_workspace_source_idx
   ON crm.meta_lead_staging (workspace_id, source_channel);
-

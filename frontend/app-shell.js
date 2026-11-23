@@ -27,6 +27,7 @@ const routePermissions = {
 };
 const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'meta-inbox': '/meta-inbox', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', tasks: '/tasks', 'team-chat': '/team-chat', reports: '/reports', agents: '/users', 'my-account': '/my-account', 'change-password': '/change-password', 'access-denied': '/access-denied', settings: '/settings' };
 const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen, path]) => [path, screen]));
+screenForPath['/meta-intake'] = 'meta-inbox';
 screenForPath['/access-denied'] = 'unauthorized';
 
 const API_REQUEST_TIMEOUT_MS = 20000;

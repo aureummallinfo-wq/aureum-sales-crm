@@ -62,4 +62,3 @@ SET intake_mode = 'staging', updated_at = now()
 WHERE source_platform = 'meta'
   AND source_type = 'meta_lead_ads'
   AND intake_mode = 'crm';
-

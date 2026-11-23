@@ -1321,7 +1321,7 @@ function createNeonRepository(sql) {
     const customer = followUp?.customer_name || followUp?.lead_name || 'Customer';
     const type = followUp?.follow_up_type || 'Follow-up';
     const due = followUp?.due_date ? ` due ${followUp.due_date}${followUp.due_time ? ` at ${followUp.due_time}` : ''}` : '';
-    const copy = eventKey === 'follow_up_overdue' ? `${customer} - ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} - ${type} was completed.` : `${customer} - ${type} scheduled${due}.`;
+    const copy = eventKey === 'follow_up_overdue' ? `${customer} — ${type} is overdue.` : eventKey === 'follow_up_completed' ? `${customer} — ${type} was completed.` : `${customer} — ${type} scheduled${due}.`;
     const title = eventKey === 'follow_up_overdue' ? 'Follow-up overdue' : eventKey === 'follow_up_completed' ? 'Follow-up completed' : 'Follow-up scheduled';
     const notification = await sql.query(`INSERT INTO crm.notifications (user_id,event_key,title,message,related_entity_type,related_entity_id,dedupe_key) VALUES ($1,$2,$3,$4,'follow_up',$5,$6) ON CONFLICT (user_id,dedupe_key) DO NOTHING RETURNING id`, [userId, eventKey, title, copy, followUpId, `${eventKey}:${followUpId}:${followUp?.due_date}:${followUp?.due_time}`]);
     if (notification[0]) {
@@ -1565,7 +1565,7 @@ function createNeonRepository(sql) {
   async function listMetaLeadStaging(workspace, filters = {}) {
     const clauses = ['m.workspace_id=$1']; const params = [workspace];
     const add = (value, sqlPart) => { if (value) { params.push(value); clauses.push(sqlPart.replace('?', `$${params.length}`)); } };
-    add(filters.status, 'm.review_status=$?'); add(filters.formId, 'm.form_id=$?'); add(filters.dateFrom, 'm.submitted_at >= $?::date');
+    add(filters.status, 'm.review_status=?'); add(filters.formId, 'm.form_id=?'); add(filters.dateFrom, 'm.submitted_at >= ?::date');
     if (filters.source) { params.push(filters.source); clauses.push(`lower(coalesce(m.source_channel,''))=lower($${params.length})`); }
     if (filters.interest) { params.push(`%${String(filters.interest).toLowerCase()}%`); clauses.push(`(lower(coalesce(m.interested_in,'')) LIKE $${params.length} OR lower(coalesce(m.property_type,'')) LIKE $${params.length} OR lower(coalesce(m.interest_category,'')) LIKE $${params.length})`); }
     if (filters.dateTo) { params.push(filters.dateTo); clauses.push(`m.submitted_at < ($${params.length}::date + interval '1 day')`); }
@@ -1583,7 +1583,7 @@ function createNeonRepository(sql) {
     const platform = String(raw.platform || 'meta').toLowerCase();
     const requestedChannel = String(metaField(raw, 'source_channel', 'channel', 'source_type') || '').toLowerCase().trim();
     const sourceChannel = ({ fb: 'meta_lead_ads', facebook: 'meta_lead_ads', meta: 'meta_lead_ads', 'meta lead ads': 'meta_lead_ads', lead_ads: 'meta_lead_ads', ig: 'meta_instagram', instagram: 'meta_instagram', messenger: 'meta_messenger' }[requestedChannel] || ({ fb: 'meta_lead_ads', facebook: 'meta_lead_ads', meta: 'meta_lead_ads', ig: 'meta_instagram', instagram: 'meta_instagram' }[platform] || requestedChannel || platform)).toLowerCase();
-    const sourceLabel = metaField(raw, 'source_label', 'lead_source', 'source') || ({ meta_lead_ads: 'Meta � Lead Ads', meta_messenger: 'Meta � Messenger', meta_instagram: 'Meta � Instagram', website_form: 'Website � Form', website_chat: 'Website � Chat', whatsapp: 'WhatsApp � Organic' }[sourceChannel] || sourceChannel);
+    const sourceLabel = metaField(raw, 'source_label', 'lead_source', 'source') || ({ meta_lead_ads: 'Meta - Lead Ads', meta_messenger: 'Meta - Messenger', meta_instagram: 'Meta - Instagram', website_form: 'Website - Form', website_chat: 'Website - Chat', whatsapp: 'WhatsApp - Organic' }[sourceChannel] || sourceChannel);
     const interestedIn = metaField(raw, 'interested_in', 'interest', 'what_are_you_interested_in?');
     const propertyType = metaField(raw, 'property_type', 'which_property_type_do_you_want_to_go_for?', 'which_property_type?');
     const residentialBudget = metaField(raw, 'residential_budget', 'what_is_your_booking_budget_for_residential?');
@@ -1821,5 +1821,4 @@ async function verifyNeonWebhookLead(sql, workspace, identifier, secret, query =
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }
 
 module.exports = { createNeonRepository, hashToken };
-
 

@@ -16,11 +16,11 @@
   const metaStatus = value => `<span class="badge badge-${statusTone(value)}">${esc(value || 'Pending review')}</span>`;
   const sourceLabel = item => {
     const source = String(rawValue(item, 'source_label', 'source', 'source_channel', 'platform') || 'Meta').toLowerCase();
-    if (source.includes('messenger')) return 'Meta � Messenger';
-    if (source.includes('instagram')) return 'Meta � Instagram';
-    if (source.includes('website')) return 'Website � Form';
-    if (source.includes('whatsapp')) return 'WhatsApp � Organic';
-    return 'Meta � Lead Ads';
+    if (source.includes('messenger')) return 'Meta - Messenger';
+    if (source.includes('instagram')) return 'Meta - Instagram';
+    if (source.includes('website')) return 'Website - Form';
+    if (source.includes('whatsapp')) return 'WhatsApp - Organic';
+    return 'Meta - Lead Ads';
   };
   const interestLabel = item => rawValue(item, 'interested_in', 'interest_category', 'interest') || 'Not provided';
   const budgetLabel = item => rawValue(item, 'budget', 'residential_budget', 'commercial_budget') || 'Budget pending';
@@ -32,11 +32,11 @@
     const adsetId = rawValue(item, 'adset_id');
     const form = rawValue(item, 'form_name', 'form_id');
     const formId = rawValue(item, 'form_id');
-    return `<b>${display(campaign || 'Campaign not provided')}</b>${campaignId ? `<div class="person-meta">Campaign ID: ${display(campaignId)}</div>` : ''}<div class="person-meta">${display(adset || 'Ad set not provided')}${adsetId ? ` � ${display(adsetId)}` : ''}</div><div class="person-meta">${display(form || 'Form not provided')}${formId ? ` � ${display(formId)}` : ''}</div>`;
+    return `<b>${display(campaign || 'Campaign not provided')}</b>${campaignId ? `<div class="person-meta">Campaign ID: ${display(campaignId)}</div>` : ''}<div class="person-meta">${display(adset || 'Ad set not provided')}${adsetId ? ` · ${display(adsetId)}` : ''}</div><div class="person-meta">${display(form || 'Form not provided')}${formId ? ` · ${display(formId)}` : ''}</div>`;
   };
   const statusOptions = ['Pending review', 'Reviewed', 'Sent to CRM', 'Rejected', 'Failed'];
   const sourceOptions = ['meta_lead_ads', 'meta_messenger', 'meta_instagram', 'website_form', 'website_chat', 'whatsapp', 'referral_partner', 'manual_entry', 'import', 'event_qr'];
-  const sourceOptionLabel = value => ({ meta_lead_ads: 'Meta � Lead Ads', meta_messenger: 'Meta � Messenger', meta_instagram: 'Meta � Instagram', website_form: 'Website � Form', website_chat: 'Website � Chat', whatsapp: 'WhatsApp � Organic', referral_partner: 'Referral � Partner', manual_entry: 'Manual � Staff Entry', import: 'Import � CSV/Excel', event_qr: 'Event � QR Code' }[value] || value);
+  const sourceOptionLabel = value => ({ meta_lead_ads: 'Meta - Lead Ads', meta_messenger: 'Meta - Messenger', meta_instagram: 'Meta - Instagram', website_form: 'Website - Form', website_chat: 'Website - Chat', whatsapp: 'WhatsApp - Organic', referral_partner: 'Referral - Partner', manual_entry: 'Manual - Staff Entry', import: 'Import - CSV/Excel', event_qr: 'Event - QR Code' }[value] || value);
 
   function metaFilters() {
     const filters = state.metaInbox.filters || {};
@@ -87,12 +87,12 @@
 
   function renderMetaStagingDrawer() {
     const item = state.metaInbox.selected;
-    if (!item) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer meta-intake-drawer"><div class="drawer-header"><div><div class="eyebrow">Meta intake</div><h2>Loading lead.</h2></div><button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div><div class="empty-state">Loading the staged Meta lead.</div></aside>`;
+    if (!item) return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer meta-intake-drawer"><div class="drawer-header"><div><div class="eyebrow">Meta intake</div><h2>Loading lead…</h2></div><button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div><div class="empty-state">Loading the staged Meta lead.</div></aside>`;
     const p = item.raw_payload || {};
     const field = (...keys) => rawValue(item, ...keys);
     const feedback = item.feedback_status && item.feedback_status !== 'Not queued' ? metaStatus(item.feedback_status) : '<span class="badge badge-neutral">Not queued</span>';
     return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer meta-intake-drawer" aria-label="Meta lead details">
-      <div class="drawer-header"><div><div class="eyebrow">Meta lead review</div><h2>${display(item.full_name || 'Unnamed lead')}</h2><p class="page-subtitle">${metaStatus(item.review_status)} <span class="drawer-separator">�</span> ${esc(sourceLabel(item))}</p></div><button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div>
+      <div class="drawer-header"><div><div class="eyebrow">Meta lead review</div><h2>${display(item.full_name || 'Unnamed lead')}</h2><p class="page-subtitle">${metaStatus(item.review_status)} <span class="drawer-separator">·</span> ${esc(sourceLabel(item))}</p></div><button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div>
       <form id="meta-staging-review-form">
         <div class="drawer-section"><div class="drawer-section-heading"><h3>Lead & contact</h3><span class="source-badge source-meta">${esc(sourceLabel(item))}</span></div>${detailGrid([detailValue('Internal CRM ID', item.id), detailValue('Meta Lead ID', item.external_lead_id), detailValue('Full name', item.full_name), detailValue('Phone number', item.phone), detailValue('WhatsApp number', item.whatsapp_number), detailValue('Email', item.email), detailValue('City', item.city), detailValue('Area / address', item.area), detailValue('Consent', field('consent_status') || 'Not captured')])}</div>
         <div class="drawer-section"><div class="drawer-section-heading"><h3>Customer qualification</h3><span class="detail-hint">Conditional residential/commercial fields are preserved</span></div>${detailGrid([detailValue('Interested in', field('interested_in', 'interest_category', 'interest')), detailValue('Property type', field('property_type', 'residential_property_type', 'commercial_property_type')), detailValue('Residential budget', field('residential_budget')), detailValue('Commercial budget', field('commercial_budget')), detailValue('Purpose', field('purpose', 'residential_investment_purpose', 'commercial_investment_purpose')), detailValue('Payment preference', field('payment_preference', 'payment_method')), detailValue('Purchase timeline', field('buying_timeline', 'purchase_timeline')), detailValue('Site visit interest', field('site_visit_interest'))])}</div>
@@ -136,4 +136,3 @@
   bind = function bindWithMetaIntake() { previousBind(); bindMetaIntakeEvents(); };
   if (state.authUser && state.ready && state.screen === 'meta-inbox') { render(); loadMetaIntake(); }
 })();
-

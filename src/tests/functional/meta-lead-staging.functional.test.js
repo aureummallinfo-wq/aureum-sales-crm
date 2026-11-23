@@ -36,6 +36,17 @@ test('Meta leads can be reviewed in staging and promoted idempotently into the C
   assert.equal(first.source_channel, 'meta_lead_ads');
   assert.equal(first.ingested_via, 'n8n webhook');
 
+  const pending = await repo.listMetaLeadStaging(workspace.id, { status: 'Pending review' });
+  assert.equal(pending.length, 1);
+  const bySource = await repo.listMetaLeadStaging(workspace.id, { source: 'meta_lead_ads' });
+  assert.equal(bySource.length, 1);
+  const bySearch = await repo.listMetaLeadStaging(workspace.id, { search: 'Staging Buyer' });
+  assert.equal(bySearch.length, 1);
+  const byInterest = await repo.listMetaLeadStaging(workspace.id, { interest: '2 Bed' });
+  assert.equal(byInterest.length, 1);
+  const byDate = await repo.listMetaLeadStaging(workspace.id, { dateFrom: '2026-11-23', dateTo: '2026-11-23' });
+  assert.equal(byDate.length, 1);
+
   const retry = await repo.createMetaLeadStaging(workspace.id, { external_lead_id: 'meta-987654321', idempotency_key: 'meta-987654321', full_name: 'Staging Buyer Updated' });
   assert.equal(retry.id, first.id);
   assert.equal(retry.review_status, 'Pending review');
@@ -54,4 +65,3 @@ test('Meta leads can be reviewed in staging and promoted idempotently into the C
   assert.equal(secondPromotion.crm_lead_id, promoted.crm_lead_id);
   assert.equal((await sql.query("SELECT count(*)::int AS n FROM crm.leads WHERE external_lead_id='meta-987654321'"))[0].n, 1);
 });
-
