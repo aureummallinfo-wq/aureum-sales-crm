@@ -492,7 +492,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if ((body.customer_id && !customer) || (body.lead_id && !lead) || (!customer && !lead)) return json(res,400,{error:'A valid customer or lead is required'});
       if (customer && lead && customer.lead_id !== lead.id) return json(res,422,{error:'The follow-up lead must belong to the selected customer.'});
       const owner = customer || lead;
-      if (body.assigned_agent_id && body.assigned_agent_id !== owner.assigned_agent_id) return json(res,422,{error:'Follow-ups must belong to the customer’s current advisor.'});
+      if (body.assigned_agent_id && body.assigned_agent_id !== owner.assigned_agent_id) return json(res,422,{error:"Follow-ups must belong to the customer's current advisor."});
       if ((customer && !canView(user,customer)) || (lead && !canViewLead(user,lead))) return deny(res,'Access denied — record is outside your ownership scope');
       const assigned=await repository.findUser(workspaceId,user.role==='sales_agent' ? user.id : body.assigned_agent_id || customer?.assigned_agent_id || lead?.assigned_agent_id || user.id);
       if (!assigned || assigned.status!=='active' || (user.role==='sales_manager' && assigned.team_id!==user.team_id)) return json(res,422,{error:'Choose an active advisor from your permitted scope.'});
