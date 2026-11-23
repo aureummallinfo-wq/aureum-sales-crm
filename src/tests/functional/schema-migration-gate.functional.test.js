@@ -91,3 +91,4 @@ test('schema gate applies only unrecorded migrations and never rewrites lead tim
     assert.deepEqual(disabled, []);
   });
 });
+
