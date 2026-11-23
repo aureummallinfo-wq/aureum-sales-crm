@@ -328,9 +328,11 @@ function createNeonRepository(sql) {
 
       const leadRows = await tx.query(`SELECT id, legacy_id, assigned_team_id
         FROM crm.leads
-        WHERE workspace_id = $1 AND assigned_agent_id = $2 AND deleted_at IS NULL
+        WHERE workspace_id = $1
+          AND (assigned_agent_id = $2 OR assigned_agent_id::text = $3)
+          AND deleted_at IS NULL
         ORDER BY created_at ASC, id ASC
-        FOR UPDATE`, [workspace, targetId]);
+        FOR UPDATE`, [workspace, targetId, lockedTarget.legacy_id]);
       const fallbackOwnerId = lockedTarget.manager_id || actorId;
       let reassignedFollowUpCount = 0;
 
@@ -350,11 +352,11 @@ function createNeonRepository(sql) {
               ),
               updated_at = now()
           WHERE workspace_id = $5
-            AND assigned_agent_id = $3
+            AND (assigned_agent_id = $3 OR assigned_agent_id::text = $8)
             AND deleted_at IS NULL
             AND status IN ('Pending','Overdue','Rescheduled','Missed')
             AND (lead_id = $6 OR customer_id = ANY($7::uuid[]))
-          RETURNING id`, [fallbackOwnerId, lead.assigned_team_id, targetId, lockedTarget.full_name, workspace, lead.id, customerIds]);
+          RETURNING id`, [fallbackOwnerId, lead.assigned_team_id, targetId, lockedTarget.full_name, workspace, lead.id, customerIds, lockedTarget.legacy_id]);
         reassignedFollowUpCount += followUpRows.length;
 
         await tx.query(`UPDATE crm.leads
