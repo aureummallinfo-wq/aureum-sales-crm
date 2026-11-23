@@ -154,17 +154,6 @@ async function syncCrmSnapshot(sql, snapshot, options = {}) {
     }
     result.notifications += notificationEntries.reduce((total, [, entries]) => total + (entries?.length || 0), 0);
 
-    const channelIds = new Map();
-    for (const channel of Array.isArray(snapshot.chatChannels) ? snapshot.chatChannels : []) {
-      const rows = await query(tx, `INSERT INTO crm.chat_channels (workspace_id,legacy_id,name,description,visibility,is_archived,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now()) ON CONFLICT (workspace_id,legacy_id) DO UPDATE SET name=EXCLUDED.name,description=EXCLUDED.description,visibility=EXCLUDED.visibility,is_archived=EXCLUDED.is_archived,updated_at=now() RETURNING id`, [workspaceId, channel.id, channel.name || channel.channel_name || channel.id, channel.description || null, channel.visibility || 'public', Boolean(channel.is_archived)]);
-      channelIds.set(channel.id, rows[0].id);
-      for (const memberId of Array.isArray(channel.member_ids) ? channel.member_ids : []) if (userIds.get(memberId)) await query(tx, `INSERT INTO crm.chat_channel_members (channel_id,user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [rows[0].id, userIds.get(memberId)]);
-    }
-    for (const [legacyChannelId, entries] of mapEntries(snapshot.chatMessages)) for (const item of entries || []) if (channelIds.get(legacyChannelId) && userIds.get(item.sender_id)) {
-      await query(tx, `INSERT INTO crm.chat_messages (id,workspace_id,legacy_id,channel_id,sender_id,message_type,message_text,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,coalesce($8::timestamptz,now())) ON CONFLICT (legacy_id) DO UPDATE SET message_text=EXCLUDED.message_text,message_type=EXCLUDED.message_type`, [uuidFor(item.id), workspaceId, item.id, channelIds.get(legacyChannelId), userIds.get(item.sender_id), item.message_type || 'text', item.message_text || null, timestamp(item.created_at)]);
-      result.chat += 1;
-    }
-
     if (Array.isArray(snapshot.webhookConnections)) for (const item of snapshot.webhookConnections) {
       await query(tx, `INSERT INTO crm.webhook_connections (workspace_id,legacy_id,name,source_platform,secret_hash,status,field_mappings,created_by,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,now()) ON CONFLICT (workspace_id,legacy_id) DO UPDATE SET name=EXCLUDED.name,source_platform=EXCLUDED.source_platform,secret_hash=EXCLUDED.secret_hash,status=EXCLUDED.status,field_mappings=EXCLUDED.field_mappings,updated_at=now()`, [workspaceId, item.id, item.connection_name || item.name || item.id, item.source_platform || 'custom', item.secret_hash || '', String(item.status || 'Inactive').toLowerCase(), json(item.field_mappings || {}), userIds.get(item.created_by) || null]);
       result.webhooks += 1;

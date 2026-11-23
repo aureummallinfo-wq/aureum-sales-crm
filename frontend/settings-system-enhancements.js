@@ -69,7 +69,7 @@ function layout9(content) {
 }
 
 function notificationScreen9(item) {
-  const routes = { follow_up_due: 'follow-ups', follow_up_overdue: 'follow-ups', follow_up_completed: 'follow-ups', team_chat_message: 'team-chat', new_lead_assigned: 'leads', lead_status_changed: 'leads', customer_note_added: 'customers', user_added: 'agents', deal_closed_won: 'reports', deal_closed_lost: 'reports' };
+  const routes = { follow_up_due: 'follow-ups', follow_up_overdue: 'follow-ups', follow_up_completed: 'follow-ups', new_lead_assigned: 'leads', lead_status_changed: 'leads', customer_note_added: 'customers', user_added: 'agents', deal_closed_won: 'reports', deal_closed_lost: 'reports' };
   return routes[item?.event_type] || 'dashboard';
 }
 

@@ -1,4 +1,5 @@
 const app = document.querySelector('#app');
+const TEAM_COMMUNICATION_ENABLED = window.__AUREUM_TEAM_COMMUNICATION_ENABLED__ !== false;
 const API_BASE_URL = String(window.__AUREUM_API_BASE_URL__ || '').replace(/\/+$/, '');
 function apiUrl(path) { if (/^https?:\/\//i.test(path)) return path; const normalized = path.startsWith('/') ? path : `/${path}`; return `${API_BASE_URL}${normalized}`; }
 
@@ -345,6 +346,7 @@ function userInitials() {
 }
 
 function canAccess(screen) {
+  if (screen === 'team-chat' && !TEAM_COMMUNICATION_ENABLED) return false;
   return (routePermissions[screen] || []).includes(state.role);
 }
 
@@ -473,7 +475,7 @@ function sidebarNavigationLabel(id, label) {
 
 function renderSidebarNavigation() {
   ensureSidebarBadges();
-  return navByRole[state.role].map(([id, label, ico]) => {
+  return navByRole[state.role].filter(([id]) => TEAM_COMMUNICATION_ENABLED || id !== 'team-chat').map(([id, label, ico]) => {
     const count = sidebarBadgeCount(id);
     const accessibleLabel = sidebarNavigationLabel(id, label);
     const badge = sidebarBadgeDescriptions[id] ? `<span class="nav-badge" aria-hidden="true"${count ? '' : ' hidden'}>${count > 99 ? '99+' : count}</span>` : '';
@@ -533,7 +535,8 @@ async function refreshSidebarCounts(force = false) {
   if (!state.authUser || sidebarBadgeSession !== portalSessionKey()) return;
   if (sidebarBadgeLoading) return sidebarBadgeLoading;
   const session = sidebarBadgeSession;
-  const endpoints = ['/api/leads/my', state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups', '/api/tasks', '/api/chat/unread-counts'];
+  const endpoints = ['/api/leads/my', state.role === 'SALES_AGENT' ? '/api/follow-ups/my' : '/api/follow-ups', '/api/tasks'];
+  if (TEAM_COMMUNICATION_ENABLED) endpoints.push('/api/chat/unread-counts');
   if (canAccess('leads')) endpoints.push('/api/leads');
   const loading = Promise.allSettled(endpoints.map(endpoint => apiFetch(endpoint, { cacheTtl: 15000, force })));
   sidebarBadgeLoading = loading;
@@ -548,7 +551,8 @@ async function refreshSidebarCounts(force = false) {
 
 function observeSidebarResponse(path, method, body) {
   if (!state.authUser) return;
-  const routes = { '/api/leads': 'leads', '/api/leads/my': 'my-leads', '/api/follow-ups': 'follow-ups', '/api/follow-ups/my': 'follow-ups', '/api/tasks': 'tasks', '/api/chat/unread-counts': 'team-chat' };
+  const routes = { '/api/leads': 'leads', '/api/leads/my': 'my-leads', '/api/follow-ups': 'follow-ups', '/api/follow-ups/my': 'follow-ups', '/api/tasks': 'tasks' };
+  if (TEAM_COMMUNICATION_ENABLED) routes['/api/chat/unread-counts'] = 'team-chat';
   const id = routes[path];
   // Filtered lists must never replace the full navigation count.
   if (method === 'GET' && id) {
@@ -562,7 +566,7 @@ function observeSidebarResponse(path, method, body) {
     }
     updateSidebarBadges();
   }
-  const marksChatRead = method === 'GET' && /\/api\/chat\/.*[?&]markRead=1(?:&|$)/.test(path);
+  const marksChatRead = TEAM_COMMUNICATION_ENABLED && method === 'GET' && /\/api\/chat\/.*[?&]markRead=1(?:&|$)/.test(path);
   if (marksChatRead) apiInvalidateCache('/api/chat/unread-counts');
   if ((method !== 'GET' && method !== 'HEAD' && /^\/api\/(?:leads|customers|follow-ups|tasks|chat)(?:\/|\?|$)/.test(path)) || marksChatRead) queueSidebarBadgeRefresh();
 }
@@ -972,7 +976,7 @@ function baseBind() {
 
 async function boot() {
   const requestedScreen = screenForPath[window.location.pathname] || 'dashboard';
-  try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = requestedScreen; }
+  try { const result = await apiFetch('/api/auth/me'); state.authUser = result.user; state.role = result.user.role.toUpperCase(); state.screen = !TEAM_COMMUNICATION_ENABLED && requestedScreen === 'team-chat' ? 'dashboard' : requestedScreen; }
   catch { state.authUser = null; state.screen = 'login'; }
   state.ready = true;
   render();
