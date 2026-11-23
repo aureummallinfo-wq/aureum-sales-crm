@@ -17,6 +17,7 @@ const routePermissions = {
   tasks: ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
   'team-chat': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'PROJECT_MANAGER'],
   reports: ['SUPER_ADMIN', 'SALES_MANAGER', 'HR', 'PROJECT_MANAGER'],
+  'meta-inbox': ['SUPER_ADMIN', 'SALES_MANAGER'],
   agents: ['SUPER_ADMIN', 'SALES_MANAGER'],
   users: ['SUPER_ADMIN', 'SALES_MANAGER'],
   'my-account': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
@@ -24,7 +25,7 @@ const routePermissions = {
   'access-denied': ['SUPER_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR', 'PROJECT_MANAGER'],
   settings: ['SUPER_ADMIN']
 };
-const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', tasks: '/tasks', 'team-chat': '/team-chat', reports: '/reports', agents: '/users', 'my-account': '/my-account', 'change-password': '/change-password', 'access-denied': '/access-denied', settings: '/settings' };
+const routePaths = { dashboard: '/dashboard', leads: '/all-leads', 'my-leads': '/my-leads', 'meta-inbox': '/meta-inbox', 'add-lead': '/add-lead', customers: '/customers', 'follow-ups': '/follow-ups', tasks: '/tasks', 'team-chat': '/team-chat', reports: '/reports', agents: '/users', 'my-account': '/my-account', 'change-password': '/change-password', 'access-denied': '/access-denied', settings: '/settings' };
 const screenForPath = Object.fromEntries(Object.entries(routePaths).map(([screen, path]) => [path, screen]));
 screenForPath['/access-denied'] = 'unauthorized';
 
@@ -159,6 +160,7 @@ function renderPortalContent() {
     switch (state.screen) {
       case 'leads': return renderLeads(false);
       case 'my-leads': return renderLeads(true);
+      case 'meta-inbox': return window.renderMetaIntake ? window.renderMetaIntake() : renderDashboard();
       case 'add-lead': return renderAddLead();
       case 'customers': return renderCustomers();
       case 'follow-ups': return renderFollowups();
@@ -231,6 +233,7 @@ const state = {
   deniedPath: '',
   drawer: null,
   followupPrefill: null,
+  metaInbox: { loading: false, error: '', items: [], selected: null, filters: { q: '', status: '', formId: '', dateFrom: '', dateTo: '' } },
   selectedChannel: 'Sales Team',
   toast: ''
 };
@@ -312,8 +315,8 @@ window.aureumLoadDisplayPreferences = aureumLoadDisplayPreferences;
 
 const roleLabels = { SUPER_ADMIN: 'Super Admin', SALES_MANAGER: 'Sales Manager', SALES_AGENT: 'Sales Executive', HR: 'HR', PROJECT_MANAGER: 'Project Manager' };
 const navByRole = {
-  SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users'], ['settings', 'Settings', 'settings']],
-  SALES_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users']],
+  SUPER_ADMIN: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['meta-inbox', 'Meta Intake', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users'], ['settings', 'Settings', 'settings']],
+  SALES_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['leads', 'All Leads', 'leads'], ['my-leads', 'My Leads', 'leads'], ['meta-inbox', 'Meta Intake', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['agents', 'Users', 'agents'], ['my-account', 'My Account', 'users']],
   SALES_AGENT: [['dashboard', 'Dashboard', 'dashboard'], ['my-leads', 'My Leads', 'leads'], ['add-lead', 'Add New Lead', 'plus'], ['customers', 'Customers', 'customers'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['my-account', 'My Account', 'users']],
   HR: [['dashboard', 'Dashboard', 'dashboard'], ['follow-ups', 'Follow-ups', 'followups'], ['tasks', 'Tasks', 'calendar'], ['reports', 'Reports', 'reports'], ['my-account', 'My Account', 'users']],
   PROJECT_MANAGER: [['dashboard', 'Dashboard', 'dashboard'], ['tasks', 'Tasks', 'calendar'], ['team-chat', 'Team Chat', 'chat'], ['reports', 'Reports', 'reports'], ['my-account', 'My Account', 'users']]
@@ -573,7 +576,7 @@ function layout(content) {
   return `<div class="app-shell"><aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input placeholder="Search CRM" aria-label="Search CRM" /></div><button class="icon-btn" aria-label="Notifications">${icons.bell}</button><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${state.toast}</div>` : ''}</div>`;
 }
 
-function screenLabel(screen) { return ({dashboard: 'Dashboard', leads: 'All Leads', 'my-leads': 'My Leads', 'add-lead': 'Add New Lead', customers: 'Customers', 'follow-ups': 'Follow-ups', tasks: 'Tasks', 'team-chat': 'Team Chat', reports: 'Reports', agents: 'Users', users: 'Users', 'my-account': 'My Account', 'change-password': 'Change Password', 'access-denied': 'Access Denied', settings: 'Settings', unauthorized: 'Access Denied'})[screen] || 'Dashboard'; }
+function screenLabel(screen) { return ({dashboard: 'Dashboard', leads: 'All Leads', 'my-leads': 'My Leads', 'meta-inbox': 'Meta Intake', 'add-lead': 'Add New Lead', customers: 'Customers', 'follow-ups': 'Follow-ups', tasks: 'Tasks', 'team-chat': 'Team Chat', reports: 'Reports', agents: 'Users', users: 'Users', 'my-account': 'My Account', 'change-password': 'Change Password', 'access-denied': 'Access Denied', settings: 'Settings', unauthorized: 'Access Denied'})[screen] || 'Dashboard'; }
 
 function pageHeader(_eyebrow, title, subtitle, actions = '') { return `<div class="page-header"><div><h1>${title}</h1>${subtitle ? `<p class="page-subtitle">${subtitle}</p>` : ''}</div><div class="header-actions">${actions}</div></div>`; }
 
@@ -797,6 +800,7 @@ window.addEventListener('popstate', () => {
   render();
   if (state.screen === 'leads') loadLeads(false);
   if (state.screen === 'my-leads') loadLeads(true);
+  if (state.screen === 'meta-inbox') window.loadMetaIntake?.();
   if (state.screen === 'customers') loadCustomers();
   if (state.screen === 'follow-ups') loadFollowups();
   if (state.screen === 'tasks' && typeof loadTasks === 'function') loadTasks();
@@ -907,6 +911,7 @@ async function refreshFollowupDetail() {
 }
 
 function renderDrawer() {
+  if (state.drawer === 'meta-staging' && window.renderMetaStagingDrawer) return window.renderMetaStagingDrawer();
   if (state.drawer === 'customer') return renderCustomerDrawer();
   if (state.drawer === 'followup' || state.drawer === 'create-followup') return renderFollowupDrawer();
   return legacyRenderDrawer();
@@ -919,6 +924,7 @@ function navigate(screen) {
   render();
   if (screen === 'leads') loadLeads(false);
   if (screen === 'my-leads') loadLeads(true);
+  if (screen === 'meta-inbox') window.loadMetaIntake?.();
   if (screen === 'customers') loadCustomers();
   if (screen === 'follow-ups') loadFollowups();
   if (screen === 'tasks' && typeof loadTasks === 'function') loadTasks();
@@ -971,6 +977,7 @@ async function boot() {
   render();
   if (state.authUser && state.screen === 'leads') loadLeads(false);
   if (state.authUser && state.screen === 'my-leads') loadLeads(true);
+  if (state.authUser && state.screen === 'meta-inbox') window.loadMetaIntake?.();
   if (state.authUser && state.screen === 'customers') loadCustomers();
   if (state.authUser && state.screen === 'follow-ups') loadFollowups();
   if (state.authUser && state.screen === 'tasks' && typeof loadTasks === 'function') loadTasks();

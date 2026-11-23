@@ -11,7 +11,7 @@ const migration = file => fs.readFileSync(path.join(__dirname, '../../../db/migr
 
 test('Meta lead IDs survive intake and reach n8n with status changes, without free text', async t => {
   const db = new PGlite(); t.after(() => db.close());
-  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql', '023_lead_received_at.sql']) await db.exec(migration(file));
+  for (const file of ['002_production_crm_schema.sql', '003_workspace_settings.sql', '004_crm_integration_metadata.sql', '012_opportunity_closure.sql', '014_edit_saved_notes.sql', '015_meta_crm_feedback.sql', '023_lead_received_at.sql', '027_meta_lead_staging.sql']) await db.exec(migration(file));
   const sql = { query: async (text, params) => (await db.query(text, params)).rows };
   const repo = createNeonRepository(sql);
   const [w] = await sql.query("INSERT INTO crm.workspaces(name,legacy_id) VALUES('Meta feedback test','meta') RETURNING id");
