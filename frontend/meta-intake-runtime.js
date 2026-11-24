@@ -91,7 +91,8 @@
     const missing = items.filter(item => !item.phone || !item.full_name).length;
     const body = data.loading ? '<div class="empty-state">Loading Meta intake records.</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : metaTable(items);
     const selectedCount = selectedMetaIds().size;
-    const bulkToolbar = selectedCount ? `<div class="meta-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Only records not yet sent to the CRM are included.</span><button class="btn btn-gold btn-sm" data-meta-bulk-send>Approve &amp; send selected</button><button class="btn btn-secondary btn-sm" data-meta-clear-selection>Clear selection</button></div>` : '';
+    const deleteSelected = state.role === 'SUPER_ADMIN' ? '<button class="btn btn-danger btn-sm" data-meta-bulk-delete>Delete selected</button>' : '';
+    const bulkToolbar = selectedCount ? `<div class="meta-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Only records not yet sent to the CRM are included.</span><button class="btn btn-gold btn-sm" data-meta-bulk-send>Approve &amp; send selected</button>${deleteSelected}<button class="btn btn-secondary btn-sm" data-meta-clear-selection>Clear selection</button></div>` : '';
     return pageHeader('Pre-CRM review queue', 'Meta Intake', 'Review Meta leads, add the business outcome, and send approved records into the CRM.', '<button class="btn btn-secondary" data-meta-intake-reload>Refresh</button>') + `<section class="grid grid-4 meta-intake-kpis">${kpi('Pending review', pending, 'Needs a decision', 'down')}${kpi('Sent to CRM', sent, 'Approved records')}${kpi('Ready for Meta', ready, 'Outcome captured')}${kpi('Needs correction', missing, 'Missing contact data', 'down')}</section><section class="card table-card meta-intake-card" style="margin-top:18px"><div class="section-title"><div><div class="eyebrow">Meta lead staging</div><h3>Review before CRM</h3><p>Raw Meta data is retained for reconciliation. Internal notes stay in the CRM; Meta receives only approved outcome signals through the later Conversions API step.</p></div><span class="badge badge-neutral">${items.length} visible</span></div>${metaFilters()}${bulkToolbar}${body}</section>`;
   }
 
@@ -145,12 +146,27 @@
     showToast(failed.length ? `${sent} sent; ${failed.length} need review.` : `${sent} lead${sent === 1 ? '' : 's'} sent to the CRM.`);
   }
 
+  async function bulkDeleteMetaLeads() {
+    const ids = [...selectedMetaIds()].filter(id => (state.metaInbox.items || []).some(item => String(item.id) === String(id) && canBulkSend(item)));
+    if (!ids.length || !window.confirm(`Delete ${ids.length} selected Meta lead${ids.length === 1 ? '' : 's'} from Meta Intake? This cannot be undone.`)) return;
+    const button = document.querySelector('[data-meta-bulk-delete]');
+    if (button) { button.disabled = true; button.textContent = 'Deleting…'; }
+    try {
+      const result = await apiFetch('/api/meta/staging/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) });
+      state.metaInbox.selectedIds = [];
+      await loadMetaIntake();
+      showToast(`${result.meta?.deleted || 0} Meta lead${result.meta?.deleted === 1 ? '' : 's'} deleted.`);
+    } catch (error) { showToast(error.message || 'Unable to delete the selected Meta leads.'); }
+    finally { render(); }
+  }
+
   function bindMetaIntakeEvents() {
     document.querySelectorAll('[data-meta-staging-open], [data-meta-staging-open-button]').forEach(element => element.addEventListener('click', event => { event.stopPropagation(); openMetaStaging(element.dataset.metaStagingOpen || element.dataset.metaStagingOpenButton); }));
     document.querySelectorAll('[data-meta-intake-select]').forEach(element => element.addEventListener('click', event => event.stopPropagation()));
     document.querySelectorAll('[data-meta-intake-select]').forEach(element => element.addEventListener('change', event => { const id = String(event.target.dataset.metaIntakeSelect); const selected = selectedMetaIds(); event.target.checked ? selected.add(id) : selected.delete(id); state.metaInbox.selectedIds = [...selected]; render(); }));
     const selectAll = document.querySelector('[data-meta-intake-select-all]'); if (selectAll) selectAll.addEventListener('change', event => { const selected = selectedMetaIds(); (state.metaInbox.items || []).filter(canBulkSend).forEach(item => event.target.checked ? selected.add(String(item.id)) : selected.delete(String(item.id))); state.metaInbox.selectedIds = [...selected]; render(); });
     document.querySelectorAll('[data-meta-bulk-send]').forEach(element => element.addEventListener('click', bulkSendMetaLeads));
+    document.querySelectorAll('[data-meta-bulk-delete]').forEach(element => element.addEventListener('click', bulkDeleteMetaLeads));
     document.querySelectorAll('[data-meta-clear-selection]').forEach(element => element.addEventListener('click', () => { state.metaInbox.selectedIds = []; render(); }));
     document.querySelectorAll('[data-meta-intake-reload]').forEach(element => element.addEventListener('click', () => loadMetaIntake()));
     document.querySelectorAll('[data-meta-intake-clear]').forEach(element => element.addEventListener('click', () => { state.metaInbox.filters = { q: '', status: '', source: '', interest: '', dateFrom: '', dateTo: '' }; loadMetaIntake(); }));

@@ -295,7 +295,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       const skipped = [];
       for (const identifier of leadIds) {
         const lead = await repository.getLead(workspaceId, identifier);
-        if (!lead || lead.assigned_agent_id) { skipped.push(identifier); continue; }
+        if (!lead) { skipped.push(identifier); continue; }
         const result = await repository.deleteLead(workspaceId, lead.id, user);
         if (result) deleted.push(result.id); else skipped.push(identifier);
       }
@@ -696,6 +696,15 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
         return json(res, 200, { data, meta: { total: data.length } });
       }
       if (req.method === 'POST' && pathname === '/api/meta/staging') { const body = await readBody(req); const item = await repository.createMetaLeadStaging(workspaceId, body.payload || body); return json(res, 201, { data: item }); }
+      if (req.method === 'POST' && pathname === '/api/meta/staging/bulk-delete') {
+        if (!role(user, ['super_admin'], res)) return true;
+        const body = await readBodyLimited(req, 100000);
+        const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(value => safeText(value, 120)).filter(Boolean))];
+        if (!ids.length) return json(res, 422, { error: 'Select at least one Meta lead.' });
+        if (ids.length > 250) return json(res, 413, { error: 'Delete up to 250 Meta leads at a time.' });
+        const result = await repository.bulkDeleteMetaLeadStaging(workspaceId, ids, user);
+        return json(res, 200, { data: result.deleted, meta: { requested: ids.length, deleted: result.deleted.length, skipped: result.skipped.length } });
+      }
       const stagingItem = pathname.match(/^\/api\/meta\/staging\/([^/]+)$/);
       if (stagingItem && req.method === 'GET') { const item = await repository.getMetaLeadStaging(workspaceId, stagingItem[1]); return item ? json(res, 200, { data: item }) : json(res, 404, { error: 'Meta intake record not found.' }); }
       if (stagingItem && req.method === 'PATCH') { const item = await repository.updateMetaLeadStaging(workspaceId, stagingItem[1], user, await readBody(req)); return item ? json(res, 200, { data: item }) : json(res, 404, { error: 'Meta intake record not found.' }); }
