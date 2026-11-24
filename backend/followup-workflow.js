@@ -5,7 +5,7 @@ function notePlan(input = {}, now = new Date()) {
   const contacted = input.customer_contacted === true || input.customer_contacted === 'true';
   const rawTags = input.followup_tags ?? input.followup_tag;
   const tags = [...new Set((Array.isArray(rawTags) ? rawTags : rawTags == null || rawTags === '' ? [] : [rawTags]))];
-  if (tags.some(tag => !statusTags.isValid(tag))) throw new Error('Choose valid CRM status tags.');
+  if (tags.some(tag => !statusTags.isValidTag(tag))) throw new Error('Choose valid CRM status tags.');
   const details = { contacted, ...(tags.length ? { tag: tags[0], tags } : {}) };
   // A terminal outcome is a lifecycle command, not a reminder label. Never
   // validate or carry a next-contact date for a terminal selection.

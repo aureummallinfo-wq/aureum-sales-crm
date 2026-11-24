@@ -14,7 +14,7 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
   for (const type of ['lead-statuses', 'customer-statuses', 'lead-tags']) {
     const result = await request(`/api/settings/${type}`, 'GET', null, admin);
     assert.equal(result.response.status, 200);
-    assert.deepEqual(result.body.data.filter(item => item.is_active).map(item => item.name), policy.values);
+    assert.deepEqual(result.body.data.filter(item => item.is_active).map(item => item.name), type === 'lead-tags' ? policy.tagValues : policy.values);
   }
   const leadResult = await request('/api/leads', 'POST', { full_name: 'Status tag customer', phone: '+923001112233', interested_in: 'Commercial', status: 'New' });
   assert.equal(leadResult.response.status, 201);
@@ -23,7 +23,7 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
   assert.equal(converted.response.status, 200);
   assert.equal(converted.body.created, false);
   const customer = converted.body.data;
-  const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
+  const selected = ['Qualified', 'Follow-up', 'Visit Scheduled'];
   const saved = await request(`/api/customers/${customer.id}/notes`, 'POST', { note: 'Customer confirmed a site visit.', customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-10-24', next_due_time: '14:30', followup_tags: selected });
   assert.equal(saved.response.status, 201);
   assert.deepEqual((await request(`/api/leads/${lead.id}`)).body.data.tags, selected);
@@ -31,8 +31,8 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
   const reminder = (await request('/api/follow-ups/my')).body.data.find(item => item.customer_id === customer.id);
   assert.deepEqual(reminder.followup_tags, selected);
   assert.equal(reminder.lead_status, 'New');
-  await request(`/api/customers/${customer.id}/status`, 'PATCH', { status: 'Hot' });
-  assert.equal((await request(`/api/leads/${lead.id}`)).body.data.status, 'Hot');
+  await request(`/api/customers/${customer.id}/status`, 'PATCH', { status: 'Qualified' });
+  assert.equal((await request(`/api/leads/${lead.id}`)).body.data.status, 'Qualified');
   await request(`/api/leads/${lead.id}/status`, 'PATCH', { status: 'Not Interested' });
   assert.equal((await request(`/api/customers/${customer.id}`)).body.data.customer_status, 'Closed Lost');
   const invalid = await request(`/api/customers/${customer.id}/notes`, 'POST', { note: 'Do not save.', next_followup_days: 'none', followup_tag: 'VIP' });

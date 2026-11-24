@@ -26,7 +26,7 @@
   const currentDate = () => dateUtils.todayInTimezone();
   const value = (item, ...keys) => { for (const key of keys) if (item?.[key] !== undefined && item?.[key] !== null && item[key] !== '') return item[key]; return '—'; };
   const status = item => dateUtils.getComputedFollowUpStatus(item);
-  const allowedTags = () => window.AureumCRMStatusTags?.values || window.AureumCustomerConstants?.statuses || [];
+  const allowedTags = () => window.AureumCRMStatusTags?.tagValues || window.AureumCustomerConstants?.tags || [];
   const canonicalTag = tag => { const choices = allowedTags(); const text = String(tag || '').trim(); const normalized = window.AureumCRMStatusTags?.normalize ? window.AureumCRMStatusTags.normalize(text, '') : text; return choices.includes(normalized) ? normalized : ''; };
   const followupTags = item => [...new Set((item.followup_tags || (item.followup_tag ? [item.followup_tag] : [])).map(canonicalTag).filter(Boolean))];
   const businessTags = item => { const selected = followupTags(item); const fallback = canonicalTag(value(item, 'lead_status')); return (selected.length ? selected : fallback ? [fallback] : []).map(tag => badge(tag)).join(' '); };

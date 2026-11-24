@@ -3,7 +3,7 @@
   const defaultStatuses = options.statuses || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const sources = options.sources || ['Website', 'WhatsApp', 'Facebook', 'Sales Partner', 'Walk-in', 'Referral', 'Manual Entry'];
   const interests = options.interests || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial Shop', 'Corporate Office', 'Food Court Space'];
-  const propertyTypes = options.propertyTypes || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
+  const propertyTypes = options.propertyTypes || ['Studio', '1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
   const tagOptions = options.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const priorities = options.priorities || ['High', 'Medium', 'Low'];
   const userNames = { usr_001: 'Mian Waqas Ashraf', usr_002: 'Sales Manager', usr_003: 'Ali Raza' };

@@ -4,8 +4,8 @@
   const primaryStatuses = constants.statusGroups?.primary || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled"];
   const moreStatuses = constants.statusGroups?.more || ["Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];
   const sources = constants.sources || ['Website', 'WhatsApp', 'Facebook', 'Instagram', 'Sales Partner', 'Referral', 'Walk-in', 'Manual Entry'];
-  const propertyTypes = constants.propertyTypes || ['1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
-  const purposes = constants.purposes || ['End use', 'Investment', 'Business', 'Rental', 'Other'];
+  const propertyTypes = constants.propertyTypes || ['Studio', '1 Bed Apartment', '2 Bed Apartment', 'Commercial', 'Office', 'Food Court Space', 'Other'];
+  const purposes = constants.purposes || ['End use', 'Investment', 'Business', 'Rental', 'Ready to move', 'Other'];
   const timelines = constants.timelines || ['Within 30 days', '1–3 months', '3–6 months', 'Exploring', 'Not decided'];
   const priorities = constants.priorities || ['Low', 'Medium', 'High', 'VIP'];
   const tags = constants.tags || ["New","Contacted","Qualified","Hot","Warm","Cold","Follow-up","Visit Scheduled","Visit Completed","Meeting Scheduled","Negotiation","Booking","Closed Won","Closed Lost","No Response","Not Interested","Invalid"];

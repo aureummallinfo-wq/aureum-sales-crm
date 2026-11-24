@@ -109,7 +109,7 @@ test('contact pipeline persists one reminder, note history, and latest activity 
     assert.equal((await repository.getCustomer(workspace.id, 'customer')).tags.filter(tag => tag === input.followup_tag).length, 1);
   });
   await t.test('several status tags persist together on the reminder and both linked profiles', async () => {
-    const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
+    const selected = ['Qualified', 'Follow-up', 'Visit Scheduled'];
     await repository.addFollowUpNote(workspace.id, 'followup', actor, 'Visit agreed with a hot prospect.', { customer_contacted: true, next_followup_days: 'custom', next_due_date: '2099-07-23', next_due_time: '16:40', followup_tags: selected });
     assert.deepEqual((await repository.getFollowUp(workspace.id, 'followup')).followup_tags, selected);
     const customer = await repository.getCustomer(workspace.id, 'customer');
@@ -179,7 +179,7 @@ test('terminal follow-up tags close the opportunity and cancel the reminder', as
   const [user] = await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Saqib','test','sales_agent',$2) RETURNING id",[workspace.id,team.id]);
   const actor = {id:'agent',role:'sales_agent',team_id:'team',full_name:'Saqib'};
   for (const name of ['New','Closed Won','Closed Lost','Not Interested']) await sql.query("INSERT INTO crm.lead_statuses (workspace_id,name,slug) VALUES ($1,$2,$3)",[workspace.id,name,name.toLowerCase().replaceAll(' ','-')]);
-  for (const [index, tag] of ['Closed Won','Closed Lost','Not Interested'].entries()) {
+  for (const [index, tag] of ['Closed Won','Not Interested'].entries()) {
     const legacy = `terminal-lead-${index}`;
     const customerLegacy = `terminal-customer-${index}`;
     const followupLegacy = `terminal-followup-${index}`;

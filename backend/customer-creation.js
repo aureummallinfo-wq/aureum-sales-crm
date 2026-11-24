@@ -21,7 +21,7 @@ function customerCreationPlan(input = {}, lead, now = new Date()) {
   const selected = input.followup_tags ?? input.followup_tag;
   const selectedValues = Array.isArray(selected) ? selected : [selected];
   const normalizedTags = selectedValues.map(tag => CRM_STATUS_TAGS.normalize(tag, '')).filter(Boolean);
-  if (!selectedValues.length || normalizedTags.length !== selectedValues.length || normalizedTags.some(tag => !CRM_STATUS_TAGS.isValid(tag))) throw new Error('Choose existing CRM status tags.');
+  if (!selectedValues.length || normalizedTags.length !== selectedValues.length || normalizedTags.some(tag => !CRM_STATUS_TAGS.isValidTag(tag))) throw new Error('Choose existing CRM status tags.');
   if (!lead.assigned_agent_id) throw new Error('Assign this lead to an advisor before scheduling a follow-up.');
   const { schedule, tag, tags } = notePlan({ ...input, followup_tags: normalizedTags, customer_contacted: false, next_followup_days: 'custom' }, now);
   profile.tags = CRM_STATUS_TAGS.withStatus(profile.tags, tags);

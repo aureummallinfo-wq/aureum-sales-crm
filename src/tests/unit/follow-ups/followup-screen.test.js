@@ -223,7 +223,7 @@ test('New Customer Follow-up selects a permitted customer and saves their note, 
 
 test('multiple status tags stay selected and are all submitted when rescheduling', async () => {
   const app = screen();
-  const selected = ['Hot', 'Follow-up', 'Visit Scheduled'];
+  const selected = ['Qualified', 'Follow-up', 'Visit Scheduled'];
   app.state.followupDetail = { data: { ...reminder('followup', '2026-10-18'), followup_tags: selected } };
   app.state.drawer = 'followup';
   const html = app.drawer();
@@ -232,7 +232,7 @@ test('multiple status tags stay selected and are all submitted when rescheduling
   await app.submit('followup-module-reschedule-form', { note: 'Agreed the next visit.', customer_contacted: 'true', next_followup_days: 'custom', next_due_date: '2026-10-20', next_due_time: '14:30', followup_tag: selected });
   const payload = JSON.parse(app.requests[0].body);
   assert.deepEqual(payload.followup_tags, selected);
-  assert.equal(payload.followup_tag, 'Hot');
+  assert.equal(payload.followup_tag, 'Qualified');
 });
 
 test('rescheduling and adding notes submit the intended workflow payload and close after saving', async () => {
