@@ -285,6 +285,23 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res, 200, { data: updated.map(leadView), meta: { updated: updated.length } });
     }
 
+    if (req.method === 'DELETE' && pathname === '/api/leads/bulk-delete') {
+      if (!role(user, ['super_admin'], res)) return true;
+      const body = await readBodyLimited(req, 100000);
+      const leadIds = [...new Set((Array.isArray(body.lead_ids) ? body.lead_ids : []).map(value => safeText(value, 120)).filter(Boolean))];
+      if (!leadIds.length) return json(res, 422, { error: 'Select at least one lead.' });
+      if (leadIds.length > 250) return json(res, 413, { error: 'Delete up to 250 leads at a time.' });
+      const deleted = [];
+      const skipped = [];
+      for (const identifier of leadIds) {
+        const lead = await repository.getLead(workspaceId, identifier);
+        if (!lead || lead.assigned_agent_id) { skipped.push(identifier); continue; }
+        const result = await repository.deleteLead(workspaceId, lead.id, user);
+        if (result) deleted.push(result.id); else skipped.push(identifier);
+      }
+      return json(res, 200, { data: deleted, meta: { requested: leadIds.length, deleted: deleted.length, skipped: skipped.length } });
+    }
+
     if (req.method === 'DELETE' && pathname === '/api/leads/bulk-delete-unassigned') {
       if (!role(user, ['super_admin'], res)) return true;
       // This endpoint intentionally targets only the current unassigned scope.
