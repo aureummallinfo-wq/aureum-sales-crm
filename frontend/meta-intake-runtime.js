@@ -37,6 +37,8 @@
   const statusOptions = ['Pending review', 'Reviewed', 'Sent to CRM', 'Rejected', 'Failed'];
   const sourceOptions = ['meta_lead_ads', 'meta_messenger', 'meta_instagram', 'website_form', 'website_chat', 'whatsapp', 'referral_partner', 'manual_entry', 'import', 'event_qr'];
   const sourceOptionLabel = value => ({ meta_lead_ads: 'Meta - Lead Ads', meta_messenger: 'Meta - Messenger', meta_instagram: 'Meta - Instagram', website_form: 'Website - Form', website_chat: 'Website - Chat', whatsapp: 'WhatsApp - Organic', referral_partner: 'Referral - Partner', manual_entry: 'Manual - Staff Entry', import: 'Import - CSV/Excel', event_qr: 'Event - QR Code' }[value] || value);
+  const selectedMetaIds = () => new Set(Array.isArray(state.metaInbox.selectedIds) ? state.metaInbox.selectedIds.map(String) : []);
+  const canBulkSend = item => Boolean(item && !item.crm_lead_id && item.review_status !== 'Sent to CRM');
 
   function metaFilters() {
     const filters = state.metaInbox.filters || {};
@@ -53,10 +55,15 @@
 
   function metaTable(items) {
     if (!items.length) return '<div class="empty-state"><strong>No Meta leads are waiting here</strong><br/>Once the Meta connection is switched to Staging inbox, new leads will appear here before CRM delivery.</div>';
-    return `<div class="table-wrap meta-table-scroll"><table class="meta-intake-table"><thead><tr><th>Lead ID</th><th>Received</th><th>Lead / Contact</th><th>Source</th><th>Interested property</th><th>Purpose</th><th>Budget</th><th>Payment</th><th>Attribution</th><th>Status</th><th>Action</th></tr></thead><tbody>${items.map(item => {
+    const selected = selectedMetaIds();
+    const selectableItems = items.filter(canBulkSend);
+    const allSelectableSelected = selectableItems.length > 0 && selectableItems.every(item => selected.has(String(item.id)));
+    return `<div class="table-wrap meta-table-scroll"><table class="meta-intake-table"><thead><tr><th class="meta-select-column"><input type="checkbox" data-meta-intake-select-all aria-label="Select all unsent Meta leads" ${allSelectableSelected ? 'checked' : ''} ${selectableItems.length ? '' : 'disabled'} /></th><th>Lead ID</th><th>Received</th><th>Lead / Contact</th><th>Source</th><th>Interested property</th><th>Purpose</th><th>Budget</th><th>Payment</th><th>Attribution</th><th>Status</th><th>Action</th></tr></thead><tbody>${items.map(item => {
       const id = item.id;
       const crmStatus = item.crm_lead_id ? metaStatus('Sent to CRM') : '<span class="badge badge-neutral">Not sent</span>';
+      const selectable = canBulkSend(item);
       return `<tr data-meta-staging-open="${esc(id)}">
+        <td class="meta-select-column"><input type="checkbox" data-meta-intake-select="${esc(id)}" aria-label="Select ${esc(item.full_name || 'Meta lead')}" ${selected.has(String(id)) ? 'checked' : ''} ${selectable ? '' : 'disabled'} /></td>
         <td><span class="meta-id" title="${esc(item.external_lead_id || id)}">${esc(String(item.external_lead_id || id).slice(-10))}</span></td>
         <td>${safeDate(item.submitted_at || item.created_at)}</td>
         <td><b>${display(item.full_name || 'Unnamed lead')}</b><div class="person-meta">${display(item.phone || item.whatsapp_number || 'Phone missing')}</div><div class="person-meta">${display(item.email || 'Email missing')}</div></td>
@@ -79,7 +86,9 @@
     const ready = items.filter(item => ['Ready for Meta', 'Queued'].includes(item.feedback_status)).length;
     const missing = items.filter(item => !item.phone || !item.full_name).length;
     const body = data.loading ? '<div class="empty-state">Loading Meta intake records.</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : metaTable(items);
-    return pageHeader('Pre-CRM review queue', 'Meta Intake', 'Review Meta leads, add the business outcome, and send approved records into the CRM.', '<button class="btn btn-secondary" data-meta-intake-reload>Refresh</button>') + `<section class="grid grid-4 meta-intake-kpis">${kpi('Pending review', pending, 'Needs a decision', 'down')}${kpi('Sent to CRM', sent, 'Approved records')}${kpi('Ready for Meta', ready, 'Outcome captured')}${kpi('Needs correction', missing, 'Missing contact data', 'down')}</section><section class="card table-card meta-intake-card" style="margin-top:18px"><div class="section-title"><div><div class="eyebrow">Meta lead staging</div><h3>Review before CRM</h3><p>Raw Meta data is retained for reconciliation. Internal notes stay in the CRM; Meta receives only approved outcome signals through the later Conversions API step.</p></div><span class="badge badge-neutral">${items.length} visible</span></div>${metaFilters()}${body}</section>`;
+    const selectedCount = selectedMetaIds().size;
+    const bulkToolbar = selectedCount ? `<div class="meta-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Only records not yet sent to the CRM are included.</span><button class="btn btn-gold btn-sm" data-meta-bulk-send>Approve &amp; send selected</button><button class="btn btn-secondary btn-sm" data-meta-clear-selection>Clear selection</button></div>` : '';
+    return pageHeader('Pre-CRM review queue', 'Meta Intake', 'Review Meta leads, add the business outcome, and send approved records into the CRM.', '<button class="btn btn-secondary" data-meta-intake-reload>Refresh</button>') + `<section class="grid grid-4 meta-intake-kpis">${kpi('Pending review', pending, 'Needs a decision', 'down')}${kpi('Sent to CRM', sent, 'Approved records')}${kpi('Ready for Meta', ready, 'Outcome captured')}${kpi('Needs correction', missing, 'Missing contact data', 'down')}</section><section class="card table-card meta-intake-card" style="margin-top:18px"><div class="section-title"><div><div class="eyebrow">Meta lead staging</div><h3>Review before CRM</h3><p>Raw Meta data is retained for reconciliation. Internal notes stay in the CRM; Meta receives only approved outcome signals through the later Conversions API step.</p></div><span class="badge badge-neutral">${items.length} visible</span></div>${metaFilters()}${bulkToolbar}${body}</section>`;
   }
 
   function detailValue(label, value) { return `<div class="detail-field"><div class="detail-label">${esc(label)}</div><div class="detail-value">${display(value)}</div></div>`; }
@@ -108,7 +117,7 @@
   async function loadMetaIntake() {
     if (!state.authUser || state.screen !== 'meta-inbox') return;
     state.metaInbox.loading = true; state.metaInbox.error = ''; render();
-    try { const filters = state.metaInbox.filters || {}; const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { force: true }); state.metaInbox.items = result.data || []; if (!state.metaInbox.items.length && !Object.keys(filters).some(key => filters[key])) { if (!state.metaInbox.emptyLoadRetried) { state.metaInbox.emptyLoadRetried = true; window.setTimeout(() => { if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(); }, 350); } } else { state.metaInbox.emptyLoadRetried = false; } } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
+    try { const filters = state.metaInbox.filters || {}; const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { force: true }); state.metaInbox.items = result.data || []; const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id))); state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id))); if (!state.metaInbox.items.length && !Object.keys(filters).some(key => filters[key])) { if (!state.metaInbox.emptyLoadRetried) { state.metaInbox.emptyLoadRetried = true; window.setTimeout(() => { if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(); }, 350); } } else { state.metaInbox.emptyLoadRetried = false; } } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
   }
 
   async function openMetaStaging(id) {
@@ -116,8 +125,29 @@
     try { const result = await apiFetch(`/api/meta/staging/${encodeURIComponent(id)}`, { force: true }); state.metaInbox.selected = result.data; render(); } catch (error) { state.metaInbox.error = error.message; state.drawer = null; render(); }
   }
 
+  async function bulkSendMetaLeads() {
+    const ids = [...selectedMetaIds()].filter(id => (state.metaInbox.items || []).some(item => String(item.id) === String(id) && canBulkSend(item)));
+    if (!ids.length) return;
+    if (!window.confirm(`Approve and send ${ids.length} selected lead${ids.length === 1 ? '' : 's'} to the CRM?`)) return;
+    const button = document.querySelector('[data-meta-bulk-send]');
+    if (button) { button.disabled = true; button.textContent = 'Sending…'; }
+    let sent = 0; const failed = [];
+    for (const id of ids) {
+      try { await apiFetch(`/api/meta/staging/${encodeURIComponent(id)}/send-to-crm`, { method: 'POST', body: '{}' }); sent += 1; }
+      catch (error) { failed.push(error.message || 'Unable to send'); }
+    }
+    state.metaInbox.selectedIds = [];
+    await loadMetaIntake();
+    showToast(failed.length ? `${sent} sent; ${failed.length} need review.` : `${sent} lead${sent === 1 ? '' : 's'} sent to the CRM.`);
+  }
+
   function bindMetaIntakeEvents() {
     document.querySelectorAll('[data-meta-staging-open], [data-meta-staging-open-button]').forEach(element => element.addEventListener('click', event => { event.stopPropagation(); openMetaStaging(element.dataset.metaStagingOpen || element.dataset.metaStagingOpenButton); }));
+    document.querySelectorAll('[data-meta-intake-select]').forEach(element => element.addEventListener('click', event => event.stopPropagation()));
+    document.querySelectorAll('[data-meta-intake-select]').forEach(element => element.addEventListener('change', event => { const id = String(event.target.dataset.metaIntakeSelect); const selected = selectedMetaIds(); event.target.checked ? selected.add(id) : selected.delete(id); state.metaInbox.selectedIds = [...selected]; render(); }));
+    const selectAll = document.querySelector('[data-meta-intake-select-all]'); if (selectAll) selectAll.addEventListener('change', event => { const selected = selectedMetaIds(); (state.metaInbox.items || []).filter(canBulkSend).forEach(item => event.target.checked ? selected.add(String(item.id)) : selected.delete(String(item.id))); state.metaInbox.selectedIds = [...selected]; render(); });
+    document.querySelectorAll('[data-meta-bulk-send]').forEach(element => element.addEventListener('click', bulkSendMetaLeads));
+    document.querySelectorAll('[data-meta-clear-selection]').forEach(element => element.addEventListener('click', () => { state.metaInbox.selectedIds = []; render(); }));
     document.querySelectorAll('[data-meta-intake-reload]').forEach(element => element.addEventListener('click', () => loadMetaIntake()));
     document.querySelectorAll('[data-meta-intake-clear]').forEach(element => element.addEventListener('click', () => { state.metaInbox.filters = { q: '', status: '', source: '', interest: '', dateFrom: '', dateTo: '' }; loadMetaIntake(); }));
     const search = document.querySelector('[data-meta-intake-search]'); if (search) search.addEventListener('input', event => { const snapshot = window.AureumSearch?.capture?.(event.target); state.metaInbox.filters.q = event.target.value; render(); window.AureumSearch?.restore?.('[data-meta-intake-search]', snapshot); window.clearTimeout(state.metaInbox.searchTimer); state.metaInbox.searchTimer = window.setTimeout(() => loadMetaIntake(), 300); });

@@ -235,7 +235,7 @@ const state = {
   deniedPath: '',
   drawer: null,
   followupPrefill: null,
-  metaInbox: { loading: false, error: '', items: [], selected: null, filters: { q: '', status: '', formId: '', dateFrom: '', dateTo: '' } },
+  metaInbox: { loading: false, error: '', items: [], selected: null, selectedIds: [], filters: { q: '', status: '', formId: '', dateFrom: '', dateTo: '' } },
   selectedChannel: 'Sales Team',
   toast: ''
 };
