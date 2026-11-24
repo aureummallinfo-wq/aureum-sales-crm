@@ -23,7 +23,8 @@ function externalLeadIdentifier(raw) {
 }
 
 function normalizeInboundContact(value) {
-  return String(value ?? '').trim().replace(/^=/, '').replace(/^p:/i, '').replace(/\.00$/, '').trim();
+  const normalized = String(value ?? '').trim().replace(/^=/, '').replace(/^p:/i, '').replace(/\.00$/, '').trim();
+  return normalized.replace(/[^0-9]/g, '').length >= 7 ? normalized : '';
 }
 
 function canonicalWebhookSource(raw, connection) {
@@ -55,6 +56,23 @@ function metaField(raw, ...keys) {
   if (normalizedEntry) return normalizedEntry[1];
   const normalizedFieldData = fieldData.find(item => normalizedKeys.has(normalizeKey(item?.name)) && (item?.values?.[0] ?? item?.value) !== undefined && String(item?.values?.[0] ?? item?.value).trim() !== '');
   if (normalizedFieldData) return normalizedFieldData.values?.[0] ?? normalizedFieldData.value;
+  return '';
+}
+
+function parseNestedMetaPayload(value) {
+  let parsed = value;
+  for (let index = 0; index < 3 && typeof parsed === 'string'; index += 1) {
+    try { parsed = JSON.parse(parsed); } catch { break; }
+  }
+  return parsed && typeof parsed === 'object' ? parsed : {};
+}
+
+function metaContactField(raw, ...keys) {
+  const sources = [raw, parseNestedMetaPayload(raw?.raw_payload), parseNestedMetaPayload(raw?.data)];
+  for (const source of sources) {
+    const value = normalizeInboundContact(metaField(source, ...keys));
+    if (value) return value;
+  }
   return '';
 }
 
@@ -1635,7 +1653,7 @@ function createNeonRepository(sql) {
     const activeContact = metaField(raw, 'active_contact', 'any_active_contact');
     const preferredContactMethod = metaField(raw, 'preferred_contact_method', 'best_contact_method');
     const submittedAt = leadReceivedAt(raw);
-    const values = [workspace, externalId || null, idempotencyKey, formId || null, formName || null, String(raw.platform || 'meta'), fullName || null, normalizeInboundContact(metaField(raw, 'phone', 'phone_number', 'mobile')) || null, normalizeInboundContact(metaField(raw, 'whatsapp', 'whatsapp_number')) || null, String(metaField(raw, 'email', 'email_address') || '').trim().toLowerCase() || null, metaField(raw, 'city') || null, metaField(raw, 'area') || null, interestedIn || null, propertyType || null, metaField(raw, 'budget') || residentialBudget || commercialBudget || null, metaField(raw, 'purpose') || residentialPurpose || commercialPurpose || null, purchaseTimeline || null, metaField(raw, 'campaign_name') || null, metaField(raw, 'ad_name') || null, metaField(raw, 'adset_name') || null, submittedAt, JSON.stringify(raw)];
+    const values = [workspace, externalId || null, idempotencyKey, formId || null, formName || null, String(raw.platform || 'meta'), fullName || null, metaContactField(raw, 'phone', 'phone_number', 'mobile') || null, metaContactField(raw, 'whatsapp', 'whatsapp_number', 'whats_app_number', 'what_is_your_whatsapp_number?', 'what_is_your_whatsapp_number') || null, String(metaField(raw, 'email', 'email_address') || '').trim().toLowerCase() || null, metaField(raw, 'city') || null, metaField(raw, 'area') || null, interestedIn || null, propertyType || null, metaField(raw, 'budget') || residentialBudget || commercialBudget || null, metaField(raw, 'purpose') || residentialPurpose || commercialPurpose || null, purchaseTimeline || null, metaField(raw, 'campaign_name') || null, metaField(raw, 'ad_name') || null, metaField(raw, 'adset_name') || null, submittedAt, JSON.stringify(raw)];
     const rows = await sql.query(`INSERT INTO crm.meta_lead_staging (workspace_id,external_lead_id,idempotency_key,form_id,form_name,platform,full_name,phone,whatsapp_number,email,city,area,interested_in,property_type,budget,purpose,buying_timeline,campaign_name,ad_name,adset_name,submitted_at,raw_payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::timestamptz,$22::jsonb) ON CONFLICT (workspace_id,idempotency_key) DO UPDATE SET raw_payload=EXCLUDED.raw_payload,updated_at=now() RETURNING id`, values);
     const stagingId = rows[0]?.id;
     await sql.query(`UPDATE crm.meta_lead_staging SET source_channel=$1,source_medium=$2,source_label=$3,ingested_via=$4,campaign_id=$5,adset_id=$6,ad_id=$7,page_id=$8,country=$9,interest_category=$10,payment_preference=$11,preferred_contact_method=$12,residential_property_type=$13,residential_budget=$14,residential_investment_purpose=$15,commercial_property_type=$16,commercial_budget=$17,commercial_investment_purpose=$18,purchase_timeline=$19,site_visit_interest=$20,investment_type=$21,down_payment=$22,active_contact=$23,consent_status=$24,consent_at=$25,updated_at=now() WHERE id=$26`, [sourceChannel, metaField(raw, 'source_medium', 'medium') || null, sourceLabel, metaField(raw, 'ingested_via', 'ingest_source') || 'zapier', metaField(raw, 'campaign_id', 'campaignId') || null, metaField(raw, 'adset_id', 'adsetId') || null, metaField(raw, 'ad_id', 'adId') || null, metaField(raw, 'page_id', 'pageId') || null, metaField(raw, 'country') || null, metaField(raw, 'interest_category') || interestedIn || null, metaField(raw, 'payment_preference', 'payment_method') || null, preferredContactMethod || null, metaField(raw, 'residential_property_type') || (propertyType || null), residentialBudget || null, residentialPurpose || null, commercialPropertyType || (propertyType || null), commercialBudget || null, commercialPurpose || null, purchaseTimeline || null, metaField(raw, 'site_visit_interest') || null, investmentType || null, downPayment || null, activeContact || null, metaField(raw, 'consent_status') || null, timestampValue(metaField(raw, 'consent_at')) || null, stagingId]);
@@ -1763,7 +1781,7 @@ function createNeonRepository(sql) {
 
     const fullName = String(raw.full_name || raw.name || [raw.first_name, raw.last_name].filter(Boolean).join(' ') || '').trim();
     const phone = normalizeInboundContact(raw.phone || raw.phone_number || raw.mobile);
-    const whatsapp = normalizeInboundContact(raw.whatsapp || raw.whatsapp_number || phone);
+    const whatsapp = normalizeInboundContact(raw.whatsapp || raw.whatsapp_number);
     if (!fullName || !phone) {
       await sql.query('UPDATE crm.webhook_events SET status=\'failed\',error_message=$1 WHERE id=$2', ['full_name and phone are required', eventId]);
       await sql.query('INSERT INTO crm.failed_webhook_leads (event_id,connection_id,external_lead_id,payload,error_message) VALUES ($1,$2,$3,$4::jsonb,$5)', [eventId, connection.id, externalId || null, payloadJson, 'full_name and phone are required']);
@@ -1868,4 +1886,5 @@ async function verifyNeonWebhookLead(sql, workspace, identifier, secret, query =
 function userRecord(row) { const inviteStatus = row.invite_status ? `${String(row.invite_status).slice(0, 1).toUpperCase()}${String(row.invite_status).slice(1)}` : null; return { id: row.legacy_id || row.id, db_id: row.id, workspace_id: row.workspace_id, email: row.email, full_name: row.full_name, phone: row.phone, password_hash: row.password_hash, role: row.role, team_id: row.team_id || null, team_name: row.team_name || null, status: row.status, presence_status: row.presence_status || null, presence_mode: row.presence_mode || null, must_change_password: Boolean(row.must_change_password), invite_status: inviteStatus, has_temporary_password: Boolean(row.must_change_password && ['pending', 'sent'].includes(row.invite_status) && row.temporary_password_expires_at), temporary_password_expires_at: row.must_change_password && ['pending', 'sent'].includes(row.invite_status) ? row.temporary_password_expires_at || null : null, access_email_sent_at: row.invite_status === 'pending' ? null : row.access_email_sent_at || null, last_login_at: row.last_login_at, last_activity_at: row.last_activity_at, created_at: row.created_at, updated_at: row.updated_at }; }
 
 module.exports = { createNeonRepository, hashToken };
+
 
