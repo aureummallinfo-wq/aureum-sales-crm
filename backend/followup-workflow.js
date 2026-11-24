@@ -7,6 +7,10 @@ function notePlan(input = {}, now = new Date()) {
   const tags = [...new Set((Array.isArray(rawTags) ? rawTags : rawTags == null || rawTags === '' ? [] : [rawTags]))];
   if (tags.some(tag => !statusTags.isValid(tag))) throw new Error('Choose valid CRM status tags.');
   const details = { contacted, ...(tags.length ? { tag: tags[0], tags } : {}) };
+  // A terminal outcome is a lifecycle command, not a reminder label. Never
+  // validate or carry a next-contact date for a terminal selection.
+  const terminalStatus = terminalStatusFromTags(tags);
+  if (terminalStatus) return { ...details, terminal_status: terminalStatus, schedule: null };
   const choice = String(input.next_followup_days ?? '2');
   if (choice === 'none') return { ...details, schedule: null };
   if (choice === 'custom') {
@@ -26,6 +30,15 @@ function notePlan(input = {}, now = new Date()) {
   return { ...details, schedule: { due_date: date, due_time: time, due_at: new Date(dates.toInstant(date,time)).toISOString() } };
 }
 
+function terminalStatusFromTags(tags) {
+  const normalized = (Array.isArray(tags) ? tags : [])
+    .map(tag => String(tag || '').trim().toLowerCase().replaceAll('_', ' '));
+  if (normalized.includes('closed won')) return 'Closed Won';
+  if (normalized.includes('closed lost')) return 'Closed Lost';
+  if (normalized.includes('not interested')) return 'Not Interested';
+  return null;
+}
+
 function displayStatus(item, now = new Date()) {
   if (item.outcome === 'Contacted' && ['Completed','Rescheduled'].includes(item.status) && !dates.isFollowUpOverdue(item, now)) return 'Contacted';
   return dates.getComputedFollowUpStatus(item, now);
@@ -40,7 +53,8 @@ function uniqueFollowUps(items) {
   const scopeKey = (item, id) => `${item.workspace_id || ''}:${id}`;
   const leadCustomers = new Map(items.filter(item=>item.lead_id && item.customer_id).map(item=>[scopeKey(item,item.lead_id),item.customer_id]));
   for (const item of items) {
-    if (item.cancelled_by_closure || item.metadata?.cancelled_by_closure || item.consolidated_into || item.metadata?.consolidated_into) continue;
+    if (item.cancelled_by_closure || item.metadata?.cancelled_by_closure || item.consolidated_into || item.metadata?.consolidated_into
+      || statusTags.isTerminal(item.lead_status || item.customer_status, item.followup_tags)) continue;
     const customerId=item.customer_id || leadCustomers.get(scopeKey(item,item.lead_id));
     const key = scopeKey(item, customerId ? `customer:${customerId}` : item.lead_id ? `lead:${item.lead_id}` : `followup:${item.id}`);
     const current = groups.get(key);
@@ -52,4 +66,4 @@ function uniqueFollowUps(items) {
 
 function isCompletedFollowUp(item) { return (item.lifecycle_status || item.status) === 'Completed'; }
 
-module.exports = { notePlan, displayStatus, activitySummary, uniqueFollowUps, isCompletedFollowUp };
+module.exports = { notePlan, terminalStatusFromTags, displayStatus, activitySummary, uniqueFollowUps, isCompletedFollowUp };

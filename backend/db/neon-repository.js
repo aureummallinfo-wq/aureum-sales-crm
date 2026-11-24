@@ -2,7 +2,7 @@ const statusTags = require('../../frontend/shared/crm-status-tags');
 const crypto = require('node:crypto');
 const { canViewOwnedRecord } = require('../security-utils');
 const { createFollowUpPipeline } = require('./followup-pipeline');
-const { notePlan, displayStatus, uniqueFollowUps, activitySummary } = require('../followup-workflow');
+const { notePlan, terminalStatusFromTags, displayStatus, uniqueFollowUps, activitySummary } = require('../followup-workflow');
 const { customerCreationPlan } = require('../customer-creation');
 const { insertLeadCustomer } = require('./customer-creation');
 const { deriveAureumEmail } = require('../user-email');
@@ -1064,8 +1064,13 @@ function createNeonRepository(sql) {
       const current=await getLead(workspace,identifier);
       const input=metadata.note_input || {};
       const closed=statusTags.isTerminal(current.status,current.tags);
-      if(closed && input.next_followup_days && input.next_followup_days !== 'none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
-      const plan = notePlan(closed ? {...input,next_followup_days:'none'} : input);
+      const requestedTerminal = terminalStatusFromTags(input.followup_tags ?? input.followup_tag);
+      if(closed && !requestedTerminal && input.next_followup_days && input.next_followup_days !== 'none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
+      const plan = notePlan(closed && !requestedTerminal ? {...input,next_followup_days:'none'} : input);
+      if (plan.terminal_status) {
+        await transitionOpportunity(workspace,identifier,actor,plan.terminal_status,input.closure_reason || input.reason || 'Terminal outcome selected',{tags: plan.tags},'lead');
+        return pipeline.saveNote(workspace,actor,{leadId:id,note:description,plan:{...plan,tag:undefined,tags:[],schedule:null}});
+      }
       if (!closed && plan.contacted && plan.schedule) await convertLeadToCustomer(workspace,identifier,actor);
       return pipeline.saveNote(workspace,actor,{leadId:id,note:description,plan});
     }
@@ -1202,15 +1207,28 @@ function createNeonRepository(sql) {
     const id = await resolveCustomerId(workspace,identifier); if (!id) return null;
     const current=await getCustomer(workspace,identifier);
     const closed=['Closed Lost','Not Interested'].includes(current.customer_status);
-    if (closed && input.next_followup_days && input.next_followup_days !== 'none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
-    return pipeline.saveNote(workspace,actor,{customerId:id,note,plan:notePlan(closed ? {...input,next_followup_days:'none'} : input)});
+    const requestedTerminal = terminalStatusFromTags(input.followup_tags ?? input.followup_tag);
+    if (closed && !requestedTerminal && input.next_followup_days && input.next_followup_days !== 'none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
+    const plan = notePlan(closed && !requestedTerminal ? {...input,next_followup_days:'none'} : input);
+    const terminalStatus = plan.terminal_status || terminalStatusFromTags(plan.tags);
+    if (!terminalStatus) return pipeline.saveNote(workspace,actor,{customerId:id,note,plan});
+    await transitionOpportunity(workspace,current.lead_id,actor,terminalStatus,input.closure_reason || input.reason || 'Terminal outcome selected',{tags: plan.tags},'customer');
+    return pipeline.saveNote(workspace,actor,{customerId:id,note,plan:{...plan,tag:undefined,tags:[],schedule:null}});
   }
 
   async function addFollowUpNote(workspace, identifier, actor, note, input = {}) {
     const item = await getFollowUp(workspace,identifier); if (!item) return null;
     const plan = notePlan(input);
     if (plan.contacted && ['Completed','Cancelled'].includes(item.lifecycle_status)) throw new Error('This follow-up is closed. Schedule a new follow-up from the customer profile.');
-    await pipeline.saveNote(workspace,actor,{leadId:await resolveLeadId(workspace,item.lead_id),customerId:await resolveCustomerId(workspace,item.customer_id),followUpId:await resolveFollowUpId(workspace,identifier),note,plan});
+    const terminalStatus = plan.terminal_status || terminalStatusFromTags(plan.tags);
+    const leadId = await resolveLeadId(workspace,item.lead_id);
+    const customerId = await resolveCustomerId(workspace,item.customer_id);
+    if (terminalStatus) {
+      await transitionOpportunity(workspace,item.lead_id,actor,terminalStatus,input.closure_reason || input.reason || 'Terminal outcome selected',{tags: plan.tags},'lead');
+      await pipeline.saveNote(workspace,actor,{leadId,customerId,followUpId:await resolveFollowUpId(workspace,identifier),note,plan:{...plan,tag:undefined,tags:[],schedule:null}});
+      return getFollowUp(workspace,identifier);
+    }
+    await pipeline.saveNote(workspace,actor,{leadId,customerId,followUpId:await resolveFollowUpId(workspace,identifier),note,plan});
     return getFollowUp(workspace,identifier);
   }
 
@@ -1248,6 +1266,20 @@ function createNeonRepository(sql) {
     if (customerId) { params.push(await resolveCustomerId(workspace, customerId)); conditions.push(`c.id=$${params.length}`); }
     if (!includeHistory) {
       conditions.push("f.cancelled_by_closure=false AND coalesce(c.customer_status,'') NOT IN ('Closed Won','Closed Lost','Not Interested') AND coalesce(ls.name,'') NOT IN ('Closed Won','Closed Lost','Not Interested')");
+      // Legacy rows may have a terminal outcome stored only as a tag. They
+      // must not remain visible as active reminders while the repair
+      // migration catches up with their canonical lifecycle state.
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(c.metadata->'tags')='array' THEN c.metadata->'tags' ELSE '[]'::jsonb END
+        ) tag
+        WHERE replace(lower(trim(tag #>> '{}')),'_',' ') IN ('closed won','closed lost','not interested')
+      ) AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(l.metadata->'tags')='array' THEN l.metadata->'tags' ELSE '[]'::jsonb END
+        ) tag
+        WHERE replace(lower(trim(tag #>> '{}')),'_',' ') IN ('closed won','closed lost','not interested')
+      )`);
       conditions.push("coalesce(f.metadata->>'consolidated_into','') = ''");
     }
     if (!includeCompleted) conditions.push("f.status NOT IN ('Completed','Cancelled')");

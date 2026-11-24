@@ -159,5 +159,43 @@ test('note plans validate future dates and list grouping keeps one row per custo
   assert.throws(()=>notePlan({next_followup_days:'custom',next_due_date:'2026-02-30',next_due_time:'10:00'},now));
   assert.throws(()=>notePlan({next_followup_days:'custom',next_due_date:'2026-10-17',next_due_time:'10:00'},now));
   assert.throws(()=>notePlan({next_followup_days:'100'},now));
+  assert.equal(notePlan({followup_tag:'Closed Won',next_followup_days:'custom',next_due_date:'2000-01-01',next_due_time:'00:00'},now).schedule,null);
   assert.equal(uniqueFollowUps([{id:'a',customer_id:'customer',status:'Cancelled'},{id:'b',customer_id:'customer',status:'Pending'}])[0].id,'b');
+  assert.equal(uniqueFollowUps([{id:'terminal',customer_id:'customer',status:'Pending',lead_status:'New',followup_tags:['Not Interested']}]).length,0);
+});
+
+test('terminal follow-up tags close the opportunity and cancel the reminder', async t => {
+  const db = new PGlite();
+  t.after(() => db.close());
+  const schema = fs.readFileSync(path.join(__dirname,'../../../db/migrations/002_production_crm_schema.sql'),'utf8').replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;','');
+  await db.exec(schema);
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/012_opportunity_closure.sql'),'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/014_edit_saved_notes.sql'),'utf8'));
+  await db.exec(fs.readFileSync(path.join(__dirname,'../../../db/migrations/016_closed_won_followup_lifecycle.sql'),'utf8'));
+  const sql = { query: async (text,params) => (await db.query(text,params)).rows };
+  const repository = createNeonRepository(sql);
+  const [workspace] = await sql.query("INSERT INTO crm.workspaces (name,legacy_id) VALUES ('Terminal lifecycle test','terminal-test') RETURNING id");
+  const [team] = await sql.query("INSERT INTO crm.teams (workspace_id,legacy_id,name) VALUES ($1,'team','Team') RETURNING id",[workspace.id]);
+  const [user] = await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Saqib','test','sales_agent',$2) RETURNING id",[workspace.id,team.id]);
+  const actor = {id:'agent',role:'sales_agent',team_id:'team',full_name:'Saqib'};
+  for (const name of ['New','Closed Won','Closed Lost','Not Interested']) await sql.query("INSERT INTO crm.lead_statuses (workspace_id,name,slug) VALUES ($1,$2,$3)",[workspace.id,name,name.toLowerCase().replaceAll(' ','-')]);
+  for (const [index, tag] of ['Closed Won','Closed Lost','Not Interested'].entries()) {
+    const legacy = `terminal-lead-${index}`;
+    const customerLegacy = `terminal-customer-${index}`;
+    const followupLegacy = `terminal-followup-${index}`;
+    const [newStatus] = await sql.query("SELECT id FROM crm.lead_statuses WHERE workspace_id=$1 AND name='New' LIMIT 1",[workspace.id]);
+    const [lead] = await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,status_id,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,$3,$4,$5,$6,'{\"tags\":[\"Follow-up\"]}'::jsonb) RETURNING id",[workspace.id,legacy,`Terminal ${tag}`,newStatus.id,user.id,team.id]);
+    const [customer] = await sql.query("INSERT INTO crm.customers (workspace_id,legacy_id,lead_id,full_name,customer_status,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,$3,$4,'Active',$5,$6,'{\"tags\":[\"Follow-up\"]}'::jsonb) RETURNING id",[workspace.id,customerLegacy,lead.id,`Terminal ${tag}`,user.id,team.id]);
+    await sql.query("INSERT INTO crm.follow_ups (workspace_id,legacy_id,lead_id,customer_id,assigned_agent_id,assigned_team_id,follow_up_type,due_at,status) VALUES ($1,$2,$3,$4,$5,$6,'Call',now()-interval '1 day','Overdue')",[workspace.id,followupLegacy,lead.id,customer.id,user.id,team.id]);
+    const saved = await repository.addFollowUpNote(workspace.id,followupLegacy,actor,`Outcome: ${tag}`,{customer_contacted:true,next_followup_days:'custom',next_due_date:'2000-01-01',next_due_time:'00:00',followup_tag:tag});
+    assert.equal(saved.lifecycle_status,'Cancelled');
+    assert.equal(saved.cancelled_by_closure,true);
+    const expected = tag === 'Closed Won' ? 'Closed Won' : 'Closed Lost';
+    assert.equal((await repository.getLead(workspace.id,legacy)).status,expected);
+    assert.equal((await repository.getCustomer(workspace.id,customerLegacy)).customer_status,expected);
+    assert.equal((await repository.getCustomer(workspace.id,customerLegacy)).next_follow_up_at,null);
+    assert.equal((await repository.listFollowUps({workspaceId:workspace.id,user:actor})).some(item => item.id === followupLegacy),false);
+    assert.equal((await repository.listCustomerFollowUpHistory(workspace.id,customerLegacy,actor)).find(item => item.id === followupLegacy).lifecycle_status,'Cancelled');
+    assert.equal((await repository.listCustomerNotes(workspace.id,customerLegacy,actor)).length,1);
+  }
 });

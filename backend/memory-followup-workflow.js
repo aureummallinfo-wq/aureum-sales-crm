@@ -58,7 +58,27 @@ function createMemoryFollowUpWorkflow({ leads, customers, followUps, users, noti
     let plan = notePlan(input);
     const customer = customers.find(item => item.id === customerId || (leadId && item.lead_id === leadId));
     const lead = leads.find(item => item.id === (leadId || customer?.lead_id));
-    if (statusTags.isTerminal(lead?.status || customer?.customer_status, lead?.tags || customer?.tags)) {
+    if (plan.terminal_status) {
+      const canonicalStatus = plan.terminal_status === 'Not Interested' ? 'Closed Lost' : plan.terminal_status;
+      for (const record of [lead, customer].filter(Boolean)) {
+        if (record === lead) record.status = canonicalStatus;
+        else record.customer_status = canonicalStatus;
+        record.lifecycle_version = Math.max(Number(record.lifecycle_version || 0), 1);
+        record.next_follow_up_at = null;
+        record.tags = statusTags.withStatus(record.tags, [canonicalStatus]);
+      }
+      for (const item of followUps.filter(item => !['Completed','Cancelled'].includes(item.status)
+        && ((customer && item.customer_id === customer.id) || (lead && item.lead_id === lead.id)))) {
+        const previous = item.status;
+        item.status = 'Cancelled';
+        item.cancelled_by_closure = true;
+        item.metadata = { ...(item.metadata || {}), cancellation_reason: `Opportunity ${canonicalStatus}`, cancelled_at: new Date().toISOString() };
+        addFollowUpActivity(item, user.id, 'Follow-up cancelled', `Opportunity ${canonicalStatus}`);
+        item.previous_status = previous;
+      }
+      plan = { ...plan, tag: undefined, tags: [], schedule: null };
+    }
+    if (!plan.terminal_status && statusTags.isTerminal(lead?.status || customer?.customer_status, lead?.tags || customer?.tags)) {
       if(input.next_followup_days && input.next_followup_days!=='none') throw new Error('Reactivate this opportunity before scheduling a follow-up.');
       plan={...plan,schedule:null};
     }
