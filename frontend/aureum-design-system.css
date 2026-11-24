@@ -18,6 +18,7 @@
   --green-pale: #e7f1e9;
   --red: #a84c45;
   --red-pale: #f6e6e4;
+  --selection-pale: #f8e5e8;
   --amber: #b97824;
   --amber-pale: #fbefdc;
   --line: rgba(51, 40, 27, 0.11);
@@ -1663,7 +1664,27 @@ html[data-theme="light"] .app-shell table td { color: var(--ink); border-color: 
 html[data-theme="light"] .app-shell .table-wrap table th:first-child,
 html[data-theme="light"] .app-shell .table-wrap table td:first-child { background: var(--paper); box-shadow: 5px 0 8px rgba(69, 47, 20, .06); }
 html[data-theme="light"] .app-shell .table-wrap table thead th:first-child { background: var(--cream-deep); }
-html[data-theme="light"] .app-shell table tbody tr:hover { background: var(--gold-pale); }
+html[data-theme="light"] .app-shell table tbody tr:hover { background: var(--selection-pale); }
+html[data-theme="light"] .app-shell table tbody tr:hover td:first-child {
+  background: var(--selection-pale);
+  box-shadow: 5px 0 8px rgba(131, 68, 79, .08);
+}
+/* Lead-row hover/selection should stay soft in the Light theme. The older
+   dark-theme rule below has higher specificity, so override it explicitly and
+   keep the sticky checkbox column in the same visual state. */
+html[data-theme="light"] .app-shell .lead-data-table tbody tr[data-lead-module-row]:hover,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover {
+  background: var(--selection-pale);
+}
+html[data-theme="light"] .app-shell .lead-data-table tbody tr[data-lead-module-row]:hover td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover td {
+  color: var(--ink);
+}
+html[data-theme="light"] .app-shell .lead-data-table tbody tr[data-lead-module-row]:hover td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover td:first-child {
+  background: var(--selection-pale);
+  box-shadow: 5px 0 8px rgba(131, 68, 79, .08);
+}
 html[data-theme="light"] .app-shell .lead-summary-card,
 html[data-theme="light"] .app-shell .customer-summary-card,
 html[data-theme="light"] .app-shell .followup-summary-card,
@@ -1874,6 +1895,27 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-item:hove
 html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-item.active { color: var(--ink); background: var(--gold-pale); }
 html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.channel,
 html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.group { color: var(--ink); background: var(--gold-pale); }
+
+/* Shared Light-theme selection language: use the same soft pink surface for
+   active navigation, tabs, filters, channels, and other selected controls. */
+html[data-theme="light"] .app-shell .settings-tab:hover,
+html[data-theme="light"] .app-shell .settings-tab.active,
+html[data-theme="light"] .app-shell .channel:hover,
+html[data-theme="light"] .app-shell .channel.active,
+html[data-theme="light"] .app-shell .lead-status-tab:hover,
+html[data-theme="light"] .app-shell .lead-status-tab.active,
+html[data-theme="light"] .app-shell .customer-status-tab:hover,
+html[data-theme="light"] .app-shell .customer-status-tab.active,
+html[data-theme="light"] .app-shell .lead-drawer-tabs button.active,
+html[data-theme="light"] .app-shell .customer-drawer-tabs button.active,
+html[data-theme="light"] .app-shell .followup-drawer-tabs button.active,
+html[data-theme="light"] .app-shell .chat-member-option:has(input:checked),
+html[data-theme="light"] .app-shell .table-action:hover,
+html[data-theme="light"] .app-shell .followup-calendar-day.selected,
+html[data-theme="light"] .app-shell .chat-mobile-filter.active,
+html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-item.active {
+  background: var(--selection-pale);
+}
 
 /* Give the desktop login panel enough visual weight at normal and browser-scaled
    zoom levels; the compact mobile rules above remain unchanged. */
