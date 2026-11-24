@@ -285,6 +285,28 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res, 200, { data: updated.map(leadView), meta: { updated: updated.length } });
     }
 
+    if (req.method === 'DELETE' && pathname === '/api/leads/bulk-delete-unassigned') {
+      if (!role(user, ['super_admin'], res)) return true;
+      // This endpoint intentionally targets only the current unassigned scope.
+      // It uses the repository soft-delete path for every row so audit history
+      // and outbox reconciliation are retained; no physical rows are removed.
+      const matching = await repository.listLeads({
+        workspaceId,
+        user: { ...user, role: 'super_admin' },
+        assignment: 'unassigned'
+      });
+      const deleted = [];
+      for (const lead of matching) {
+        if (lead.assigned_agent_id) continue;
+        const result = await repository.deleteLead(workspaceId, lead.id, user);
+        if (result) deleted.push(result.id);
+      }
+      return json(res, 200, {
+        data: deleted,
+        meta: { matched: matching.length, deleted: deleted.length, skipped: matching.length - deleted.length }
+      });
+    }
+
     const leadMatch = pathname.match(/^\/api\/leads\/([^/]+)$/);
     if (req.method === 'GET' && leadMatch) {
       if (!user) return unauthenticated(res);

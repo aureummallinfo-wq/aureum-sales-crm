@@ -20,6 +20,7 @@
   state.leadModule.importDialog = state.leadModule.importDialog || null;
   state.leadModule.selectedLeadIds = Array.isArray(state.leadModule.selectedLeadIds) ? state.leadModule.selectedLeadIds : [];
   state.leadModule.bulkAssignment = state.leadModule.bulkAssignment || null;
+  state.leadModule.deletingUnassigned = Boolean(state.leadModule.deletingUnassigned);
   state.leadModule.pagination = { page: 1, pageSize: 25, ...(state.leadModule.pagination || {}) };
 
   const escape = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -181,6 +182,26 @@
     finally { delete form.dataset.saving; if (button) button.disabled = false; }
   }
 
+  async function deleteAllUnassigned() {
+    if (state.leadModule.deletingUnassigned || state.role !== 'SUPER_ADMIN' || state.leadFilters?.assignment !== 'unassigned') return;
+    const total = Number(state.leads?.meta?.total || 0);
+    if (!total) return showToast('There are no unassigned leads to remove.');
+    if (!window.confirm(`Soft-delete all ${total} unassigned leads? They will leave All Leads, while audit history and related records remain recoverable.`)) return;
+    state.leadModule.deletingUnassigned = true;
+    render();
+    try {
+      const result = await apiFetch('/api/leads/bulk-delete-unassigned', { method: 'DELETE' });
+      state.leadModule.selectedLeadIds = [];
+      await refreshLeads();
+      showToast(`${result.meta?.deleted || 0} unassigned lead${result.meta?.deleted === 1 ? '' : 's'} soft-deleted.`);
+    } catch (error) {
+      showToast(error.message || 'The unassigned leads could not be removed.');
+    } finally {
+      state.leadModule.deletingUnassigned = false;
+      render();
+    }
+  }
+
   function roleCopy(my) {
     if (my && state.role === 'SALES_AGENT') return 'Only leads assigned to your advisor account are visible here.';
     if (my) return 'A focused view of the relationships assigned to you and your team scope.';
@@ -282,7 +303,8 @@
     const agentFilter = !my && isManager() ? `<select class="select" data-leads-agent aria-label="Filter by assigned agent">${agentFilterOptions(state.leadFilters?.agentId || '')}</select>` : '';
     const assignmentFilter = !my && isManager() ? `<select class="select" data-leads-assignment aria-label="Filter by lead assignment">${assignmentFilterOptions(state.leadFilters?.assignment || '')}</select>` : '';
     const selectedCount = state.leadModule.selectedLeadIds.length;
-    const bulkToolbar = !my && canManage() && selectedCount ? `<div class="lead-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Select a team queue or advisor to update ownership.</span><button class="btn btn-gold btn-sm" data-bulk-assignment-open>Assign selected</button><button class="btn btn-secondary btn-sm" data-leads-clear-selection>Clear selection</button></div>` : '';
+    const unassignedDelete = !my && state.role === 'SUPER_ADMIN' && state.leadFilters?.assignment === 'unassigned' && scopeTotal ? `<button class="btn btn-danger btn-sm" data-delete-unassigned ${state.leadModule.deletingUnassigned ? 'disabled' : ''}>${state.leadModule.deletingUnassigned ? 'Removing…' : `Delete all ${scopeTotal} unassigned`}</button>` : '';
+    const bulkToolbar = !my && canManage() && (selectedCount || unassignedDelete) ? `<div class="lead-bulk-toolbar" role="status">${selectedCount ? `<strong>${selectedCount} selected</strong><span>Select a team queue or advisor to update ownership.</span><button class="btn btn-gold btn-sm" data-bulk-assignment-open>Assign selected</button><button class="btn btn-secondary btn-sm" data-leads-clear-selection>Clear selection</button>` : `<strong>${scopeTotal} unassigned</strong><span>These leads are not owned by an advisor. The action below is reversible and keeps audit history.</span>`}${unassignedDelete}</div>` : '';
     const pager = window.AureumPagination?.render(state.leads?.meta || { page: state.leadModule.pagination.page, pageSize: state.leadModule.pagination.pageSize, total: scopeTotal }, 'leads', { busy: Boolean(state.leads?.loading) }) || '';
     const page = pageHeader(my ? 'Assigned pipeline' : 'Aureum private registry', my ? 'My leads' : 'All leads', roleCopy(my), `${importAction}<button class="btn btn-secondary" data-leads-reload>Refresh</button>${addAction}`) + `<section class="grid grid-4 lead-summary-grid">${summaryCard('Matching leads', total, scopeDetail)}${summaryCard('Hot on this page', hot, 'Current page', hot ? 'hot' : '')}${summaryCard('Follow-up on this page', followUp, 'Current page', followUp ? 'warm' : '')}${summaryCard('Scheduled on this page', due, 'Current page', due ? 'blue' : '')}</section><section class="card table-card lead-registry-card"><div class="lead-registry-head"><div><h2>${my ? 'My leads' : 'All leads registry'}</h2><p>${items.length} records on this page · ${scopeTotal} matching records.</p></div><span class="badge badge-neutral">${state.role === 'SALES_AGENT' ? 'Assigned only' : my ? 'Personal scope' : 'Management scope'}</span></div>${statusTabs(my)}<div class="lead-filter-bar"><label class="lead-search-field"><span aria-hidden="true">⌕</span><input data-leads-search value="${search}" placeholder="Search by name, phone, email, city…" aria-label="Search leads" /></label>${assignmentFilter}${agentFilter}<select class="select" data-leads-source aria-label="Filter by source">${selectOptions(sources, state.leadFilters?.source || '', 'All sources')}</select><select class="select" data-leads-interest aria-label="Filter by interest">${selectOptions(propertyTypes, state.leadFilters?.interest || state.leadFilters?.propertyType || '', 'All interests')}</select><select class="select" data-leads-priority aria-label="Filter by priority">${selectOptions(priorities, state.leadFilters?.priority || '', 'All priorities')}</select>${dateFilter}<button class="btn btn-secondary btn-sm" data-leads-reset>Reset</button></div>${bulkToolbar}<div class="table-wrap lead-table-wrap"><table class="lead-data-table"><thead><tr>${tableHeaders}</tr></thead><tbody>${leadTableRows(items, my)}</tbody></table></div>${pager}</section>`;
     return page + renderImportDialog() + renderBulkAssignmentDialog();
@@ -434,6 +456,8 @@
     if (bulkClose && (event.target === bulkClose || bulkClose.matches('button'))) { state.leadModule.bulkAssignment = null; render(); return; }
     const clearSelection = event.target.closest?.('[data-leads-clear-selection]');
     if (clearSelection) { state.leadModule.selectedLeadIds = []; render(); return; }
+    const deleteUnassigned = event.target.closest?.('[data-delete-unassigned]');
+    if (deleteUnassigned) { event.preventDefault(); deleteAllUnassigned(); return; }
     const leadTemplate = event.target.closest?.('[data-leads-template]');
     if (leadTemplate) { event.preventDefault(); downloadImportTemplate(); return; }
     const importButton = event.target.closest?.('[data-leads-import]');
