@@ -573,7 +573,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { en
 
 function layout(content) {
   const nav = renderSidebarNavigation();
-  const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${state.authUser.full_name}</div><div class="user-menu-role">${roleLabels[state.role]} � ${state.authUser.email}</div><button class="btn btn-secondary btn-sm" data-logout>Log out</button></div>` : '';
+  const userMenu = state.userMenu ? `<div class="user-menu"><div class="user-menu-name">${state.authUser.full_name}</div><div class="user-menu-role">${roleLabels[state.role]} � ${state.authUser.email}</div><button class="btn btn-secondary btn-sm user-menu-signout" type="button" data-logout>Sign out</button></div>` : '';
   return `<div class="app-shell"><aside class="sidebar"><div class="brand"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div class="brand-copy"><div class="brand-title">Aureum</div><div class="brand-subtitle">Sales command center</div></div></div><div class="sidebar-label">Workspace</div><nav class="nav-list">${nav}</nav></aside><div class="main"><header class="topbar"><div class="crumbs">Aureum Sales CRM <span> / </span> <strong>${screenLabel(state.screen)}</strong></div><div class="topbar-actions"><div class="top-search">${icons.search}<input placeholder="Search CRM" aria-label="Search CRM" /></div><button class="icon-btn" aria-label="Notifications">${icons.bell}</button><div class="account-wrap"><button class="avatar" aria-label="Account menu" data-user-menu>${userInitials()}</button>${userMenu}</div></div></header><main class="page">${content}</main></div>${state.drawer ? renderDrawer() : ''}${state.toast ? `<div class="toast">${state.toast}</div>` : ''}</div>`;
 }
 
