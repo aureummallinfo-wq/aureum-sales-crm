@@ -10,9 +10,9 @@
 .meta-drawer-section { border-bottom: 1px solid var(--line); }
 .meta-drawer-section > summary { display: flex; align-items: center; list-style: none; margin-bottom: 0; cursor: pointer; }
 .meta-drawer-section > summary::-webkit-details-marker { display: none; }
-.meta-drawer-section > summary::after { flex: 0 0 auto; margin-left: auto; color: var(--muted); content: '?'; font-size: 17px; line-height: 1; }
+.meta-drawer-section > summary::after { flex: 0 0 auto; margin-left: auto; color: var(--muted); content: '⌄'; font-size: 17px; line-height: 1; }
 .meta-drawer-section[open] > summary { margin-bottom: 12px; }
-.meta-drawer-section[open] > summary::after { content: '^'; }
+.meta-drawer-section[open] > summary::after { content: '⌃'; }
 .meta-edit-panel { margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--cream); }
 .meta-edit-panel .drawer-section-heading { margin-bottom: 12px; }
 .meta-edit-panel .drawer-section-heading h3 { margin: 0; }
