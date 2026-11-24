@@ -11,6 +11,7 @@
 .meta-captured-grid span { color: #a9a7a5; font-size: 11px; }
 .meta-captured-grid b { color: #f7f3ea; font-size: 13px; overflow-wrap: anywhere; }
 .meta-intake-actions { display: flex; align-items: center; gap: 10px; }
+.kpi-loading { color: var(--muted); font-size: 20px; letter-spacing: .12em; }
 .meta-search { min-width: min(520px, 100%); }
 .meta-table-scroll { overflow-x: auto; }
 .meta-intake-table { min-width: 1220px; }
@@ -38,4 +39,38 @@
   .meta-detail-grid { grid-template-columns: 1fr; }
   .drawer-section-heading { align-items: flex-start; flex-direction: column; }
   .detail-hint { text-align: left; }
+}
+
+/* Light-theme QA pass: read-only Meta details must look like information cards,
+   not disabled controls. Keep the original dark treatment for dark mode. */
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-captured-grid > div,
+html[data-theme="light"] .app-shell .meta-intake-drawer .detail-field {
+  border-color: var(--line);
+  background: var(--white);
+  box-shadow: 0 1px 0 rgba(42, 33, 24, .03);
+}
+
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-captured-grid span,
+html[data-theme="light"] .app-shell .meta-intake-drawer .detail-label,
+html[data-theme="light"] .app-shell .meta-intake-drawer .detail-hint {
+  color: var(--muted);
+}
+
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-captured-grid b,
+html[data-theme="light"] .app-shell .meta-intake-drawer .detail-value {
+  color: var(--ink);
+}
+
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-raw-details {
+  border-color: var(--line);
+  background: var(--cream);
+}
+
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-raw-details summary {
+  color: var(--ink);
+}
+
+html[data-theme="light"] .app-shell .meta-intake-drawer .meta-raw-details pre {
+  border-top-color: var(--line);
+  color: var(--muted);
 }

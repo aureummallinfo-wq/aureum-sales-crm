@@ -496,6 +496,7 @@ tbody tr:hover { background: rgba(239,228,210,.35); }
 .access-path { margin-bottom: 24px; padding: 9px 12px; color: var(--muted); border-radius: 8px; background: var(--cream-deep); font-size: 11px; }
 
 .drawer-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(24,22,19,.33); backdrop-filter: blur(3px); }
+html.drawer-open, html.drawer-open body { overflow: hidden; }
 .import-dialog-backdrop { position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; padding: 20px; background: rgba(24,22,19,.55); backdrop-filter: blur(4px); }
 .import-dialog { width: min(820px, 100%); max-height: min(760px, calc(100vh - 40px)); overflow: auto; padding: 24px; color: var(--ink); border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 28px 80px rgba(0,0,0,.35); }
 .import-dialog .drawer-header { margin-bottom: 18px; }
@@ -2086,4 +2087,27 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.gr
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* UI QA alignment pass (24 Nov 2026).
+   Keep shared page geometry predictable across modules. Customers has six
+   summary metrics and therefore needs a balanced 3 x 2 desktop grid, while
+   dense desktop headers should keep their actions on one aligned row. */
+.customer-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.page-header > div:first-child { min-width: 0; }
+
+@media (min-width: 851px) {
+  .page-header { align-items: flex-start; }
+  .page-header > div:first-child { flex: 1 1 auto; }
+  .page-header .header-actions {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+}
+
+@media (min-width: 621px) and (max-width: 850px) {
+  .customer-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .page-header .header-actions { flex-wrap: wrap; }
 }

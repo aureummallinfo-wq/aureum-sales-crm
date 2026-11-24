@@ -780,6 +780,9 @@ function renderLogin() {
 }
 
 function render() {
+  // A drawer is a modal surface: prevent the page behind it from becoming a
+  // second scroll container while keeping the drawer itself scrollable.
+  document.documentElement.classList.toggle('drawer-open', Boolean(state.drawer));
   if (!state.ready) { app.innerHTML = '<div class="loading-screen"><img class="brand-logo" src="/assets/aureum-logo.png" alt="Aureum" /><div>Loading Aureum CRM.</div></div>'; return; }
   if (state.startupError) { app.innerHTML = renderPortalStartupError(); return; }
   if (!state.authUser || state.screen === 'login') { app.innerHTML = renderLogin(); bind(); return; }
