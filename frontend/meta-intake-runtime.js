@@ -89,6 +89,45 @@
 
   function detailValue(label, value) { return `<div class="detail-field"><div class="detail-label">${esc(label)}</div><div class="detail-value">${display(value)}</div></div>`; }
   function detailGrid(fields) { return `<div class="meta-detail-grid">${fields.join('')}</div>`; }
+  function metaEditField(label, key, value, type = 'text') { return `<div class="form-field"><label for="meta-edit-${esc(key)}">${esc(label)}</label><input id="meta-edit-${esc(key)}" name="${esc(key)}" data-meta-edit-field type="${esc(type)}" value="${esc(value || '')}" /></div>`; }
+  function metaEditPanel(item) {
+    const value = (...keys) => rawValue(item, ...keys);
+    return `<section class="meta-edit-panel" data-meta-edit-panel aria-label="Edit Meta lead details"><div class="drawer-section-heading"><div><h3>Edit lead details</h3><p class="detail-hint">Correct Zapier-mapped values before review. The original Meta payload remains unchanged.</p></div></div><div class="form-grid meta-edit-grid">
+      ${metaEditField('Full name', 'full_name', value('full_name', 'name'))}
+      ${metaEditField('Phone number', 'phone', value('phone', 'phone_number', 'mobile'))}
+      ${metaEditField('WhatsApp number', 'whatsapp_number', value('whatsapp_number', 'whatsapp'))}
+      ${metaEditField('Email', 'email', value('email', 'email_address'), 'email')}
+      ${metaEditField('City', 'city', value('city'))}
+      ${metaEditField('Country', 'country', value('country'))}
+      ${metaEditField('Area / address', 'area', value('area'))}
+      ${metaEditField('Active contact', 'active_contact', value('active_contact', 'any_active_contact'))}
+      ${metaEditField('Interested in', 'interested_in', value('interested_in', 'interest_category', 'interest', 'what_are_you_interested_in?', 'what_are_you_interested_in?_'))}
+      ${metaEditField('Interest category', 'interest_category', value('interest_category', 'interested_in', 'interest'))}
+      ${metaEditField('Property type', 'property_type', value('property_type', 'residential_property_type', 'commercial_property_type'))}
+      ${metaEditField('Residential property type', 'residential_property_type', value('residential_property_type', 'property_type'))}
+      ${metaEditField('Commercial property type', 'commercial_property_type', value('commercial_property_type', 'property_type'))}
+      ${metaEditField('Budget', 'budget', value('budget', 'residential_budget', 'commercial_budget'))}
+      ${metaEditField('Residential budget', 'residential_budget', value('residential_budget', 'budget_residential'))}
+      ${metaEditField('Commercial budget', 'commercial_budget', value('commercial_budget', 'budget_commercial'))}
+      ${metaEditField('Purpose', 'purpose', value('purpose', 'residential_investment_purpose', 'commercial_investment_purpose'))}
+      ${metaEditField('Residential purpose', 'residential_investment_purpose', value('residential_investment_purpose', 'purpose_of_investment'))}
+      ${metaEditField('Commercial purpose', 'commercial_investment_purpose', value('commercial_investment_purpose', 'purpose_commercial'))}
+      ${metaEditField('Investment type', 'investment_type', value('investment_type', 'select_your_investment_'))}
+      ${metaEditField('Down payment', 'down_payment', value('down_payment', 'how_much_down_payment_you_can_pay', 'how_much_down_payment_you_can_manage?'))}
+      ${metaEditField('Preferred contact', 'preferred_contact_method', value('preferred_contact_method', 'best_contact_method'))}
+      ${metaEditField('Payment preference', 'payment_preference', value('payment_preference', 'payment_method'))}
+      ${metaEditField('Buying timeline', 'buying_timeline', value('buying_timeline', 'purchase_timeline'))}
+      ${metaEditField('Site visit interest', 'site_visit_interest', value('site_visit_interest'))}
+      ${metaEditField('Campaign name', 'campaign_name', value('campaign_name'))}
+      ${metaEditField('Campaign ID', 'campaign_id', value('campaign_id'))}
+      ${metaEditField('Ad set name', 'adset_name', value('adset_name'))}
+      ${metaEditField('Ad set ID', 'adset_id', value('adset_id'))}
+      ${metaEditField('Ad name', 'ad_name', value('ad_name'))}
+      ${metaEditField('Ad ID', 'ad_id', value('ad_id'))}
+      ${metaEditField('Form name', 'form_name', value('form_name'))}
+      ${metaEditField('Form ID', 'form_id', value('form_id'))}
+    </div><div class="meta-edit-actions"><button class="btn btn-secondary btn-sm" type="button" data-meta-edit-cancel>Cancel</button><button class="btn btn-gold btn-sm" type="button" data-meta-edit-save>Save lead details</button></div></section>`;
+  }
   function drawerSection(title, aside, content, open = false) {
     return `<details class="drawer-section meta-drawer-section"${open ? ' open' : ''}><summary class="drawer-section-heading"><h3>${title}</h3>${aside || '<span class="meta-section-chevron" aria-hidden="true"></span>'}</summary>${content}</details>`;
   }
@@ -99,8 +138,12 @@
     const p = item.raw_payload || {};
     const field = (...keys) => rawValue(item, ...keys);
     const feedback = item.feedback_status && item.feedback_status !== 'Not queued' ? metaStatus(item.feedback_status) : '<span class="badge badge-neutral">Not queued</span>';
+    const canEdit = ['SUPER_ADMIN', 'SALES_MANAGER'].includes(state.role);
+    const editing = Boolean(state.metaInbox.editing && canEdit);
+    const editAction = canEdit ? `<button class="btn btn-secondary btn-sm" type="button" data-meta-edit-toggle>${editing ? 'Close edit' : 'Edit lead details'}</button>` : '';
     return `<div class="drawer-backdrop" data-close-drawer></div><aside class="drawer meta-intake-drawer" aria-label="Meta lead details">
-      <div class="drawer-header"><div><div class="eyebrow">Meta lead review</div><h2>${display(item.full_name || 'Unnamed lead')}</h2><p class="page-subtitle">${metaStatus(item.review_status)} <span class="drawer-separator">·</span> ${esc(sourceLabel(item))}</p></div><button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div>
+      <div class="drawer-header"><div><div class="eyebrow">Meta lead review</div><h2>${display(item.full_name || 'Unnamed lead')}</h2><p class="page-subtitle">${metaStatus(item.review_status)} <span class="drawer-separator">·</span> ${esc(sourceLabel(item))}</p></div><div class="drawer-header-actions">${editAction}<button class="drawer-close" data-close-drawer aria-label="Close details">${icons.close}</button></div></div>
+      ${editing ? metaEditPanel(item) : ''}
       <form id="meta-staging-review-form">
         ${drawerSection('Lead & contact', `<span class="source-badge source-meta">${esc(sourceLabel(item))}</span>`, detailGrid([detailValue('Internal CRM ID', item.id), detailValue('Meta Lead ID', item.external_lead_id), detailValue('Full name', item.full_name), detailValue('Phone number', item.phone), detailValue('WhatsApp number', item.whatsapp_number), detailValue('Email', item.email), detailValue('City', item.city), detailValue('Country', field('country')), detailValue('Area / address', item.area), detailValue('Active contact', field('active_contact', 'any_active_contact')), detailValue('Consent', field('consent_status') || 'Not captured')]), true)}
         ${drawerSection('Customer qualification', '<span class="detail-hint">Conditional residential/commercial fields are preserved</span>', detailGrid([detailValue('Interested in', field('interested_in', 'interest_category', 'interest', 'what_are_you_interested_in?', 'what_are_you_interested_in?_')), detailValue('Property type', field('property_type', 'residential_property_type', 'commercial_property_type')), detailValue('Commercial property type', field('commercial_property_type')), detailValue('Residential budget', field('residential_budget', 'budget_residential')), detailValue('Commercial budget', field('commercial_budget', 'budget_commercial')), detailValue('Purpose of investment', field('purpose', 'residential_investment_purpose', 'purpose_of_investment')), detailValue('Commercial purpose', field('commercial_investment_purpose', 'purpose_commercial')), detailValue('Investment type', field('investment_type', 'select_your_investment_')), detailValue('Down payment', field('down_payment', 'how_much_down_payment_you_can_pay', 'how_much_down_payment_you_can_manage?')), detailValue('Preferred contact', field('preferred_contact_method', 'best_contact_method')), detailValue('Payment preference', field('payment_preference', 'payment_method')), detailValue('Purchase timeline', field('buying_timeline', 'purchase_timeline')), detailValue('Site visit interest', field('site_visit_interest'))]))}
@@ -120,12 +163,15 @@
   }
 
   async function openMetaStaging(id) {
-    state.drawer = 'meta-staging'; state.metaInbox.selected = null; render();
+    state.drawer = 'meta-staging'; state.metaInbox.selected = null; state.metaInbox.editing = false; render();
     try { const result = await apiFetch(`/api/meta/staging/${encodeURIComponent(id)}`, { force: true }); state.metaInbox.selected = result.data; render(); } catch (error) { state.metaInbox.error = error.message; state.drawer = null; render(); }
   }
 
   function bindMetaIntakeEvents() {
     document.querySelectorAll('[data-meta-staging-open], [data-meta-staging-open-button]').forEach(element => element.addEventListener('click', event => { event.stopPropagation(); openMetaStaging(element.dataset.metaStagingOpen || element.dataset.metaStagingOpenButton); }));
+    document.querySelectorAll('[data-meta-edit-toggle]').forEach(button => button.addEventListener('click', () => { state.metaInbox.editing = !state.metaInbox.editing; render(); }));
+    document.querySelectorAll('[data-meta-edit-cancel]').forEach(button => button.addEventListener('click', () => { state.metaInbox.editing = false; render(); }));
+    document.querySelectorAll('[data-meta-edit-save]').forEach(button => button.addEventListener('click', async () => { const panel = document.querySelector('[data-meta-edit-panel]'); if (!panel || !state.metaInbox.selected) return; const fields = [...panel.querySelectorAll('[data-meta-edit-field]')]; const invalid = fields.find(field => !field.checkValidity()); if (invalid) { invalid.reportValidity(); return; } const data = Object.fromEntries(fields.map(field => [field.name, field.value.trim()])); if (data.email) data.email = data.email.toLowerCase(); button.disabled = true; try { const result = await apiFetch(`/api/meta/staging/${encodeURIComponent(state.metaInbox.selected.id)}`, { method: 'PATCH', body: JSON.stringify(data) }); state.metaInbox.selected = result.data; state.metaInbox.editing = false; showToast('Lead details updated'); await loadMetaIntake(); } catch (error) { button.disabled = false; showToast(error.message || 'Lead details could not be updated.'); } }));
     document.querySelectorAll('[data-meta-intake-reload]').forEach(element => element.addEventListener('click', () => loadMetaIntake()));
     document.querySelectorAll('[data-meta-intake-clear]').forEach(element => element.addEventListener('click', () => { state.metaInbox.filters = { q: '', status: '', source: '', interest: '', dateFrom: '', dateTo: '' }; loadMetaIntake(); }));
     const search = document.querySelector('[data-meta-intake-search]'); if (search) search.addEventListener('input', event => { const snapshot = window.AureumSearch?.capture?.(event.target); state.metaInbox.filters.q = event.target.value; render(); window.AureumSearch?.restore?.('[data-meta-intake-search]', snapshot); window.clearTimeout(state.metaInbox.searchTimer); state.metaInbox.searchTimer = window.setTimeout(() => loadMetaIntake(), 300); });

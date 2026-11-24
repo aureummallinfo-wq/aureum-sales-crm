@@ -6,12 +6,19 @@
 .meta-intake-table tbody tr:hover { background: rgba(201, 162, 77, .07); }
 .meta-intake-card .section-title { align-items: flex-start; }
 .meta-intake-drawer { width: min(620px, 100vw); }
+.drawer-header-actions { display: flex; align-items: center; gap: 8px; }
 .meta-drawer-section { border-bottom: 1px solid var(--line); }
 .meta-drawer-section > summary { display: flex; align-items: center; list-style: none; margin-bottom: 0; cursor: pointer; }
 .meta-drawer-section > summary::-webkit-details-marker { display: none; }
 .meta-drawer-section > summary::after { flex: 0 0 auto; margin-left: auto; color: var(--muted); content: '⌄'; font-size: 17px; line-height: 1; }
 .meta-drawer-section[open] > summary { margin-bottom: 12px; }
 .meta-drawer-section[open] > summary::after { content: '⌃'; }
+.meta-edit-panel { margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--cream); }
+.meta-edit-panel .drawer-section-heading { margin-bottom: 12px; }
+.meta-edit-panel .drawer-section-heading h3 { margin: 0; }
+.meta-edit-grid { gap: 10px; }
+.meta-edit-grid .form-field { margin: 0; }
+.meta-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .meta-captured-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
 .meta-captured-grid > div { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid rgba(201, 162, 77, .18); border-radius: 10px; background: rgba(21, 31, 42, .72); }
 .meta-captured-grid span { color: #a9a7a5; font-size: 11px; }
@@ -79,6 +86,11 @@ html[data-theme="light"] .app-shell .meta-intake-drawer .meta-raw-details summar
 html[data-theme="light"] .app-shell .meta-intake-drawer .meta-raw-details pre {
   border-top-color: var(--line);
   color: var(--muted);
+}
+
+html[data-theme="light"] .app-shell .meta-edit-panel {
+  border-color: #eccbd1;
+  background: #fff5f6;
 }
 
 /* Keep Meta Intake selection and source tags in the same soft pink family as
