@@ -305,10 +305,11 @@ function findExistingMemoryContact({ fullName = '', phone = '', whatsapp = '', e
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedExternalId = String(externalLeadId || '').trim();
   const normalizedFormId = String(formId || '').trim();
+  const hasStrongIdentity = Boolean(digits(phone) || digits(whatsapp) || normalizedEmail || normalizedExternalId || normalizedFormId);
   const matches = item => {
     const phoneValues = [phone, whatsapp].map(digits).filter(Boolean);
     const itemPhones = [item.phone, item.whatsapp_number].map(digits).filter(Boolean);
-    return (normalizedName && String(item.full_name || '').trim().toLowerCase() === normalizedName)
+    return ((!hasStrongIdentity && normalizedName) && String(item.full_name || '').trim().toLowerCase() === normalizedName)
       || (normalizedEmail && String(item.email || '').trim().toLowerCase() === normalizedEmail)
       || phoneValues.some(value => itemPhones.includes(value))
       || (normalizedExternalId && String(item.external_lead_id || '').trim() === normalizedExternalId)

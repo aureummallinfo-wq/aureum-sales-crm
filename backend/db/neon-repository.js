@@ -902,10 +902,11 @@ function createNeonRepository(sql) {
     const customerConditions = ['c.workspace_id = $1', 'c.deleted_at IS NULL'];
     const customerParams = [workspace];
     const customerMatches = [];
+    const hasStrongIdentity = Boolean(String(phone || '').trim() || String(whatsapp || '').trim() || String(email || '').trim() || String(externalLeadId || '').trim() || String(formId || '').trim());
     const addCustomerPhone = value => { if (value) { customerParams.push(value); const p = `$${customerParams.length}`; customerMatches.push(`regexp_replace(coalesce(c.phone, ''), '[^0-9]', '', 'g') = regexp_replace(${p}, '[^0-9]', '', 'g') OR regexp_replace(coalesce(c.whatsapp_number, ''), '[^0-9]', '', 'g') = regexp_replace(${p}, '[^0-9]', '', 'g')`); } };
     addCustomerPhone(phone); addCustomerPhone(whatsapp);
     if (email) { customerParams.push(String(email).toLowerCase()); customerMatches.push(`lower(coalesce(c.email, '')) = $${customerParams.length}`); }
-    if (fullName) { customerParams.push(String(fullName).trim().toLowerCase()); customerMatches.push(`lower(trim(coalesce(c.full_name, ''))) = $${customerParams.length}`); }
+    if (fullName && !hasStrongIdentity) { customerParams.push(String(fullName).trim().toLowerCase()); customerMatches.push(`lower(trim(coalesce(c.full_name, ''))) = $${customerParams.length}`); }
     if (externalLeadId) { customerParams.push(String(externalLeadId)); customerMatches.push(`coalesce(l.external_lead_id, c.metadata->>'external_lead_id', c.metadata->>'meta_lead_id') = $${customerParams.length}`); }
     if (formId) { customerParams.push(String(formId)); customerMatches.push(`coalesce(l.metadata->>'form_id', c.metadata->>'form_id') = $${customerParams.length}`); }
     if (customerMatches.length) {
@@ -919,7 +920,7 @@ function createNeonRepository(sql) {
     const addLeadPhone = value => { if (value) { leadParams.push(value); const p = `$${leadParams.length}`; leadMatches.push(`regexp_replace(coalesce(l.phone, ''), '[^0-9]', '', 'g') = regexp_replace(${p}, '[^0-9]', '', 'g') OR regexp_replace(coalesce(l.whatsapp_number, ''), '[^0-9]', '', 'g') = regexp_replace(${p}, '[^0-9]', '', 'g')`); } };
     addLeadPhone(phone); addLeadPhone(whatsapp);
     if (email) { leadParams.push(String(email).toLowerCase()); leadMatches.push(`lower(coalesce(l.email, '')) = $${leadParams.length}`); }
-    if (fullName) { leadParams.push(String(fullName).trim().toLowerCase()); leadMatches.push(`lower(trim(coalesce(l.full_name, ''))) = $${leadParams.length}`); }
+    if (fullName && !hasStrongIdentity) { leadParams.push(String(fullName).trim().toLowerCase()); leadMatches.push(`lower(trim(coalesce(l.full_name, ''))) = $${leadParams.length}`); }
     if (externalLeadId) { leadParams.push(String(externalLeadId)); leadMatches.push(`coalesce(l.external_lead_id, l.metadata->>'external_lead_id', l.metadata->>'meta_lead_id') = $${leadParams.length}`); }
     if (formId) { leadParams.push(String(formId)); leadMatches.push(`l.metadata->>'form_id' = $${leadParams.length}`); }
     if (!leadMatches.length) return null;
