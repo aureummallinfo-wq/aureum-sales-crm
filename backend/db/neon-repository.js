@@ -1160,8 +1160,7 @@ function createNeonRepository(sql) {
     const validTags = new Set([...statusTags.values, ...configuredTags.map(item => String(item.name || '').trim()).filter(Boolean)]);
     const rows = await sql.query(`${leadSelect} WHERE l.workspace_id=$1 AND l.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM crm.customers c WHERE c.workspace_id=l.workspace_id AND c.lead_id=l.id AND c.deleted_at IS NULL)
-      AND jsonb_typeof(coalesce(l.metadata->'tags','[]'::jsonb))='array'
-      AND jsonb_array_length(coalesce(l.metadata->'tags','[]'::jsonb))>0
+      AND jsonb_array_length(CASE WHEN jsonb_typeof(coalesce(l.metadata->'tags','[]'::jsonb))='array' THEN coalesce(l.metadata->'tags','[]'::jsonb) ELSE '[]'::jsonb END)>0
       ORDER BY l.created_at ASC`, [workspace]);
     const result = { checked: 0, created: [], skipped: [], failed: [] };
     for (const row of rows) {
