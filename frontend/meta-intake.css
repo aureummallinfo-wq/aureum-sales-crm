@@ -36,6 +36,105 @@
 .meta-raw-details { border: 1px solid rgba(201, 162, 77, .16); border-radius: 10px; overflow: hidden; }
 .meta-raw-details summary { cursor: pointer; padding: 12px 14px; color: #f0d89f; }
 .meta-raw-details pre { max-height: 320px; overflow: auto; margin: 0; padding: 14px; border-top: 1px solid rgba(201, 162, 77, .16); color: #c9c7c2; font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Meta Intake uses the same CRM surface language as Customers and Leads. The
+   legacy workspace palette has higher-specificity drawer rules, so keep this
+   correction scoped to this drawer and let the active theme choose the colors. */
+.app-shell .meta-intake-drawer {
+  color: var(--ink);
+  border-left-color: rgba(198, 161, 91, .42);
+  background: var(--paper);
+  box-shadow: -24px 0 60px rgba(69, 47, 20, .16);
+}
+.app-shell .meta-intake-drawer .drawer-header,
+.app-shell .meta-intake-drawer .drawer-section { border-color: var(--line); }
+.app-shell .meta-intake-drawer .drawer-close {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--cream-deep);
+}
+.app-shell .meta-intake-drawer .drawer-close:hover { background: var(--selection-pale); }
+.app-shell .meta-intake-drawer .detail-field {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--cream-deep);
+}
+.app-shell .meta-intake-drawer .detail-label,
+.app-shell .meta-intake-drawer .detail-hint,
+.app-shell .meta-intake-drawer .form-field label { color: var(--muted); }
+.app-shell .meta-intake-drawer .detail-value { color: var(--ink); }
+.app-shell .meta-intake-drawer .form-field input,
+.app-shell .meta-intake-drawer .form-field select,
+.app-shell .meta-intake-drawer .form-field textarea,
+.app-shell .meta-intake-drawer .form-grid input,
+.app-shell .meta-intake-drawer .form-grid select,
+.app-shell .meta-intake-drawer .form-grid textarea {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--white);
+}
+.app-shell .meta-intake-drawer .form-field input::placeholder,
+.app-shell .meta-intake-drawer .form-field textarea::placeholder { color: var(--muted); opacity: 1; }
+.app-shell .meta-intake-drawer select { color-scheme: inherit; }
+.app-shell .meta-intake-drawer select option { color: var(--ink); background: var(--white); }
+.app-shell .meta-intake-drawer .meta-raw-details {
+  border-color: var(--line);
+  background: var(--cream-deep);
+}
+.app-shell .meta-intake-drawer .meta-raw-details summary { color: var(--gold); }
+.app-shell .meta-intake-drawer .meta-raw-details pre {
+  color: var(--muted);
+  border-top-color: var(--line);
+}
+.app-shell .meta-intake-drawer .source-meta { color: #805a67; background: var(--selection-pale); }
+.app-shell .meta-intake-drawer .drawer-separator { color: var(--gold); }
+
+/* Preserve the dark workspace when the user has dark mode enabled. */
+html[data-theme="dark"] .app-shell .meta-intake-drawer {
+  color: #e5e2e1;
+  border-left-color: rgba(201, 162, 77, .25);
+  background: #151f2a;
+  box-shadow: -24px 0 60px rgba(0, 0, 0, .55);
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer .drawer-header,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .drawer-section { border-color: rgba(201, 162, 77, .2); }
+html[data-theme="dark"] .app-shell .meta-intake-drawer .drawer-close {
+  color: #e3c878;
+  border-color: rgba(201, 162, 77, .28);
+  background: #201f1f;
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer .detail-field {
+  color: #e5e2e1;
+  border-color: rgba(201, 162, 77, .16);
+  background: rgba(21, 31, 42, .58);
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer .detail-label,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .detail-hint,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-field label { color: #a9a7a5; }
+html[data-theme="dark"] .app-shell .meta-intake-drawer .detail-value { color: #f7f3ea; }
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-field input,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-field select,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-field textarea,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-grid input,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-grid select,
+html[data-theme="dark"] .app-shell .meta-intake-drawer .form-grid textarea {
+  color: #e5e2e1;
+  border-color: rgba(255, 255, 255, .12);
+  background: #151f2a;
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer select { color-scheme: dark; }
+html[data-theme="dark"] .app-shell .meta-intake-drawer select option { color: #f7f3ea; background: #151f2a; }
+html[data-theme="dark"] .app-shell .meta-intake-drawer .meta-raw-details {
+  border-color: rgba(201, 162, 77, .16);
+  background: rgba(21, 31, 42, .58);
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer .meta-raw-details summary { color: #f0d89f; }
+html[data-theme="dark"] .app-shell .meta-intake-drawer .meta-raw-details pre {
+  color: #c9c7c2;
+  border-top-color: rgba(201, 162, 77, .16);
+}
+html[data-theme="dark"] .app-shell .meta-intake-drawer .source-meta { color: #b9d1ff; background: rgba(90, 125, 190, .16); }
+
 @media (max-width: 720px) {
   .meta-intake-filters { display: grid; grid-template-columns: 1fr; }
   .meta-bulk-toolbar { align-items: stretch; flex-wrap: wrap; }

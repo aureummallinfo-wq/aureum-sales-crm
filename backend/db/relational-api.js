@@ -703,8 +703,11 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
     if (pathname === '/api/meta/staging' || pathname.startsWith('/api/meta/staging/')) {
       if (!role(user, ['super_admin', 'sales_manager'], res)) return true;
       if (req.method === 'GET' && pathname === '/api/meta/staging') {
-        const data = await repository.listMetaLeadStaging(workspaceId, { status: url.searchParams.get('status') || '', formId: url.searchParams.get('formId') || '', source: url.searchParams.get('source') || '', interest: url.searchParams.get('interest') || '', search: url.searchParams.get('q') || '', dateFrom: url.searchParams.get('dateFrom') || '', dateTo: url.searchParams.get('dateTo') || '' });
-        return json(res, 200, { data, meta: { total: data.length } });
+        const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1);
+        const pageSize = Math.min(100, Math.max(10, Number.parseInt(url.searchParams.get('pageSize') || '25', 10) || 25));
+        const filters = { status: url.searchParams.get('status') || '', formId: url.searchParams.get('formId') || '', source: url.searchParams.get('source') || '', interest: url.searchParams.get('interest') || '', search: url.searchParams.get('q') || '', dateFrom: url.searchParams.get('dateFrom') || '', dateTo: url.searchParams.get('dateTo') || '', page, pageSize };
+        const [data, summary] = await Promise.all([repository.listMetaLeadStaging(workspaceId, filters), repository.getMetaLeadStagingSummary(workspaceId, filters)]);
+        return json(res, 200, { data, summary, meta: { total: summary.total, page, pageSize, totalPages: Math.ceil(summary.total / pageSize) } });
       }
       if (req.method === 'POST' && pathname === '/api/meta/staging') { const body = await readBody(req); const item = await repository.createMetaLeadStaging(workspaceId, body.payload || body); return json(res, 201, { data: item }); }
       if (req.method === 'POST' && pathname === '/api/meta/staging/bulk-delete') {

@@ -84,11 +84,12 @@
   }
 
   function renderMetaIntake() {
-    const data = state.metaInbox; const items = data.items || [];
-    const pending = items.filter(item => item.review_status === 'Pending review').length;
-    const sent = items.filter(item => item.review_status === 'Sent to CRM').length;
-    const ready = items.filter(item => ['Ready for Meta', 'Queued'].includes(item.feedback_status)).length;
-    const body = data.loading ? '<div class="empty-state">Loading Meta intake records.</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : metaTable(items);
+    const data = state.metaInbox; const items = data.items || []; const summary = data.summary || {};
+    const pending = summary.pendingReview ?? items.filter(item => item.review_status === 'Pending review').length;
+    const sent = summary.sentToCrm ?? items.filter(item => item.review_status === 'Sent to CRM').length;
+    const ready = summary.readyForMeta ?? items.filter(item => ['Ready for Meta', 'Queued'].includes(item.feedback_status)).length;
+    const pager = !data.loading && !data.error && window.AureumPagination?.render(data.meta || data.pagination, 'meta-intake', { busy: Boolean(data.loading) }) || '';
+    const body = data.loading ? '<div class="empty-state">Loading Meta intake records.</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : `${metaTable(items)}${pager}`;
     const selectedCount = selectedMetaIds().size;
     const deleteSelected = state.role === 'SUPER_ADMIN' ? '<button class="btn btn-danger btn-sm" data-meta-bulk-delete>Delete selected</button>' : '';
     const bulkToolbar = selectedCount ? `<div class="meta-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Only records not yet sent to the CRM are included.</span><button class="btn btn-gold btn-sm" data-meta-bulk-send>Approve &amp; send selected</button>${deleteSelected}<button class="btn btn-secondary btn-sm" data-meta-clear-selection>Clear selection</button></div>` : '';
@@ -125,7 +126,7 @@
     if (!state.authUser || state.screen !== 'meta-inbox' || state.metaInbox.loading) return;
     state.metaInbox.startupLoadTriggered = true;
     state.metaInbox.loading = true; state.metaInbox.error = ''; render();
-    try { const filters = state.metaInbox.filters || {}; const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, force ? { force: true } : {}); state.metaInbox.items = result.data || []; const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id))); state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id))); if (!state.metaInbox.items.length && !Object.keys(filters).some(key => filters[key])) { if (!state.metaInbox.emptyLoadRetried) { state.metaInbox.emptyLoadRetried = true; window.setTimeout(() => { if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(); }, 350); } } else { state.metaInbox.emptyLoadRetried = false; } } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
+    try { const filters = state.metaInbox.filters || {}; const pagination = state.metaInbox.pagination = { page: 1, pageSize: 25, ...(state.metaInbox.pagination || {}) }; const query = new URLSearchParams(Object.fromEntries(Object.entries({ ...filters, page: pagination.page, pageSize: pagination.pageSize }).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { cacheTtl: 30 * 1000, ...(force ? { force: true } : {}) }); state.metaInbox.items = result.data || []; state.metaInbox.summary = result.summary || {}; state.metaInbox.meta = result.meta || { page: pagination.page, pageSize: pagination.pageSize, total: state.metaInbox.items.length, totalPages: Math.ceil(state.metaInbox.items.length / pagination.pageSize) }; const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id))); state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id))); } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
   }
 
   async function openMetaStaging(id) {
@@ -172,9 +173,9 @@
     document.querySelectorAll('[data-meta-bulk-delete]').forEach(element => element.addEventListener('click', bulkDeleteMetaLeads));
     document.querySelectorAll('[data-meta-clear-selection]').forEach(element => element.addEventListener('click', () => { state.metaInbox.selectedIds = []; render(); }));
     document.querySelectorAll('[data-meta-intake-reload]').forEach(element => element.addEventListener('click', () => loadMetaIntake(true)));
-    document.querySelectorAll('[data-meta-intake-clear]').forEach(element => element.addEventListener('click', () => { state.metaInbox.filters = { q: '', status: '', source: '', interest: '', dateFrom: '', dateTo: '' }; loadMetaIntake(); }));
-    const search = document.querySelector('[data-meta-intake-search]'); if (search) search.addEventListener('input', event => { const snapshot = window.AureumSearch?.capture?.(event.target); state.metaInbox.filters.q = event.target.value; render(); window.AureumSearch?.restore?.('[data-meta-intake-search]', snapshot); window.clearTimeout(state.metaInbox.searchTimer); state.metaInbox.searchTimer = window.setTimeout(() => loadMetaIntake(), 300); });
-    const bindFilter = (selector, key) => { const element = document.querySelector(selector); if (element) element.addEventListener('change', event => { state.metaInbox.filters[key] = event.target.value; loadMetaIntake(); }); };
+    document.querySelectorAll('[data-meta-intake-clear]').forEach(element => element.addEventListener('click', () => { state.metaInbox.filters = { q: '', status: '', source: '', interest: '', dateFrom: '', dateTo: '' }; state.metaInbox.pagination.page = 1; loadMetaIntake(); }));
+    const search = document.querySelector('[data-meta-intake-search]'); if (search) search.addEventListener('input', event => { const snapshot = window.AureumSearch?.capture?.(event.target); state.metaInbox.filters.q = event.target.value; state.metaInbox.pagination.page = 1; render(); window.AureumSearch?.restore?.('[data-meta-intake-search]', snapshot); window.clearTimeout(state.metaInbox.searchTimer); state.metaInbox.searchTimer = window.setTimeout(() => loadMetaIntake(), 300); });
+    const bindFilter = (selector, key) => { const element = document.querySelector(selector); if (element) element.addEventListener('change', event => { state.metaInbox.filters[key] = event.target.value; state.metaInbox.pagination.page = 1; loadMetaIntake(); }); };
     bindFilter('[data-meta-intake-source]', 'source'); bindFilter('[data-meta-intake-status]', 'status'); bindFilter('[data-meta-intake-interest]', 'interest'); bindFilter('[data-meta-intake-from]', 'dateFrom'); bindFilter('[data-meta-intake-to]', 'dateTo');
     const form = document.querySelector('#meta-staging-review-form'); if (form) form.addEventListener('submit', async event => { event.preventDefault(); try { const data = Object.fromEntries(new FormData(form).entries()); if (data.outcome) data.feedback_status = 'Ready for Meta'; const result = await apiFetch(`/api/meta/staging/${encodeURIComponent(state.metaInbox.selected.id)}`, { method: 'PATCH', body: JSON.stringify(data) }); state.metaInbox.selected = result.data; showToast('Meta intake review saved'); await loadMetaIntake(); } catch (error) { showToast(error.message); } });
     document.querySelectorAll('[data-meta-send-crm]').forEach(button => button.addEventListener('click', async () => { if (!window.confirm('Approve this reviewed Meta lead and send it to the CRM?')) return; try { const result = await apiFetch(`/api/meta/staging/${encodeURIComponent(button.dataset.metaSendCrm)}/send-to-crm`, { method: 'POST', body: '{}' }); state.metaInbox.selected = result.data; showToast('Lead sent to CRM'); await loadMetaIntake(); } catch (error) { showToast(error.message); } }));
@@ -187,6 +188,12 @@
   renderDrawer = function renderMetaAwareDrawer() { if (state.drawer === 'meta-staging') return renderMetaStagingDrawer(); return previousRenderDrawer(); };
   const previousBind = bind;
   bind = function bindWithMetaIntake() { previousBind(); bindMetaIntakeEvents(); };
+  if (window.AureumPagination && !window.__aureumMetaPagerBound) {
+    window.__aureumMetaPagerBound = true;
+    window.AureumPagination.attach(document, 'meta-intake', () => state.metaInbox.meta || state.metaInbox.pagination, ({ page, pageSize }) => {
+      state.metaInbox.pagination = { page, pageSize }; state.metaInbox.selectedIds = []; loadMetaIntake();
+    });
+  }
   window.setTimeout(() => { if (state.authUser && state.ready && state.screen === 'meta-inbox' && !state.metaInbox.startupLoadTriggered) { state.metaInbox.startupLoadTriggered = true; loadMetaIntake(); } }, 1000);
   if (state.authUser && state.ready && state.screen === 'meta-inbox') { render(); loadMetaIntake(); }
 })();
