@@ -19,6 +19,7 @@ export type Lead = {
   city?: string;
   area?: string;
   status?: string;
+  tags?: string[];
   lead_source?: string;
   assigned_agent?: string;
   interested_in?: string;
@@ -123,6 +124,7 @@ export type ApiList<T> = {
 
 export type DashboardSummary = {
   totalLeads?: number;
+  totalCustomers?: number;
   newLeads?: number;
   hotLeads?: number;
   followUpsDue?: number;

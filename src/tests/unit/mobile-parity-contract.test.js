@@ -135,6 +135,18 @@ test('native operational registries expose server-side CRM date ranges', () => {
   assert.match(read(['app', '(tabs)', 'follow-ups.tsx']), /customStart/);
 });
 
+test('native lead lifecycle exposes tag conversion and management safeguards', () => {
+  const leads = read(['app', '(tabs)', 'leads.tsx']);
+  const detail = read(['app', 'lead', '[id].tsx']);
+  const dashboard = read(['app', '(tabs)', 'index.tsx']);
+  assert.match(leads, /Unassigned leads/);
+  assert.match(leads, /assign an advisor before converting/);
+  assert.match(detail, /\/api\/leads\/\$\{encodeURIComponent\(String\(id\)\)\}\/tags/);
+  assert.match(detail, /Save tags/);
+  assert.match(detail, /Assign a sales agent before a Customer can be created/);
+  assert.match(dashboard, /totalCustomers/);
+});
+
 test('native follow-up workflows cover creation, contact actions, notes, and lifecycle updates', () => {
   const list = read(['app', '(tabs)', 'follow-ups.tsx']);
   const detail = read(['app', 'follow-up', '[id].tsx']);

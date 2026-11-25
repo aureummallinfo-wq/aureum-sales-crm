@@ -93,7 +93,8 @@ function valueArray(value) {
 
 function normalizeTags(value) {
   const source = Array.isArray(value) ? value : String(value || '').split(/[|;,]/);
-  return [...new Set(source.map(item => String(item || '').trim()).filter(Boolean))].slice(0, 20);
+  const seen = new Set();
+  return source.map(item => String(item || '').trim()).filter(Boolean).filter(item => { const key = item.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; }).slice(0, 20);
 }
 
 function localDateParts(value) {
@@ -982,7 +983,7 @@ function createNeonRepository(sql) {
      // New leads become customer profiles immediately unless the intake status/tag
      // explicitly closes the opportunity. Keep this server-side so imports and
      // non-browser clients follow the same rule as the lead form.
-     if (!statusTags.isTerminal(created.status, created.tags)) await convertLeadToCustomer(workspace, legacyId, actor);
+     if (Array.isArray(created.tags) && created.tags.some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag || '').trim().toLowerCase())) && !statusTags.isTerminal(created.status, created.tags) && created.assigned_agent_id) await convertLeadToCustomer(workspace, legacyId, actor);
      await syncLeadFollowUpTag(workspace, actor, await getLead(workspace, legacyId)); return getLead(workspace, legacyId);
   }
 
@@ -1138,6 +1139,7 @@ function createNeonRepository(sql) {
     const lead = await getLead(workspace, identifier);
     if (!lead) return null;
     if (statusTags.isTerminal(lead.status, lead.tags)) throw new Error('Closed opportunities do not create customer profiles.');
+    if (!lead.assigned_agent_id) throw new Error('Assign a sales agent before creating a customer profile.');
     const leadId = await resolveLeadId(workspace, identifier);
     const existing = await sql.query('SELECT id, legacy_id FROM crm.customers WHERE lead_id = $1 AND deleted_at IS NULL LIMIT 1', [leadId]);
     if (existing[0]) return getCustomer(workspace, existing[0].legacy_id || existing[0].id);
@@ -1152,12 +1154,13 @@ function createNeonRepository(sql) {
   async function ensureTaggedLeadCustomer(workspace, identifier, actor, patch, lead) {
     if (patch?.tags === undefined || !Array.isArray(patch.tags) || !patch.tags.length) return;
     if (statusTags.isTerminal(lead?.status, lead?.tags)) return;
+    if (!patch.tags.some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag || '').trim().toLowerCase()))) return;
     await convertLeadToCustomer(workspace, identifier, actor);
   }
 
   async function reconcileTaggedLeadCustomers(workspace, actor) {
     const configuredTags = await listLeadConfiguration(workspace, 'lead-tags');
-    const validTags = new Set([...statusTags.values, ...configuredTags.map(item => String(item.name || '').trim()).filter(Boolean)]);
+    const validTags = new Set([...statusTags.tagValues, ...configuredTags.map(item => String(item.name || '').trim()).filter(Boolean)].map(tag => String(tag).toLowerCase()));
     const rows = await sql.query(`${leadSelect} WHERE l.workspace_id=$1 AND l.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM crm.customers c WHERE c.workspace_id=l.workspace_id AND c.lead_id=l.id AND c.deleted_at IS NULL)
       AND jsonb_array_length(CASE WHEN jsonb_typeof(coalesce(l.metadata->'tags','[]'::jsonb))='array' THEN coalesce(l.metadata->'tags','[]'::jsonb) ELSE '[]'::jsonb END)>0
@@ -1166,10 +1169,11 @@ function createNeonRepository(sql) {
     for (const row of rows) {
       const lead = leadRecord(row); result.checked += 1;
       const tags = Array.isArray(lead.tags) ? lead.tags : [];
-      if (!tags.some(tag => validTags.has(String(tag).trim())) || statusTags.isTerminal(lead.status, tags)) {
+      if (!tags.some(tag => validTags.has(String(tag).trim().toLowerCase())) || statusTags.isTerminal(lead.status, tags)) {
         result.skipped.push({ leadId: lead.id, reason: statusTags.isTerminal(lead.status, tags) ? 'Terminal lead' : 'No valid CRM tag' });
         continue;
       }
+      if (!lead.assigned_agent_id) { result.skipped.push({ leadId: lead.id, reason: 'No assigned sales agent' }); continue; }
       try {
         const customer = await convertLeadToCustomer(workspace, lead.id, actor);
         if (customer?.id) result.created.push({ leadId: lead.id, customerId: customer.id, assignedAgent: customer.assigned_agent || 'Unassigned' });

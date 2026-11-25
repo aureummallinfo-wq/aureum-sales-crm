@@ -59,7 +59,8 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
   function canViewLead(user, lead) { return canView(user, lead); }
   function normalizeTags(value) {
     const source = Array.isArray(value) ? value : String(value || '').split(/[|;,]/);
-    return [...new Set(source.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 20);
+    const seen = new Set();
+    return source.map(tag => safeText(tag, 40)).filter(Boolean).filter(tag => { const key = tag.toLowerCase(); if (seen.has(key)) return false; seen.add(key); return true; }).slice(0, 20);
   }
 
   function webhookView(item) {
@@ -455,7 +456,7 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       if (req.method === 'PATCH' && action === 'assign') { if (!['super_admin', 'sales_manager'].includes(user.role)) return deny(res, 'Only managers can assign leads'); const body = await readBody(req); const lead = await repository.assignLead(workspaceId, current.id, user, body.assigned_agent_id); return lead ? json(res, 200, { data: leadView(lead) }) : json(res, 400, { error: 'A valid active advisor from your permitted scope is required' }); }
       if (req.method === 'PATCH' && action === 'status') { const body = await readBody(req); const lead = await repository.changeLeadStatus(workspaceId, current.id, user, body.status || current.status, body.priority, body.closure_reason); return lead ? json(res, 200, { data: leadView(lead) }) : json(res, 422, { error: 'Invalid lead status.' }); }
       if (req.method === 'POST' && action === 'notes') { const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) return json(res, 400, { error: 'Note is required' }); try { notePlan(body); } catch(error) { return json(res,422,{error:error.message}); } const item = await repository.addLeadActivity(workspaceId, current.id, user, 'Note added', note, { note_input: body }); return json(res, 201, { data: item }); }
-      if (req.method === 'POST' && action === 'tags') { const body = await readBody(req); const tags = body.tags !== undefined ? normalizeTags(body.tags) : body.tag ? [...new Set([...normalizeTags(current.tags), safeText(body.tag, 40)])].filter(Boolean).slice(0, 20) : normalizeTags(current.tags); const lead = await repository.updateLead(workspaceId, current.id, user, { tags }); return json(res, 201, { data: leadView(lead) }); }
+      if (req.method === 'POST' && action === 'tags') { const body = await readBody(req); const tags = body.tags !== undefined ? normalizeTags(body.tags) : body.tag ? [...normalizeTags(current.tags), safeText(body.tag, 40)] : normalizeTags(current.tags); try { const lead = await repository.updateLead(workspaceId, current.id, user, { tags }); return json(res, 201, { data: leadView(lead) }); } catch (error) { return json(res, 422, { error: error.message || 'Unable to update lead tags' }); } }
       return json(res, 405, { error: 'Method not allowed' });
     }
 

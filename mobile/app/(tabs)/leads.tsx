@@ -86,6 +86,7 @@ export function LeadsScreen({ myOnly = false }: { myOnly?: boolean }) {
   if (query.isError) return <Screen><ErrorState message="The lead registry could not load." onRetry={() => { void query.refetch(); }} /></Screen>;
   const leads = query.data?.pages.flatMap(page => page.data) || [];
   const total = query.data?.pages[0]?.meta?.total ?? leads.length;
+  const unassigned = leads.filter(lead => !lead.assigned_agent_id).length;
 
   if (!canViewLeads) return <Screen><ErrorState message="Leads are not available for this CRM role." /></Screen>;
 
@@ -139,6 +140,7 @@ export function LeadsScreen({ myOnly = false }: { myOnly?: boolean }) {
   }
   return <Screen refreshing={query.isRefetching} onRefresh={() => { void query.refetch(); }}>
     <PageTitle eyebrow="Pipeline" title={myOnly || role === 'sales_agent' ? 'My Leads' : 'All Leads'} copy={`${total} permitted records`} />
+    {canBulkAssign ? <Card><Text style={styles.rowTitle}>Unassigned leads</Text><Text style={styles.metricValue}>{unassigned}</Text><Text style={styles.copy}>Visible on this page · assign an advisor before converting to a Customer.</Text></Card> : null}
     {canCreate ? <View><PrimaryButton label="+ Add new lead" onPress={() => router.push('/lead/new')} /><SecondaryButton label={importing ? 'Preparing import…' : 'Import CSV / Excel'} onPress={() => { void chooseImportFile(); }} disabled={importing} /></View> : null}
      <Card><TextInput autoCapitalize="none" value={search} onChangeText={setSearch} placeholder="Search name, phone, email…" placeholderTextColor={colors.muted} style={styles.input} /><View style={styles.filterRow}>{statusFilters.map(item => <Pressable key={item} onPress={() => setStatus(item)} style={[styles.filterChip, status === item && styles.filterChipActive]}><Text style={[styles.filterChipText, status === item && styles.filterChipTextActive]}>{item}</Text></Pressable>)}</View>{search || status !== 'All' || dateRange !== 'all' ? <SecondaryButton label="Clear filters" onPress={() => { setSearch(''); setStatus('All'); updateDateRange({ value: 'all' }); }} /> : null}</Card>
      <DateRangeControls value={dateRange} customStart={customStart} customEnd={customEnd} onChange={updateDateRange} onApply={applyCustomRange} applyDisabled={!/^\d{4}-\d{2}-\d{2}$/.test(customStart) || !/^\d{4}-\d{2}-\d{2}$/.test(customEnd)} />

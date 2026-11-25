@@ -107,7 +107,7 @@ export default function DashboardScreen() {
       <MetricCard label="Hot leads" value={summary.hotLeads ?? 0} detail="High intent" />
       <MetricCard label="Follow-ups due" value={summary.followUpsDue ?? 0} detail={`${summary.overdueFollowUps ?? 0} overdue`} />
       <MetricCard label="Overdue follow-ups" value={summary.overdueFollowUps ?? 0} detail="Action required" />
-      <MetricCard label="Active customers" value={summary.activeCustomers ?? 0} detail="Current relationships" />
+      <MetricCard label="Total customers" value={summary.totalCustomers ?? summary.activeCustomers ?? 0} detail="Customer registry" />
       <MetricCard label="Closed deals" value={summary.closedDeals ?? 0} detail="Selected range" />
       <MetricCard label="Conversion rate" value={percent(summary.conversionRate)} detail="Selected range" />
     </View>

@@ -12,13 +12,17 @@
   function isValid(value) { return values.includes(value); }
   function isValidTag(value) { return tagValues.includes(value); }
   function isTerminal(status, tags) {
-    const terminal = new Set(['closed won', 'closed lost', 'not interested']);
+    const terminal = new Set(['closed won', 'closed lost', 'not interested', 'invalid']);
     return [status, ...(Array.isArray(tags) ? tags : [])]
       .some(value => terminal.has(String(value || '').trim().toLowerCase()));
   }
   function withStatus(tags, selected) {
     const choices = Array.isArray(selected) ? selected : [selected];
-    return [...new Set([...(Array.isArray(tags) ? tags : []).filter(tag => !tagValues.includes(tag)), ...choices.filter(isValidTag)])];
+    const canonical = value => tagValues.find(tag => tag.toLowerCase() === String(value || '').trim().toLowerCase()) || String(value || '').trim();
+    const seen = new Set();
+    const custom = (Array.isArray(tags) ? tags : []).map(canonical).filter(tag => tag && !tagValues.includes(tag));
+    const next = choices.map(canonical).filter(isValidTag);
+    return [...custom, ...next].filter(tag => !seen.has(tag.toLowerCase()) && seen.add(tag.toLowerCase()));
   }
   const api = Object.freeze({ values, tagValues, legacy, colors, normalize, isValid, isValidTag, isTerminal, withStatus });
   if (typeof module === 'object' && module.exports) module.exports = api;

@@ -323,6 +323,8 @@ function findExistingMemoryContact({ fullName = '', phone = '', whatsapp = '', e
 
 function ensureCustomerForLead(user, lead) {
   if (!lead || statusTags.isTerminal(lead.status, lead.tags)) return null;
+  if (!lead.assigned_agent_id) return null;
+  if (!(lead.tags || []).some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag || '').trim().toLowerCase()))) return null;
   const existing = customers.find(item => item.lead_id === lead.id);
   if (existing) return existing;
   const now = new Date().toISOString();
@@ -346,8 +348,8 @@ function ensureCustomerForLead(user, lead) {
     customer_status: statusTags.normalize(lead.status),
     lead_source: lead.lead_source,
     tags: [...(lead.tags || [])],
-    assigned_agent_id: lead.assigned_agent_id || user.id,
-    assigned_agent: lead.assigned_agent || user.full_name,
+    assigned_agent_id: lead.assigned_agent_id,
+    assigned_agent: lead.assigned_agent || 'Unassigned',
     assigned_team_id: lead.assigned_team_id || user.team_id || null,
     created_by: user.id,
     last_contacted_at: lead.last_contacted_at || 'Not contacted',
@@ -1612,7 +1614,7 @@ async function handle(req, res) {
           if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { failed.push({ row: rowNumber, error: 'Lead source or status is not valid.' }); continue; }
           const rawTags = value(row, 'tags', 'tag'); const tags = [...new Set(String(rawTags || '').split(/[|;]/).map(tag => safeText(tag, 40)).filter(Boolean))].slice(0, 20);
           const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(value(row, 'whatsapp_number', 'whatsapp') || phone, 32), email, city: safeText(value(row, 'city'), 80), area: safeText(value(row, 'area'), 80), interested_in: interestedIn, property_type: safeText(value(row, 'property_type', 'propertyType'), 80), budget: safeText(value(row, 'budget'), 80), preferred_location: safeText(value(row, 'preferred_location', 'preferredLocation'), 120), purpose: safeText(value(row, 'purpose'), 80), buying_timeline: safeText(value(row, 'buying_timeline', 'buyingTimeline'), 80), financing_required: ['true', 'yes', '1'].includes(String(value(row, 'financing_required', 'financingRequired')).toLowerCase()), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(value(row, 'priority')) ? value(row, 'priority') : 'Medium', tags, assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || (['sales_agent', 'sales_manager'].includes(user.role) ? user.team_id : null), created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: 'Not scheduled', created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10), is_imported: true, imported_from: 'CSV' };
-          leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead imported', `Lead imported by ${user.full_name}`); if (!statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); created.push({ row: rowNumber, id: lead.id, name: lead.full_name });
+          leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead imported', `Lead imported by ${user.full_name}`); if (lead.tags?.some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag).toLowerCase())) && !statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); created.push({ row: rowNumber, id: lead.id, name: lead.full_name });
         }
         if (created.length) persistState();
         json(res, 200, { data: { created, skipped, failed, total: rows.length, imported: created.length, skippedCount: skipped.length, failedCount: failed.length } });
@@ -1749,7 +1751,7 @@ async function handle(req, res) {
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
         if (!leadSources.some(item => item.name === source && item.is_active !== false) || !leadStatuses.some(item => item.name === status && item.is_active !== false)) { json(res, 422, { error: 'Lead source or status is not valid.' }); return; }
         const lead = { id: `lead_${String(leads.length + 1).padStart(3, '0')}`, full_name: fullName, initials: fullName.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(), phone, whatsapp_number: safeText(body.whatsapp_number || phone, 32), email, city: safeText(body.city, 80), area: safeText(body.area, 80), interested_in: safeText(body.interested_in, 160), property_type: safeText(body.property_type, 80), budget: safeText(body.budget, 80), preferred_location: safeText(body.preferred_location, 120), purpose: safeText(body.purpose, 80), buying_timeline: safeText(body.buying_timeline, 80), financing_required: Boolean(body.financing_required), lead_source: source, status, priority: ['Low', 'Medium', 'High', 'VIP'].includes(body.priority) ? body.priority : 'Medium', tags: Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 20) : [], assigned_agent_id: assigned?.id || null, assigned_agent: assigned?.full_name || 'Unassigned', assigned_team_id: assigned?.team_id || user.team_id || null, created_by: user.id, last_contacted_at: 'Not contacted', next_follow_up_at: safeText(body.next_follow_up_at || 'Not scheduled', 80), created_at: new Date().toISOString().slice(0, 10), updated_at: new Date().toISOString().slice(0, 10) };
-        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); if (!statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
+        leads.unshift(lead); leadActivities.set(lead.id, []); addLeadActivity(lead.id, user.id, 'Lead created', `Lead created by ${user.full_name}`); if (lead.tags?.some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag).toLowerCase())) && !statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 201, { data: leadView(lead) });
       } catch (error) { json(res, 400, { error: error.message }); }
     }
     return;
@@ -1782,7 +1784,7 @@ async function handle(req, res) {
       const body = await readBody(req); const note = safeText(body.note, 2000); if (!note) { json(res, 400, { error: 'Note is required' }); return; } let saved;try { saved=memoryFollowUpWorkflow().saveNote(user,{leadId:lead.id,note,input:body}); } catch(error) { json(res,422,{error:error.message});return; } persistState(); json(res, 201, { data: saved.entry }); return;
     }
     if (req.method === 'POST' && action === 'tags') {
-      const body = await readBody(req); if(applyMemoryLifecycle(user,lead,{...body,tags:body.tags || [body.tag]})) {json(res,201,{data:leadView(lead)});return;} if (Array.isArray(body.tags)) lead.tags = [...new Set(body.tags.map(tag => safeText(tag, 40)).filter(Boolean))].slice(0,20); else if (body.tag && !lead.tags.includes(body.tag)) lead.tags.push(body.tag); const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.tags = [...lead.tags]; addLeadActivity(lead.id, user.id, 'Tag added', body.tag || 'Tag updated'); persistState(); json(res, 201, { data: leadView(lead) }); return;
+      const body = await readBody(req); const incoming = Array.isArray(body.tags) ? body.tags : body.tag ? [...(lead.tags || []), body.tag] : (lead.tags || []); const uniqueTags = []; const seen = new Set(); for (const value of incoming) { const tag = safeText(value, 40); const key = tag.toLowerCase(); if (tag && !seen.has(key)) { seen.add(key); uniqueTags.push(tag); } } if (applyMemoryLifecycle(user,lead,{...body,tags:uniqueTags})) { json(res,201,{data:leadView(lead)}); return; } lead.tags = uniqueTags.slice(0,20); const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.tags = [...lead.tags]; if (!statusTags.isTerminal(lead.status, lead.tags) && lead.tags.some(tag => statusTags.tagValues.some(valid => valid.toLowerCase() === String(tag).trim().toLowerCase()))) { if (!lead.assigned_agent_id) { json(res, 422, { error: 'Assign a sales agent before creating a customer profile.' }); return; } ensureCustomerForLead(user, lead); } addLeadActivity(lead.id, user.id, 'Tags updated', lead.tags.join(', ') || 'None'); persistState(); json(res, 201, { data: leadView(lead) }); return;
     }
     json(res, 405, { error: 'Method not allowed' }); return;
   }

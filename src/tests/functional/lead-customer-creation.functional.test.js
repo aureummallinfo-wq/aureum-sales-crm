@@ -8,18 +8,18 @@ const { startApiServer } = require('../helpers/api-test-server');
 
 const schedule = { schedule_followup: true, note: 'Discuss the payment plan next week.', next_due_date: '2099-10-24', next_due_time: '14:35', followup_tag: 'Follow-up' };
 
-test('new leads auto-create customer profiles except Not Interested and Closed Lost', async t => {
+test('only assigned leads with a valid tag create customer profiles', async t => {
   const api = await startApiServer(t);
   const cookie = await api.login('adan@aureum.com');
   const request = (url, method = 'GET', body, auth = cookie) => api.request(url, { method, headers: { cookie: auth, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const normal = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial', city: 'Lahore', tags: ['Investor'] });
+  const normal = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial', city: 'Lahore', tags: ['Contacted'] });
   assert.equal(normal.response.status, 201);
   const lead = normal.body.data;
   assert.ok(lead.customer_id);
   const profile = (await request(`/api/customers/${lead.customer_id}`)).body;
   assert.equal(profile.data.lead_id, lead.id);
   assert.equal(profile.data.city, 'Lahore');
-  assert.deepEqual(profile.data.tags, ['Investor']);
+  assert.deepEqual(profile.data.tags, ['Contacted']);
   const duplicate = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial' });
   assert.equal(duplicate.response.status, 409);
   assert.equal(duplicate.body.code, 'DUPLICATE_CONTACT');
@@ -30,7 +30,7 @@ test('new leads auto-create customer profiles except Not Interested and Closed L
   assert.equal(retry.body.created, false);
   assert.equal(retry.body.data.id, lead.customer_id);
 
-  for (const [index, status] of ['Not Interested', 'Closed Lost'].entries()) {
+  for (const [index, status] of ['Not Interested', 'Closed Lost', 'Invalid'].entries()) {
     const closed = await request('/api/leads', 'POST', { full_name: `Closed intake ${index}`, phone: `+9230012345${80 + index}`, interested_in: 'Commercial', status, tags: ['Follow-up', status] });
     assert.equal(closed.response.status, 201);
     assert.equal(closed.body.data.customer_id, null);
@@ -53,7 +53,7 @@ test('Neon lead intake auto-links normal leads and skips terminal statuses/tags'
   await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Advisor','test','sales_agent',$2)", [workspace.id, team.id]);
   const actor = { id: 'agent', role: 'sales_agent', team_id: 'team', full_name: 'Advisor', workspace_id: workspace.id };
   const create = input => repository.createLead({ workspaceId: workspace.id, actor, lead: { full_name: input.full_name, phone: input.phone, interested_in: 'Commercial', status: input.status || 'New', tags: input.tags || [], lead_source: 'Manual Entry', assigned_agent_id: 'agent', assigned_team_id: 'team' } });
-  const normal = await create({ full_name: 'Auto customer', phone: '+923001234590' });
+  const normal = await create({ full_name: 'Auto customer', phone: '+923001234590', tags: ['Contacted'] });
   assert.ok(normal.customer_id);
   const tagClosed = await create({ full_name: 'Terminal tag', phone: '+923001234591', tags: ['Not Interested'] });
   assert.equal(tagClosed.customer_id, null);
@@ -81,6 +81,7 @@ test('all CRM portals create one linked customer from an owned lead', async t =>
       full_name: `Portal conversion ${index}`,
       phone: `+9230012345${70 + index}`,
       interested_in: 'Commercial',
+      tags: ['Contacted'],
       ...(roleCase.assigned_agent_id ? { assigned_agent_id: roleCase.assigned_agent_id } : {})
     });
     assert.equal(leadResult.response.status, 201);
@@ -122,7 +123,7 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   const [team] = await sql.query("INSERT INTO crm.teams (workspace_id,legacy_id,name) VALUES ($1,'team','Team') RETURNING id", [workspace.id]);
   const [user] = await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Advisor','test','sales_agent',$2) RETURNING id", [workspace.id, team.id]);
   const actor = { id: 'agent', role: 'sales_agent', team_id: 'team', full_name: 'Advisor', workspace_id: workspace.id };
-  const newLead = async id => (await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,phone,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,'New customer','+923001234567',$3,$4,'{\"tags\":[\"Investor\"]}') RETURNING id", [workspace.id, id, user.id, team.id]))[0];
+  const newLead = async id => (await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,phone,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,'New customer','+923001234567',$3,$4,'{\"tags\":[\"Contacted\"]}') RETURNING id", [workspace.id, id, user.id, team.id]))[0];
   await newLead('lead');
   assert.equal((await repository.getLead(workspace.id, 'lead')).customer_id, null);
   const result = await repository.createCustomerFromLead(workspace.id, 'lead', actor, { ...schedule, city: 'Lahore', full_name: 'Reviewed name' });
