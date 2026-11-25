@@ -14,6 +14,7 @@
   --gold: #c6a15b;
   --gold-soft: #ead8ac;
   --gold-pale: #f8efd9;
+  --selection-pale: #f8e5e8;
   --green: #2f6b4f;
   --green-pale: #e7f1e9;
   --red: #a84c45;
@@ -2088,4 +2089,73 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-avatar.gr
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+}
+
+/* CRM selection language: use a consistent soft cream/blush-pink surface
+   instead of the legacy grey/navy hover state. */
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] {
+  background: var(--selection-pale) !important;
+  box-shadow: inset 4px 0 0 var(--gold);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td {
+  color: var(--ink) !important;
+  background: var(--selection-pale) !important;
+  border-top-color: rgba(131, 68, 79, .18);
+  border-bottom-color: rgba(131, 68, 79, .18);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td:first-child {
+  background: var(--selection-pale) !important;
+  box-shadow: 5px 0 8px rgba(131, 68, 79, .10);
+}
+
+html[data-theme="light"] .app-shell .customer-summary-card,
+html[data-theme="light"] .app-shell .customer-registry-card {
+  border-color: rgba(198, 161, 91, .42);
+  background: var(--paper);
+}
+
+html[data-theme="light"] .app-shell .customer-registry-head,
+html[data-theme="light"] .app-shell .customer-filter-bar,
+html[data-theme="light"] .app-shell .customer-status-tab:hover,
+html[data-theme="light"] .app-shell .customer-status-tab.active {
+  background: #fffaf4;
+}
+
+html[data-theme="light"] .app-shell .customer-status-tab:hover,
+html[data-theme="light"] .app-shell .customer-status-tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--gold);
+}
+
+/* Remove the legacy top-bar search and notification controls; the account
+   menu remains the single top-bar control. */
+.app-shell .topbar .top-search,
+.app-shell .topbar .notification-wrap {
+  display: none !important;
+}
+
+.app-shell .user-menu .user-menu-signout {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 9px 0 0;
+  color: var(--red);
+  border-top: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
