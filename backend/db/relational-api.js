@@ -426,6 +426,10 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       const body = await readBody(req); const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
       if (!fullName || !phone || !safeText(body.interested_in, 160)) return json(res, 400, { error: 'Full name, phone, and interested in are required' });
       if (!validatePhone(phone) || (email && !validateEmail(email))) return json(res, 422, { error: 'Enter a valid phone number and email address.' });
+      const existingContact = await repository.findExistingContact(workspaceId, { fullName, phone, whatsapp: safeText(body.whatsapp_number, 32), email, externalLeadId: safeText(body.external_lead_id || body.meta_lead_id, 160), formId: safeText(body.form_id, 160) });
+      if (existingContact) {
+        return json(res, 409, { code: 'DUPLICATE_CONTACT', error: existingContact.customer ? `This contact already exists as a Customer assigned to ${existingContact.customer.assigned_agent || 'Unassigned'}.` : `This contact already exists as a Lead assigned to ${existingContact.lead?.assigned_agent || 'Unassigned'}.`, existingCustomer: existingContact.customer ? customerView(existingContact.customer) : null, existingLead: existingContact.lead ? leadView(existingContact.lead) : null });
+      }
       const requestedAssignedAgentId = safeText(body.assigned_agent_id, 120);
       const assignedAgentId = user.role === 'sales_agent' ? user.id : requestedAssignedAgentId;
       const assignedAgent = assignedAgentId ? await repository.findUser(workspaceId, assignedAgentId) : null;

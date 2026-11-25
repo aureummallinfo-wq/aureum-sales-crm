@@ -436,7 +436,15 @@
       showToast(isTerminalLead({ status: raw.status, tags: raw.tags }) ? 'Lead saved; no customer profile created for this closed status' : response.data?.customer_id ? 'Lead and customer profile created' : 'Lead saved to the Aureum registry');
       if (mode === 'another') { form.reset(); form.querySelector('[name="lead_source"]').value = 'Manual Entry'; form.querySelector('[name="priority"]').value = 'Medium'; }
       else navigate(state.role === 'SALES_AGENT' ? 'my-leads' : 'leads');
-    } catch (error) { showToast(error.message); }
+    } catch (error) {
+      if (error.code === 'DUPLICATE_CONTACT') {
+        const existingCustomer = error.details?.existingCustomer;
+        showToast(error.message);
+        if (existingCustomer?.id && typeof window.openCustomer === 'function') { navigate('customers'); window.openCustomer(existingCustomer.id); }
+        return;
+      }
+      showToast(error.message);
+    }
   }
 
   async function submitCreateCustomer(form) {

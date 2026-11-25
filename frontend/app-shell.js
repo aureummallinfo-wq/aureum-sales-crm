@@ -123,6 +123,7 @@ async function apiFetch(path, options = {}) {
       const error = new Error(body.error || (response.status >= 500 ? 'The service is temporarily unavailable. Please try again.' : 'Request failed'));
       error.status = response.status;
       error.code = body.code || '';
+      error.details = body;
       error.retryAfter = Number(response.headers?.get('retry-after') || body.retryAfter || 0);
       error.requestId = response.headers?.get('x-request-id') || body.requestId || '';
       throw error;

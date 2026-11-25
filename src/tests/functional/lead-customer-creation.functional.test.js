@@ -20,6 +20,11 @@ test('new leads auto-create customer profiles except Not Interested and Closed L
   assert.equal(profile.data.lead_id, lead.id);
   assert.equal(profile.data.city, 'Lahore');
   assert.deepEqual(profile.data.tags, ['Investor']);
+  const duplicate = await request('/api/leads', 'POST', { full_name: 'New relationship', phone: '+923001234567', email: 'new@example.test', interested_in: 'Commercial' });
+  assert.equal(duplicate.response.status, 409);
+  assert.equal(duplicate.body.code, 'DUPLICATE_CONTACT');
+  assert.equal(duplicate.body.existingCustomer.id, lead.customer_id);
+  assert.ok(duplicate.body.error.includes('assigned to'));
   const retry = await request(`/api/leads/${lead.id}/customer`, 'POST', { schedule_followup: false });
   assert.equal(retry.response.status, 200);
   assert.equal(retry.body.created, false);
