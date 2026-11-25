@@ -164,6 +164,11 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   assert.equal((await sql.query("SELECT count(*)::integer AS count FROM crm.customers WHERE lead_id=(SELECT id FROM crm.leads WHERE legacy_id='tagged')"))[0].count, 1);
   await repository.updateLead(workspace.id, 'tagged', actor, { tags: ['Contacted', 'Qualified'] });
   assert.equal((await sql.query("SELECT count(*)::integer AS count FROM crm.customers WHERE lead_id=(SELECT id FROM crm.leads WHERE legacy_id='tagged')"))[0].count, 1);
+  await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,phone,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,'reconcile-me','Reconcile me','+923001234599',$2,$3,'{\"tags\":[\"Contacted\"]}'::jsonb)", [workspace.id, user.id, team.id]);
+  const reconciliation = await repository.reconcileTaggedLeadCustomers(workspace.id, actor);
+  assert.equal(reconciliation.created.some(item => item.leadId === 'reconcile-me'), true);
+  const secondReconciliation = await repository.reconcileTaggedLeadCustomers(workspace.id, actor);
+  assert.equal(secondReconciliation.created.some(item => item.leadId === 'reconcile-me'), false);
   await newLead('invalid');
   await assert.rejects(repository.createCustomerFromLead(workspace.id, 'invalid', actor, { ...schedule, next_due_date: '2099-02-30' }), /valid follow-up date/);
   assert.equal((await repository.getLead(workspace.id, 'invalid')).customer_id, null);

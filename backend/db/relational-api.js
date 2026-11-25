@@ -440,6 +440,12 @@ function createRelationalApi({ repository, workspaceId, json, readBody, readBody
       return json(res, 201, { data: leadView(lead) });
     }
 
+    if (req.method === 'POST' && pathname === '/api/leads/reconcile-customers') {
+      if (!role(user, ['super_admin'], res)) return true;
+      const result = await repository.reconcileTaggedLeadCustomers(workspaceId, user);
+      return json(res, 200, { data: result, message: `${result.createdCount} missing Customer profile${result.createdCount === 1 ? '' : 's'} reconciled.` });
+    }
+
     const leadAction = pathname.match(/^\/api\/leads\/([^/]+)\/(assign|status|notes|tags|activity)$/);
     if (leadAction) {
       if (!user) return unauthenticated(res); const current = await repository.getLead(workspaceId, leadAction[1]); if (!current) return json(res, 404, { error: 'Lead not found' }); if (!canViewLead(user, current)) return deny(res, 'Access denied — lead is outside your ownership scope');
