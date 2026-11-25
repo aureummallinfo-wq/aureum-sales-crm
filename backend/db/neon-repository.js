@@ -974,6 +974,7 @@ function createNeonRepository(sql) {
       // Persist form edits and the lifecycle command together.
       const result=await transitionOpportunity(workspace,identifier,actor,closureRequested(patch,before) ? 'Closed Lost' : patch.status,patch.closure_reason,patch);
       if (!before.lifecycle_version && !['Closed Lost','Not Interested'].includes(result.status) && (patch.tags !== undefined || patch.next_follow_up_at !== undefined)) await syncLeadFollowUpTag(workspace,actor,result);
+      if (patch.tags !== undefined) await ensureTaggedLeadCustomer(workspace, identifier, actor, patch, result);
       return result;
     }
     const id = await resolveLeadId(workspace, identifier); if (!id) return null; const current = await getLead(workspace, identifier); const fields = []; const params = []; const assign = (column, value) => { params.push(value); fields.push(`${column} = $${params.length}`); };
@@ -986,7 +987,7 @@ function createNeonRepository(sql) {
     if (fields.length) { params.push(id); await sql.query(`UPDATE crm.leads SET ${fields.join(', ')}, updated_at = now() WHERE id = $${params.length}`, params); }
     await pipeline.recordActivity(workspace, actor, { leadId: id, type: patch.tags !== undefined ? 'Tags updated' : 'Lead updated', description: patch.tags !== undefined ? `Tags: ${normalizeTags(patch.tags).join(', ') || 'None'}` : 'Lead details updated.' }); await insertAudit(workspace, actor, 'lead_updated', 'lead', id, patch); await enqueueOutbox(workspace,'lead_updated','lead',id,patch); if (patch.status !== undefined) await sql.query('UPDATE crm.customers SET customer_status=$1,updated_at=now() WHERE workspace_id=$2 AND lead_id=$3 AND deleted_at IS NULL',[patch.status,workspace,id]);
     if (patch.tags !== undefined) await sql.query("UPDATE crm.customers SET metadata=jsonb_set(metadata,'{tags}',$3::jsonb,true),updated_at=now() WHERE workspace_id=$1 AND lead_id=$2 AND deleted_at IS NULL",[workspace,id,JSON.stringify(normalizeTags(patch.tags))]);
-    const updated = await getLead(workspace, identifier); if (patch.tags !== undefined || patch.next_follow_up_at !== undefined) await syncLeadFollowUpTag(workspace, actor, updated); return updated;
+    const updated = await getLead(workspace, identifier); if (patch.tags !== undefined) await ensureTaggedLeadCustomer(workspace, identifier, actor, patch, updated); if (patch.tags !== undefined || patch.next_follow_up_at !== undefined) await syncLeadFollowUpTag(workspace, actor, await getLead(workspace, identifier)); return getLead(workspace, identifier);
   }
 
   async function deleteLead(workspace, identifier, actor) {
@@ -1116,6 +1117,12 @@ function createNeonRepository(sql) {
     await insertAudit(workspace, actor, 'lead_converted', 'lead', leadId, { customer_legacy_id: legacyId });
     await enqueueOutbox(workspace, 'customer_created', 'customer', customerId, { legacy_id: legacyId, lead_id: identifier });
     return getCustomer(workspace, legacyId);
+  }
+
+  async function ensureTaggedLeadCustomer(workspace, identifier, actor, patch, lead) {
+    if (patch?.tags === undefined || !Array.isArray(patch.tags) || !patch.tags.length) return;
+    if (statusTags.isTerminal(lead?.status, lead?.tags)) return;
+    await convertLeadToCustomer(workspace, identifier, actor);
   }
 
   const customerSelect = `SELECT c.*, l.legacy_id AS lead_id_legacy, au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent, t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy FROM crm.customers c LEFT JOIN crm.leads l ON l.id = c.lead_id LEFT JOIN crm.users au ON au.id = c.assigned_agent_id LEFT JOIN crm.teams t ON t.id = c.assigned_team_id LEFT JOIN crm.users cu ON cu.id = c.created_by`;

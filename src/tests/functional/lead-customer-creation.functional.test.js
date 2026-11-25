@@ -152,6 +152,13 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   assert.equal(plain.follow_up_id, null);
   assert.equal((await repository.listCustomerNotes(workspace.id, plain.customer.id)).length, 0);
   assert.equal((await repository.listCustomerFollowUps(workspace.id, plain.customer.id, actor)).length, 0);
+  await newLead('tagged');
+  assert.equal((await repository.getLead(workspace.id, 'tagged')).customer_id, null);
+  const taggedLead = await repository.updateLead(workspace.id, 'tagged', actor, { tags: ['Contacted'] });
+  assert.ok(taggedLead.customer_id);
+  assert.equal((await sql.query("SELECT count(*)::integer AS count FROM crm.customers WHERE lead_id=(SELECT id FROM crm.leads WHERE legacy_id='tagged')"))[0].count, 1);
+  await repository.updateLead(workspace.id, 'tagged', actor, { tags: ['Contacted', 'Qualified'] });
+  assert.equal((await sql.query("SELECT count(*)::integer AS count FROM crm.customers WHERE lead_id=(SELECT id FROM crm.leads WHERE legacy_id='tagged')"))[0].count, 1);
   await newLead('invalid');
   await assert.rejects(repository.createCustomerFromLead(workspace.id, 'invalid', actor, { ...schedule, next_due_date: '2099-02-30' }), /valid follow-up date/);
   assert.equal((await repository.getLead(workspace.id, 'invalid')).customer_id, null);
