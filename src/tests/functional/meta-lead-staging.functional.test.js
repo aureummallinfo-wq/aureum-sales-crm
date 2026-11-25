@@ -34,7 +34,7 @@ test('Meta leads can be reviewed in staging and promoted idempotently into the C
   assert.equal(first.feedback_status, 'Not queued');
   assert.equal(first.external_lead_id, 'meta-987654321');
   assert.equal(first.source_channel, 'meta_lead_ads');
-  assert.equal(first.ingested_via, 'n8n webhook');
+  assert.equal(first.ingested_via, 'zapier');
 
   const pending = await repo.listMetaLeadStaging(workspace.id, { status: 'Pending review' });
   assert.equal(pending.length, 1);
