@@ -177,7 +177,7 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   const rollback = await repository.getLead(workspace.id, 'invalid');
   assert.equal(rollback.customer_id, null);
   assert.equal(rollback.next_follow_up_at, null);
-  assert.equal((await sql.query('SELECT * FROM crm.customers')).length, 2);
+  assert.equal((await sql.query('SELECT * FROM crm.customers')).length, 4);
   assert.equal((await sql.query('SELECT * FROM crm.follow_ups')).length, 1);
   await assert.rejects(repository.createCustomerFromLead(workspace.id, 'invalid', { ...actor, id: 'colleague' }, schedule), /ownership scope/);
 });

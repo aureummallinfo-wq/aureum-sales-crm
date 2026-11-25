@@ -299,6 +299,27 @@ function addLeadActivity(leadId, userId, activityType, description, metadata = {
 
 function findLead(id) { return leads.find(lead => lead.id === id); }
 
+function findExistingMemoryContact({ fullName = '', phone = '', whatsapp = '', email = '', externalLeadId = '', formId = '' } = {}) {
+  const digits = value => String(value || '').replace(/\D/g, '');
+  const normalizedName = String(fullName || '').trim().toLowerCase();
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedExternalId = String(externalLeadId || '').trim();
+  const normalizedFormId = String(formId || '').trim();
+  const matches = item => {
+    const phoneValues = [phone, whatsapp].map(digits).filter(Boolean);
+    const itemPhones = [item.phone, item.whatsapp_number].map(digits).filter(Boolean);
+    return (normalizedName && String(item.full_name || '').trim().toLowerCase() === normalizedName)
+      || (normalizedEmail && String(item.email || '').trim().toLowerCase() === normalizedEmail)
+      || phoneValues.some(value => itemPhones.includes(value))
+      || (normalizedExternalId && String(item.external_lead_id || '').trim() === normalizedExternalId)
+      || (normalizedFormId && String(item.source_form_id || item.form_id || '').trim() === normalizedFormId);
+  };
+  const customer = customers.find(item => matches(item));
+  if (customer) return { type: 'customer', customer, lead: findLead(customer.lead_id) || null };
+  const lead = leads.find(item => matches(item));
+  return lead ? { type: 'lead', customer: customers.find(item => item.lead_id === lead.id) || null, lead } : null;
+}
+
 function ensureCustomerForLead(user, lead) {
   if (!lead || statusTags.isTerminal(lead.status, lead.tags)) return null;
   const existing = customers.find(item => item.lead_id === lead.id);
@@ -1708,7 +1729,7 @@ async function handle(req, res) {
     editable.forEach(field => { if (body[field] !== undefined) lead[field] = typeof body[field] === 'string' ? safeText(body[field], 240) : body[field]; });
     if (body.financing_required !== undefined) lead.financing_required = Boolean(body.financing_required);
     if (body.status !== undefined) { const linked = customers.find(item => item.lead_id === lead.id); if (linked) linked.customer_status = body.status; }
-    if (body.tags) lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 20) : lead.tags; const linkedForTags = customers.find(item => item.lead_id === lead.id); if (linkedForTags && body.tags) linkedForTags.tags = [...lead.tags];
+    if (body.tags !== undefined) { lead.tags = Array.isArray(body.tags) ? body.tags.map(tag => safeText(tag, 40)).filter(Boolean).slice(0, 20) : lead.tags; const linkedForTags = customers.find(item => item.lead_id === lead.id); if (linkedForTags) linkedForTags.tags = [...lead.tags]; if (!statusTags.isTerminal(lead.status, lead.tags)) ensureCustomerForLead(user, lead); }
     lead.updated_at = new Date().toISOString().slice(0, 10); addLeadActivity(lead.id, user.id, body.tags !== undefined ? 'Tags updated' : 'Lead updated', body.tags !== undefined ? `Tags: ${lead.tags.join(', ') || 'None'}` : 'Lead details updated'); syncTaggedLeadFollowUp(user, lead); persistState(); json(res, 200, { data: leadView(lead) }); return;
   }
 
@@ -1720,6 +1741,8 @@ async function handle(req, res) {
         const fullName = safeText(body.full_name, 120); const phone = safeText(body.phone, 32); const email = safeText(body.email, 160).toLowerCase();
         if (!fullName || !phone || !safeText(body.interested_in, 160)) { json(res, 400, { error: 'Full name, phone, and interested in are required' }); return; }
         if (!validatePhone(phone) || (email && !validateEmail(email))) { json(res, 422, { error: 'Enter a valid phone number and email address.' }); return; }
+         const existingContact = findExistingMemoryContact({ fullName, phone, whatsapp: safeText(body.whatsapp_number, 32), email, externalLeadId: safeText(body.external_lead_id || body.meta_lead_id, 160), formId: safeText(body.form_id, 160) });
+         if (existingContact) { json(res, 409, { code: 'DUPLICATE_CONTACT', error: existingContact.customer ? `This contact already exists as a Customer assigned to ${existingContact.customer.assigned_agent || 'Unassigned'}.` : `This contact already exists as a Lead assigned to ${existingContact.lead?.assigned_agent || 'Unassigned'}.`, existingCustomer: existingContact.customer ? customerView(existingContact.customer) : null, existingLead: existingContact.lead ? leadView(existingContact.lead) : null }); return; }
         const requestedAssignedAgentId = user.role === 'sales_agent' ? user.id : body.assigned_agent_id;
         const assigned = users.find(item => item.id === requestedAssignedAgentId && item.status === 'active' && ['sales_agent', 'sales_manager'].includes(item.role) && (user.role === 'super_admin' || item.team_id === user.team_id));
         const source = safeText(body.lead_source || 'Manual Entry', 80); const status = safeText(body.status || 'New', 80);
