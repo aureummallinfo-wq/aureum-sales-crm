@@ -7,7 +7,7 @@ test('Sales Manager and Sales Agent closure propagates across API screens withou
   for(const login of ['dua@aureum.com','adan@aureum.com']) await t.test(login,async()=>{
     const cookie=await api.login(login);
     const request=(url,method='GET',body)=>api.request(url,{method,headers:{cookie,'content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
-    const result=await request('/api/leads','POST',{full_name:'Isolated opportunity',phone:login.startsWith('dua') ? '+923001237654' : '+923001237655',interested_in:'Commercial',status:'New',...(login.startsWith('dua') ? {assigned_agent_id:'usr_002'} : {})});
+    const result=await request('/api/leads','POST',{full_name:'Isolated opportunity',phone:login.startsWith('dua') ? '+923001237654' : '+923001237655',interested_in:'Commercial',status:'New',tags:['Contacted'],...(login.startsWith('dua') ? {assigned_agent_id:'usr_002'} : {})});
     assert.equal(result.response.status,201,result.text);
     const lead=result.body.data;
     const converted=await request(`/api/leads/${lead.id}/customer`,'POST',{schedule_followup:true,followup_tag:'Follow-up',note:'Preserve original call note',next_due_date:'2099-01-01',next_due_time:'10:00'});

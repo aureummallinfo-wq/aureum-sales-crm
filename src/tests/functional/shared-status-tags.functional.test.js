@@ -16,7 +16,7 @@ test('multiple status tags synchronize the follow-up, lead and customer and reje
     assert.equal(result.response.status, 200);
     assert.deepEqual(result.body.data.filter(item => item.is_active).map(item => item.name), type === 'lead-tags' ? policy.tagValues : policy.values);
   }
-  const leadResult = await request('/api/leads', 'POST', { full_name: 'Status tag customer', phone: '+923001112233', interested_in: 'Commercial', status: 'New' });
+  const leadResult = await request('/api/leads', 'POST', { full_name: 'Status tag customer', phone: '+923001112233', interested_in: 'Commercial', status: 'New', tags: ['Contacted'] });
   assert.equal(leadResult.response.status, 201);
   const lead = leadResult.body.data;
   const converted = await request(`/api/leads/${lead.id}/customer`, 'POST', {});

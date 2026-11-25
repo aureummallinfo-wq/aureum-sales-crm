@@ -11,7 +11,7 @@ test('customer and follow-up scheduling routes keep the same reminder after repe
   const api = await startApiServer(t);
   const cookie = await api.login('adan@aureum.com');
   const request = (url, method = 'GET', body) => api.request(url, { method, headers: { cookie, 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const lead = (await request('/api/leads', 'POST', { full_name:'Single reminder', phone:'+923001234567', interested_in:'Commercial' })).body.data;
+  const lead = (await request('/api/leads', 'POST', { full_name:'Single reminder', phone:'+923001234567', interested_in:'Commercial', tags:['Contacted'] })).body.data;
   const customer = (await request(`/api/leads/${lead.id}/customer`, 'POST', {})).body.data;
   const endpoint = `/api/customers/${customer.id}/follow-ups`;
   const first = await request(endpoint,'POST',{due_date:'2099-10-24',due_time:'14:35',note:'First schedule'});

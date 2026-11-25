@@ -123,7 +123,7 @@ test('PostgreSQL creates the linked customer and pending reminder atomically', a
   const [team] = await sql.query("INSERT INTO crm.teams (workspace_id,legacy_id,name) VALUES ($1,'team','Team') RETURNING id", [workspace.id]);
   const [user] = await sql.query("INSERT INTO crm.users (workspace_id,legacy_id,email,full_name,password_hash,role_key,team_id) VALUES ($1,'agent','agent@example.test','Advisor','test','sales_agent',$2) RETURNING id", [workspace.id, team.id]);
   const actor = { id: 'agent', role: 'sales_agent', team_id: 'team', full_name: 'Advisor', workspace_id: workspace.id };
-  const newLead = async id => (await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,phone,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,'New customer','+923001234567',$3,$4,'{\"tags\":[\"Contacted\"]}') RETURNING id", [workspace.id, id, user.id, team.id]))[0];
+  const newLead = async id => (await sql.query("INSERT INTO crm.leads (workspace_id,legacy_id,full_name,phone,assigned_agent_id,assigned_team_id,metadata) VALUES ($1,$2,'New customer','+923001234567',$3,$4,'{\"tags\":[\"Investor\"]}') RETURNING id", [workspace.id, id, user.id, team.id]))[0];
   await newLead('lead');
   assert.equal((await repository.getLead(workspace.id, 'lead')).customer_id, null);
   const result = await repository.createCustomerFromLead(workspace.id, 'lead', actor, { ...schedule, city: 'Lahore', full_name: 'Reviewed name' });
