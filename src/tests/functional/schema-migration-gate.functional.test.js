@@ -78,7 +78,7 @@ test('schema gate applies only unrecorded migrations and never rewrites lead tim
     assert.equal((await gate('--require-current')).exit, 1);
     assert.deepEqual((await gate('--apply', '--through=015')).body.applied, ['015_meta_crm_feedback.sql']);
     assert.equal((await gate('--require-current')).exit, 1);
-    assert.deepEqual((await gate('--apply')).body.applied, ['016_closed_won_followup_lifecycle.sql', '017_staff_positions.sql', '018_webhook_lead_configuration.sql', '019_mobile_push_notifications.sql', '020_web_push_notifications.sql', '021_task_assigned_notifications.sql', '022_android_app_releases.sql', '023_lead_received_at.sql', '024_safe_user_deactivation.sql', '025_repair_inactive_user_assignments.sql', '026_force_repair_inactive_assignments.sql', '027_meta_lead_staging.sql', '028_meta_lead_attribution.sql', '029_remove_team_communication.sql', '030_repair_terminal_followups.sql', '031_retire_unused_lead_tags.sql']);
+    assert.deepEqual((await gate('--apply')).body.applied, ['016_closed_won_followup_lifecycle.sql', '017_staff_positions.sql', '018_webhook_lead_configuration.sql', '019_mobile_push_notifications.sql', '020_web_push_notifications.sql', '021_task_assigned_notifications.sql', '022_android_app_releases.sql', '023_lead_received_at.sql', '024_safe_user_deactivation.sql', '025_repair_inactive_user_assignments.sql', '026_force_repair_inactive_assignments.sql', '027_meta_lead_staging.sql', '028_meta_lead_attribution.sql', '029_meta_lead_final_fields.sql', '029_remove_team_communication.sql', '030_repair_terminal_followups.sql', '031_retire_unused_lead_tags.sql']);
     assert.equal((await gate('--require-current')).exit, 0);
     assert.deepEqual((await gate('--apply')).body.applied, []);
   });
