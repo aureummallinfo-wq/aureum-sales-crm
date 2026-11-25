@@ -1661,6 +1661,37 @@ html[data-theme="light"] .app-shell .report-section > p { color: var(--muted); }
 @media (max-width: 560px) {
   .report-custom-date-fields { grid-template-columns: 1fr; grid-column: auto; }
 }
+
+/* Customer rows use the same soft cream/blush-pink CRM selection language as
+   the other registry screens, including the frozen first column. */
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] {
+  background: var(--selection-pale) !important;
+  box-shadow: inset 4px 0 0 var(--gold);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td {
+  color: var(--ink) !important;
+  background: var(--selection-pale) !important;
+  border-top-color: rgba(131, 68, 79, .18);
+  border-bottom-color: rgba(131, 68, 79, .18);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td:first-child {
+  background: var(--selection-pale) !important;
+  box-shadow: 5px 0 8px rgba(131, 68, 79, .10);
+}
 html[data-theme="light"] .app-shell table th { color: var(--ink); background: var(--cream-deep); border-color: var(--line); }
 html[data-theme="light"] .app-shell table td { color: var(--ink); border-color: var(--line); }
 html[data-theme="light"] .app-shell .table-wrap table th:first-child,
@@ -2154,4 +2185,64 @@ html[data-theme="light"] .app-shell .chat-mobile-inbox-list .chat-list-item.acti
 @media (min-width: 621px) and (max-width: 850px) {
   .customer-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-header .header-actions { flex-wrap: wrap; }
+}
+
+/* Final Customers palette pass: the registry section should read as one
+   cream-and-blush surface rather than a mixture of cream, grey, and navy. */
+html[data-theme="light"] .app-shell .customer-summary-card,
+html[data-theme="light"] .app-shell .customer-registry-card {
+  border-color: rgba(198, 161, 91, .42);
+  background: var(--paper);
+}
+
+html[data-theme="light"] .app-shell .customer-registry-head,
+html[data-theme="light"] .app-shell .customer-filter-bar {
+  background: #fffaf4;
+}
+
+html[data-theme="light"] .app-shell .customer-status-tab:hover,
+html[data-theme="light"] .app-shell .customer-status-tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--gold);
+  background: var(--selection-pale);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row] > td {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td {
+  background: var(--selection-pale) !important;
+}
+
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:hover > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row]:focus > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row].is-selected > td:first-child,
+html[data-theme="light"] .app-shell .customer-data-table tbody tr[data-customer-module-row][aria-selected="true"] > td:first-child {
+  background: var(--selection-pale) !important;
+}
+
+/* The shared runtime still renders these legacy top-bar controls on some
+   screens. Keep the header focused on the account menu, as requested. */
+.app-shell .topbar .top-search,
+.app-shell .topbar .notification-wrap {
+  display: none !important;
+}
+
+.app-shell .user-menu .user-menu-signout {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: 9px 0 0;
+  color: var(--red);
+  border-top: 1px solid var(--line);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
