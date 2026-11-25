@@ -1,6 +1,6 @@
 (function () {
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const time = value => { const date=new Date(value); return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('en-PK',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'}).format(date)+' PKT' : ''; };
+  const time = value => { const date=new Date(value); return Number.isFinite(date.getTime()) ? `${window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(date) : new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short',hour12:true}).format(date)} PKT` : ''; };
   function stamp(note) { return note.version>1 ? `<small class="saved-note-edited">Edited by ${escape(note.edited_by_name || 'Aureum teammate')} · ${escape(time(note.updated_at))}</small>` : ''; }
   function card(note, entity, parent) {
     const url=`/api/${entity}/${encodeURIComponent(parent)}/notes/${encodeURIComponent(note.id)}`;

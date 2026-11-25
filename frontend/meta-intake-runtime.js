@@ -2,7 +2,7 @@
   'use strict';
 
   const esc = value => window.AureumUI?.escape ? window.AureumUI.escape(String(value ?? '')) : String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-  const safeDate = value => value ? new Date(value).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '-';
+  const safeDate = value => value ? (window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(value) : new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', hour12: true })) : '-';
   const display = value => value === null || value === undefined || String(value).trim() === '' ? '-' : esc(value);
   const rawValue = (item, ...keys) => {
     const raw = item?.raw_payload && typeof item.raw_payload === 'object' ? item.raw_payload : {};

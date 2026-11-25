@@ -12,7 +12,7 @@
   function activity(item, { dateTimeOnly = false } = {}) {
     const description = item.last_activity_description || item.last_activity || 'No activity yet';
     const instant = item.last_activity_at ? new Date(item.last_activity_at) : null;
-    const time = instant && Number.isFinite(instant.getTime()) ? instant.toLocaleString('en-GB',{timeZone:'Asia/Karachi',day:'2-digit',month:'short',...(dateTimeOnly ? { year:'numeric' } : {}),hour:'2-digit',minute:'2-digit'}) : '';
+    const time = instant && Number.isFinite(instant.getTime()) ? (window.AureumPreferences?.formatDateTime ? window.AureumPreferences.formatDateTime(instant) : instant.toLocaleString('en-US',{timeZone:'Asia/Karachi',dateStyle: dateTimeOnly ? 'medium' : 'medium',timeStyle:'short',hour12:true})) : '';
     if (dateTimeOnly) return time ? `<time datetime="${escape(instant.toISOString())}">${escape(time)}</time>` : '—';
     return `<div class="followup-latest-response">${escape(description)}</div><div class="person-meta">${escape([item.last_activity_by,time].filter(Boolean).join(' · '))}</div>`;
   }
