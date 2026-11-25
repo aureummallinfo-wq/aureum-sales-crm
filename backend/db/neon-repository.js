@@ -784,7 +784,7 @@ function createNeonRepository(sql) {
     const hasRelationalAssignment = Object.prototype.hasOwnProperty.call(row, 'assigned_agent_id_legacy');
     const assignedAgentId = hasRelationalAssignment ? (row.assigned_agent_id_legacy || null) : (metadata.assigned_agent_id || null);
     const assignedAgent = hasRelationalAssignment ? (row.assigned_agent || 'Unassigned') : (row.assigned_agent || metadata.assigned_agent || 'Unassigned');
-    return { ...metadata, lifecycle_version: row.lifecycle_version, workspace_id: row.workspace_id, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, customer_status: statusTags.normalize(row.customer_status), assigned_agent_id: assignedAgentId, assigned_agent: assignedAgent, assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, created_at: row.created_at, updated_at: row.updated_at };
+    return { ...metadata, lifecycle_version: row.lifecycle_version, workspace_id: row.workspace_id, id: row.legacy_id || row.id, lead_id: row.lead_id_legacy || metadata.lead_id || null, full_name: row.full_name, email: row.email, phone: row.phone, whatsapp_number: row.whatsapp_number, customer_status: statusTags.normalize(row.customer_status), assigned_agent_id: assignedAgentId, assigned_agent: assignedAgent, assigned_team_id: row.assigned_team_id_legacy || metadata.assigned_team_id || null, created_by: row.created_by_legacy || metadata.created_by || null, last_activity_at: metadata.last_activity_at || row.updated_at, last_activity_description: metadata.last_activity_description || '', last_activity_by: metadata.last_activity_by || '', last_contacted_at: row.last_contacted_at || metadata.last_contacted_at || null, next_follow_up_at: row.next_follow_up_at !== undefined ? row.next_follow_up_at : metadata.next_follow_up_at, lead_received_at: row.lead_received_at || null, lead_created_at: row.lead_created_at || null, created_at: row.created_at, updated_at: row.updated_at };
   }
 
   function followUpRecord(row) {
@@ -1181,7 +1181,7 @@ function createNeonRepository(sql) {
     return { ...result, createdCount: result.created.length, skippedCount: result.skipped.length, failedCount: result.failed.length };
   }
 
-  const customerSelect = `SELECT c.*, l.legacy_id AS lead_id_legacy, au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent, t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy FROM crm.customers c LEFT JOIN crm.leads l ON l.id = c.lead_id LEFT JOIN crm.users au ON au.id = c.assigned_agent_id LEFT JOIN crm.teams t ON t.id = c.assigned_team_id LEFT JOIN crm.users cu ON cu.id = c.created_by`;
+  const customerSelect = `SELECT c.*, l.legacy_id AS lead_id_legacy, l.received_at AS lead_received_at, l.created_at AS lead_created_at, au.legacy_id AS assigned_agent_id_legacy, au.full_name AS assigned_agent, t.legacy_id AS assigned_team_id_legacy, cu.legacy_id AS created_by_legacy FROM crm.customers c LEFT JOIN crm.leads l ON l.id = c.lead_id LEFT JOIN crm.users au ON au.id = c.assigned_agent_id LEFT JOIN crm.teams t ON t.id = c.assigned_team_id LEFT JOIN crm.users cu ON cu.id = c.created_by`;
 
   async function createCustomerFromLead(workspace, identifier, actor, input = {}) {
     const lead = await getLead(workspace, identifier);
@@ -1244,7 +1244,7 @@ function createNeonRepository(sql) {
       if (agentId === '__unassigned__') conditions.push('c.assigned_agent_id IS NULL');
       else { params.push(await resolveUserId(workspace, agentId)); conditions.push('c.assigned_agent_id = $' + params.length); }
     }
-    addDateBounds(conditions, params, "c.created_at AT TIME ZONE 'Asia/Karachi'", dateFrom, dateTo);
+    addDateBounds(conditions, params, "COALESCE(l.received_at AT TIME ZONE 'Asia/Karachi', l.created_at AT TIME ZONE 'Asia/Karachi', c.created_at AT TIME ZONE 'Asia/Karachi')::date", dateFrom, dateTo);
     if (search) { params.push(`%${String(search).toLowerCase()}%`); const p = '$' + params.length; conditions.push(`(lower(c.full_name) LIKE ${p} OR lower(coalesce(c.email,'')) LIKE ${p} OR lower(coalesce(c.phone,'')) LIKE ${p} OR lower(coalesce(c.whatsapp_number,'')) LIKE ${p} OR lower(coalesce(c.metadata->>'city','')) LIKE ${p} OR lower(coalesce(c.metadata->>'interested_in','')) LIKE ${p} OR lower(coalesce(au.full_name,'')) LIKE ${p} OR EXISTS (SELECT 1 FROM crm.customer_notes n WHERE n.customer_id=c.id AND n.deleted_at IS NULL AND lower(n.note) LIKE ${p}) OR EXISTS (SELECT 1 FROM crm.customer_activities a WHERE a.customer_id=c.id AND lower(a.description) LIKE ${p}))`); }
     const where = conditions.join(' AND ');
     if (pagination) {

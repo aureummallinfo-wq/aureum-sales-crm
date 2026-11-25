@@ -40,6 +40,38 @@ function makeApi(leads) {
   return { api, response };
 }
 
+function makeSummaryApi(leads, customers) {
+  const response = {};
+  const repository = {
+    listUsers: async () => users,
+    listLeads: async () => leads,
+    listCustomers: async () => customers,
+    listFollowUps: async () => []
+  };
+  const api = createRelationalApi({
+    repository,
+    workspaceId: 'workspace-1',
+    json: (res, status, payload) => { res.statusCode = status; res.payload = payload; return true; },
+    readBody: async () => ({}),
+    readBodyLimited: async () => ({}),
+    safeText: value => String(value || ''),
+    validateEmail: () => true,
+    validatePhone: () => true,
+    validateIsoDate: () => true,
+    passwordHash: async value => value,
+    passwordPolicySatisfied: () => true,
+    leadView: value => value,
+    customerView: value => value,
+    followUpView: value => value,
+    publicUser: value => value,
+    userManagementView: value => value,
+    notificationView: value => value,
+    rolePermissions: {},
+    crmTimezone: 'Asia/Karachi'
+  });
+  return { api, response };
+}
+
 async function leadInflow(params, leads) {
   const { api, response } = makeApi(leads);
   await api.handle({ method: 'GET' }, response, new URL(`https://crm.test/api/dashboard/lead-inflow?${new URLSearchParams(params)}`), manager);
@@ -81,4 +113,19 @@ test('Today uses hourly buckets when lead timestamps include time', async () => 
   assert.equal(points.length, 24);
   assert.equal(points.find(point => point.label.endsWith('T10:00')).leads, 1);
   assert.equal(points.filter(point => point.leads > 0).length, 1);
+});
+
+test('dashboard lead and customer totals use the same intake date and team scope', async () => {
+  const { api, response } = makeSummaryApi([
+    { id: 'lead-1', assigned_agent_id: 'agent-1', received_at: '2026-10-07T10:00:00+05:00', created_at: '2026-10-07T10:00:00+05:00', status: 'New', lead_source: 'Meta Lead Ads' }
+  ], [
+    // This customer was created later during reconciliation, but belongs to
+    // the October lead and must appear in the same October dashboard range.
+    { id: 'customer-1', assigned_agent_id: 'agent-1', lead_received_at: '2026-10-07T10:00:00+05:00', created_at: '2026-11-20T10:00:00+05:00', customer_status: 'New' }
+  ]);
+  await api.handle({ method: 'GET' }, response, new URL('https://crm.test/api/dashboard/summary?dateRange=custom&startDate=2026-10-01&endDate=2026-10-31'), manager);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload.data.totalLeads, 1);
+  assert.equal(response.payload.data.totalCustomers, 1);
+  assert.equal(response.payload.data.activeCustomers, 1);
 });

@@ -29,6 +29,7 @@ export interface DashboardSummary {
   hotLeads?: number;
   followUpsDue?: number;
   overdueFollowUps?: number;
+  totalCustomers?: number;
   activeCustomers?: number;
   closedDeals?: number;
   lostDeals?: number;

@@ -84,7 +84,7 @@ function dashboardSummaryKpis(summary, role) {
     ['hot-leads', role === 'SALES_MANAGER' ? 'Hot Team Leads' : 'Hot Leads', summary.hotLeads, 'High purchase intent', 'warning'],
     ['follow-ups-due', role === 'SALES_MANAGER' ? 'Team Follow-ups Due' : 'Follow-ups Due', summary.followUpsDue, 'Scheduled touchpoints', 'default'],
     ['overdue-follow-ups', role === 'SALES_MANAGER' ? 'Team Overdue Follow-ups' : 'Overdue Follow-ups', summary.overdueFollowUps, 'Action required', 'danger'],
-    ['active-customers', role === 'SALES_MANAGER' ? 'Team Customers' : 'Active Customers', summary.activeCustomers, 'Active relationships', 'success'],
+    ['active-customers', role === 'SALES_MANAGER' ? 'Team Customers' : 'Total Customers', summary.totalCustomers ?? summary.activeCustomers, 'All customer records', 'success'],
     ['closed-deals', role === 'SALES_MANAGER' ? 'Team Closed Deals' : 'Closed Deals', summary.closedDeals, summary.bookingVolume || 'Won opportunities', 'gold'],
     ['conversion-rate', role === 'SALES_MANAGER' ? 'Team Conversion Rate' : 'Conversion Rate', `${dashboardNumber(summary.conversionRate).toFixed(1)}%`, 'Pipeline efficiency', 'success']
   ];
@@ -108,6 +108,7 @@ function normalizeDashboardData(raw = {}) {
     followUpsDue: dashboardNumber(dashboardValue(rawSummary, ['followUpsDue', 'follow_ups_due', 'followUps', 'follow_ups'], dashboardValue(source, ['followUpsDue', 'follow_ups_due', 'followUps', 'follow_ups'], 0))),
     overdueFollowUps: dashboardNumber(dashboardValue(rawSummary, ['overdueFollowUps', 'overdue_follow_ups'], dashboardValue(source, ['overdueFollowUps', 'overdue_follow_ups'], 0))),
     activeCustomers: dashboardNumber(dashboardValue(rawSummary, ['activeCustomers', 'active_customers', 'customers'], dashboardValue(source, ['activeCustomers', 'active_customers', 'customers'], 0))),
+    totalCustomers: dashboardNumber(dashboardValue(rawSummary, ['totalCustomers', 'total_customers'], dashboardValue(source, ['totalCustomers', 'total_customers'], 0))),
     closedDeals: dashboardNumber(dashboardValue(rawSummary, ['closedDeals', 'closed_deals'], dashboardValue(source, ['closedDeals', 'closed_deals'], 0))),
     conversionRate: dashboardNumber(dashboardValue(rawSummary, ['conversionRate', 'conversion_rate'], dashboardValue(source, ['conversionRate', 'conversion_rate'], 0))),
     revenue: dashboardNumber(dashboardValue(rawSummary, ['revenue'], dashboardValue(source, ['revenue'], 0))),
