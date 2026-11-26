@@ -46,7 +46,18 @@ test('Meta leads can be reviewed in staging and promoted idempotently into the C
   assert.equal(byInterest.length, 1);
   const byDate = await repo.listMetaLeadStaging(workspace.id, { dateFrom: '2026-11-23', dateTo: '2026-11-23' });
   assert.equal(byDate.length, 1);
-  assert.deepEqual(await repo.getMetaLeadStagingSummary(workspace.id), { total: 1, pendingReview: 1, sentToCrm: 0, readyForMeta: 0 });
+  const stagingSummary = await repo.getMetaLeadStagingSummary(workspace.id);
+  assert.deepEqual(
+    {
+      total: stagingSummary.total,
+      pendingReview: stagingSummary.pendingReview,
+      sentToCrm: stagingSummary.sentToCrm,
+      readyForMeta: stagingSummary.readyForMeta,
+    },
+    { total: 1, pendingReview: 1, sentToCrm: 0, readyForMeta: 0 },
+  );
+  assert.ok(!Number.isNaN(Date.parse(stagingSummary.updatedAt)));
+  assert.equal(stagingSummary.version, `1:${stagingSummary.updatedAt}`);
   assert.deepEqual(pending[0].raw_payload, {});
 
   const retry = await repo.createMetaLeadStaging(workspace.id, { external_lead_id: 'meta-987654321', idempotency_key: 'meta-987654321', full_name: 'Staging Buyer Updated' });
