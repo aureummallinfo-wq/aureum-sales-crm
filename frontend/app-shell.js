@@ -848,8 +848,10 @@ async function loadFollowups(force = false) {
   try {
     const query = new Map([['page', String(paging.page)], ['pageSize', String(paging.pageSize)]]);
     if (moduleState.search) query.set('q', moduleState.search);
-    if (moduleState.status) query.set('status', moduleState.status);
-    if (moduleState.date && moduleState.date !== 'all') query.set('date', moduleState.date);
+    const effectiveDateFilter = moduleState.date === 'today_pending' ? 'today' : moduleState.date;
+    const effectiveStatus = moduleState.date === 'today_pending' ? 'Pending' : moduleState.status;
+    if (effectiveStatus) query.set('status', effectiveStatus);
+    if (effectiveDateFilter && effectiveDateFilter !== 'all') query.set('date', effectiveDateFilter);
     if (moduleState.customStart) query.set('customStart', moduleState.customStart);
     if (moduleState.customEnd) query.set('customEnd', moduleState.customEnd);
     if (moduleState.selectedDate) query.set('selectedDate', moduleState.selectedDate);
