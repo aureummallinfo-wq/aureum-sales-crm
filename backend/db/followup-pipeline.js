@@ -160,7 +160,10 @@ function createFollowUpPipeline(sql, resolveUserId, resolveTeamId) {
         (SELECT count(*)::integer FROM changed) AS affected_followups`,
     [workspace,leadId,customerId,actorId,teamId,actor.role,note,plan.contacted,schedule?.due_at || null,schedule?.due_date || null,schedule?.due_time || null,
       JSON.stringify(summary),followUpId,noteId,`followup_${crypto.randomUUID()}`,type,plan.tag || null,JSON.stringify(plan.tags || []),JSON.stringify(statusTags.values)]);
-    await refreshNextAction(workspace, leadId, customerId);
+    // An internal note does not change the next scheduled action. Avoid a
+    // second aggregate query for the common note-only path; contacted notes
+    // and scheduled notes still recalculate the lead/customer next action.
+    if (schedule || plan.contacted) await refreshNextAction(workspace, leadId, customerId);
     return { ...result[0], user_id: actor.id, user_name: actor.full_name, customer_contacted: plan.contacted };
   }
 

@@ -209,7 +209,12 @@
     if (form.dataset.saving) return;
     form.dataset.saving = 'true';
     const button = form.querySelector('button[type=submit]');
-    if (button) button.disabled = true;
+    const originalButtonLabel = button?.textContent || '';
+    if (button) {
+      button.disabled = true;
+      button.setAttribute?.('aria-busy', 'true');
+      button.textContent = 'Saving…';
+    }
     try {
       const formData = new FormData(form);
       const data = Object.fromEntries(formData.entries());
@@ -221,14 +226,20 @@
       stateForModule().form = '';
       if (state.customers) state.customers.loaded = false;
       if (state.leads) state.leads.loaded = false;
-      await refreshList();
-      if (state.screen === 'customers' && typeof loadCustomers === 'function') await loadCustomers(true);
       showToast(success);
+      // The note is already committed at this point. Do not make the user wait
+      // for a second full registry request before confirming the save.
+      void refreshList().catch(() => {});
+      if (state.screen === 'customers' && typeof loadCustomers === 'function') void loadCustomers(true).catch(() => {});
     } catch (error) {
       showToast(error.message);
     } finally {
       delete form.dataset.saving;
-      if (button) button.disabled = false;
+      if (button) {
+        button.disabled = false;
+        button.removeAttribute?.('aria-busy');
+        button.textContent = originalButtonLabel;
+      }
     }
   }
 
