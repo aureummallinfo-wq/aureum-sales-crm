@@ -15,6 +15,12 @@
     };
   }
 
+  function captureActive(targetOrSelector) {
+    const input = resolve(targetOrSelector);
+    if (!input || document.activeElement !== input) return null;
+    return capture(input);
+  }
+
   function restore(targetOrSelector, snapshot) {
     const input = resolve(targetOrSelector);
     if (!input || !snapshot) return;
@@ -25,5 +31,14 @@
     input.setSelectionRange(start, end, snapshot.selectionDirection || 'none');
   }
 
-  root.AureumSearch = Object.freeze({ capture, restore });
+  function preserve(targetOrSelector, callback) {
+    const snapshot = captureActive(targetOrSelector);
+    try {
+      return callback();
+    } finally {
+      if (snapshot) restore(targetOrSelector, snapshot);
+    }
+  }
+
+  root.AureumSearch = Object.freeze({ capture, captureActive, restore, preserve });
 }(typeof window === 'object' ? window : globalThis));

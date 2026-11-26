@@ -236,7 +236,7 @@ const state = {
   deniedPath: '',
   drawer: null,
   followupPrefill: null,
-  metaInbox: { loading: false, error: '', items: [], selected: null, selectedIds: [], summary: null, meta: { page: 1, pageSize: 25, total: 0, totalPages: 0 }, pagination: { page: 1, pageSize: 25 }, filters: { q: '', status: '', formId: '', dateFrom: '', dateTo: '' } },
+  metaInbox: { loading: false, refreshing: false, checking: false, retrying: false, retryToken: 0, requestToken: 0, lastLoadedAt: 0, lastCheckedAt: 0, version: '', error: '', items: [], selected: null, selectedIds: [], summary: null, meta: { page: 1, pageSize: 25, total: 0, totalPages: 0 }, pagination: { page: 1, pageSize: 25 }, filters: { q: '', status: '', formId: '', dateFrom: '', dateTo: '' } },
   selectedChannel: 'Sales Team',
   toast: ''
 };
@@ -714,6 +714,11 @@ function showToast(message) {
 
 function customerInitials(name) { return String(name || '').split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(); }
 
+function renderWithSearchFocus(selector) {
+  if (window.AureumSearch?.preserve) return window.AureumSearch.preserve(selector, () => render());
+  return render();
+}
+
 async function loadCustomers(force = false) {
   if (!state.authUser) return;
   const sessionKey = portalSessionKey();
@@ -721,7 +726,7 @@ async function loadCustomers(force = false) {
   const paging = state.customerModule.pagination = { page: 1, pageSize: 25, ...(state.customerModule.pagination || {}) };
   const requestToken = (state.customers.requestToken || 0) + 1;
   state.customers = { ...state.customers, requestToken, loading: true, error: '', items: state.customers.items || [] };
-  render();
+  if (typeof renderWithSearchFocus === 'function') renderWithSearchFocus('[data-customer-module-search], [data-customer-search]'); else render();
   try {
     const query = new Map([['page', String(paging.page)], ['pageSize', String(paging.pageSize)]]);
     const filters = state.customerModule.filters || {};
@@ -740,7 +745,7 @@ async function loadCustomers(force = false) {
     if (sessionKey !== portalSessionKey() || requestToken !== state.customers.requestToken) return;
     state.customers = { requestToken, loading: false, error: '', items: result.data || [], meta: result.meta || null };
   } catch (error) { if (sessionKey !== portalSessionKey() || requestToken !== state.customers.requestToken) return; state.customers = { ...state.customers, requestToken, loading: false, error: error.message, items: state.customers.items || [] }; }
-  render();
+  if (typeof renderWithSearchFocus === 'function') renderWithSearchFocus('[data-customer-module-search], [data-customer-search]'); else render();
 }
 
 async function openCustomer(customerId) {
@@ -844,7 +849,7 @@ async function loadFollowups(force = false) {
   const paging = moduleState.pagination = { page: 1, pageSize: 25, ...(moduleState.pagination || {}) };
   const requestToken = (state.followups.requestToken || 0) + 1;
   state.followups = { ...state.followups, requestToken, loading: true, error: '', items: state.followups.items || [] };
-  render();
+  if (typeof renderWithSearchFocus === 'function') renderWithSearchFocus('[data-followup-module-search], [data-followup-search]'); else render();
   try {
     const query = new Map([['page', String(paging.page)], ['pageSize', String(paging.pageSize)]]);
     if (moduleState.search) query.set('q', moduleState.search);
@@ -866,7 +871,7 @@ async function loadFollowups(force = false) {
     const terminal = item => window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) || item.cancelled_by_closure;
     state.followups = { requestToken, loading: false, error: '', items: (result.data || []).filter(item => !terminal(item)), meta: result.meta || null };
   } catch (error) { if (sessionKey !== portalSessionKey() || requestToken !== state.followups.requestToken) return; state.followups = { ...state.followups, requestToken, loading: false, error: error.message, items: state.followups.items || [] }; }
-  render();
+  if (typeof renderWithSearchFocus === 'function') renderWithSearchFocus('[data-followup-module-search], [data-followup-search]'); else render();
 }
 
 function followupTable(items) {

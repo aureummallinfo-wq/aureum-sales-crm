@@ -85,16 +85,18 @@
 
   function renderMetaIntake() {
     const data = state.metaInbox; const items = data.items || []; const summary = data.summary || {};
+    const busy = Boolean(data.loading || data.retrying);
     const pending = summary.pendingReview ?? items.filter(item => item.review_status === 'Pending review').length;
     const sent = summary.sentToCrm ?? items.filter(item => item.review_status === 'Sent to CRM').length;
     const ready = summary.readyForMeta ?? items.filter(item => ['Ready for Meta', 'Queued'].includes(item.feedback_status)).length;
-    const pager = !data.loading && !data.error && window.AureumPagination?.render(data.meta || data.pagination, 'meta-intake', { busy: Boolean(data.loading) }) || '';
-    const body = data.loading ? '<div class="empty-state">Loading Meta intake records.</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : `${metaTable(items)}${pager}`;
+    const pager = !busy && !data.error && window.AureumPagination?.render(data.meta || data.pagination, 'meta-intake', { busy }) || '';
+    const body = busy ? '<div class="empty-state">Checking for Meta intake records…</div>' : data.error ? `<div class="empty-state"><strong>Meta intake could not be loaded</strong><br/>${esc(data.error)}<br/><button class="btn btn-secondary btn-sm" data-meta-intake-reload>Retry</button></div>` : `${metaTable(items)}${pager}`;
     const selectedCount = selectedMetaIds().size;
     const deleteSelected = state.role === 'SUPER_ADMIN' ? '<button class="btn btn-danger btn-sm" data-meta-bulk-delete>Delete selected</button>' : '';
     const bulkToolbar = selectedCount ? `<div class="meta-bulk-toolbar" role="status"><strong>${selectedCount} selected</strong><span>Only records not yet sent to the CRM are included.</span><button class="btn btn-gold btn-sm" data-meta-bulk-send>Approve &amp; send selected</button>${deleteSelected}<button class="btn btn-secondary btn-sm" data-meta-clear-selection>Clear selection</button></div>` : '';
-    const metricValue = value => data.loading ? '<span class="kpi-loading" aria-label="Loading">…</span>' : value;
-    return pageHeader('Pre-CRM review queue', 'Meta Intake', 'Review Meta leads, add the business outcome, and send approved records into the CRM.', '<button class="btn btn-secondary" data-meta-intake-reload>Refresh</button>') + `<section class="grid grid-3 meta-intake-kpis">${kpi('Pending review', metricValue(pending), 'Needs a decision', 'down')}${kpi('Sent to CRM', metricValue(sent), 'Approved records')}${kpi('Ready for Meta', metricValue(ready), 'Outcome captured')}</section><section class="card table-card meta-intake-card" style="margin-top:18px"><div class="section-title"><div><div class="eyebrow">Meta lead staging</div><h3>Review before CRM</h3><p>Raw Meta data is retained for reconciliation. Internal notes stay in the CRM; Meta receives only approved outcome signals through the later Conversions API step.</p></div><span class="badge badge-neutral">${data.loading ? 'Loading' : `${items.length} visible`}</span></div>${metaFilters()}${bulkToolbar}${body}</section>`;
+    const metricValue = value => busy ? '<span class="kpi-loading" aria-label="Loading">…</span>' : value;
+    const loadLabel = busy ? 'Loading' : data.refreshing ? 'Refreshing' : `${items.length} visible`;
+    return pageHeader('Pre-CRM review queue', 'Meta Intake', 'Review Meta leads, add the business outcome, and send approved records into the CRM.', '<button class="btn btn-secondary" data-meta-intake-reload>Refresh</button>') + `<section class="grid grid-3 meta-intake-kpis">${kpi('Pending review', metricValue(pending), 'Needs a decision', 'down')}${kpi('Sent to CRM', metricValue(sent), 'Approved records')}${kpi('Ready for Meta', metricValue(ready), 'Outcome captured')}</section><section class="card table-card meta-intake-card" style="margin-top:18px"><div class="section-title"><div><div class="eyebrow">Meta lead staging</div><h3>Review before CRM</h3><p>Raw Meta data is retained for reconciliation. Internal notes stay in the CRM; Meta receives only approved outcome signals through the later Conversions API step.</p></div><span class="badge badge-neutral">${loadLabel}</span></div>${metaFilters()}${bulkToolbar}${body}</section>`;
   }
 
   function detailValue(label, value) { return `<div class="detail-field"><div class="detail-label">${esc(label)}</div><div class="detail-value">${display(value)}</div></div>`; }
@@ -126,29 +128,72 @@
     </aside>`;
   }
 
-  async function loadMetaIntake(force = false, retryAttempt = false) {
-    if (!state.authUser || state.screen !== 'meta-inbox' || state.metaInbox.loading) return;
+  function renderMetaIntakeState() {
+    if (typeof window.renderWithSearchFocus === 'function') {
+      window.renderWithSearchFocus('[data-meta-intake-search]');
+      return;
+    }
+    render();
+  }
+
+  function currentMetaRequestSignature() {
+    const filters = state.metaInbox.filters || {};
+    const pagination = state.metaInbox.pagination || {};
+    return JSON.stringify({ filters: Object.entries(filters).sort(([left], [right]) => left.localeCompare(right)), page: pagination.page, pageSize: pagination.pageSize });
+  }
+
+  async function loadMetaIntake(force = false, retryAttempt = 0, options = {}) {
+    if (!state.authUser || state.screen !== 'meta-inbox') return;
+    const silent = Boolean(options?.silent);
     state.metaInbox.startupLoadTriggered = true;
-    state.metaInbox.loading = true; state.metaInbox.error = ''; render();
+    const requestToken = (state.metaInbox.requestToken || 0) + 1;
+    state.metaInbox.requestToken = requestToken;
+    state.metaInbox.retryToken = requestToken;
+    state.metaInbox.retrying = false;
+    state.metaInbox.refreshing = true;
+    state.metaInbox.loading = !silent;
+    state.metaInbox.error = '';
+    if (!silent) renderMetaIntakeState();
     try {
       const filters = state.metaInbox.filters || {};
       const hasFilters = Object.values(filters).some(value => String(value || '').trim());
       const pagination = state.metaInbox.pagination = { page: 1, pageSize: 25, ...(state.metaInbox.pagination || {}) };
+      const requestSignature = currentMetaRequestSignature();
       const query = new URLSearchParams(Object.fromEntries(Object.entries({ ...filters, page: pagination.page, pageSize: pagination.pageSize }).filter(([, value]) => value)));
       // Meta Intake is a live staging queue. It must not cache an empty response
       // while Zapier/Meta is writing or committing a new record.
       const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { cacheTtl: 0, ...(force ? { force: true } : {}) });
+      if (requestToken !== state.metaInbox.requestToken || state.screen !== 'meta-inbox' || requestSignature !== currentMetaRequestSignature()) return;
       state.metaInbox.items = result.data || [];
       state.metaInbox.summary = result.summary || {};
       state.metaInbox.meta = result.meta || { page: pagination.page, pageSize: pagination.pageSize, total: state.metaInbox.items.length, totalPages: Math.ceil(state.metaInbox.items.length / pagination.pageSize) };
+      state.metaInbox.lastLoadedAt = Date.now();
+      state.metaInbox.lastCheckedAt = state.metaInbox.lastLoadedAt;
+      state.metaInbox.version = String(result.meta?.version || result.summary?.version || '');
       const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id)));
       state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id)));
-      if (!state.metaInbox.items.length && !hasFilters && !retryAttempt) {
+      const retryDelays = [500, 1000, 2000];
+      if (!state.metaInbox.items.length && !hasFilters && retryAttempt < retryDelays.length) {
+        state.metaInbox.retrying = true;
+        const retryDelay = retryDelays[retryAttempt];
         window.setTimeout(() => {
-          if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(true, true);
-        }, 350);
+          if (state.authUser && state.screen === 'meta-inbox' && !state.metaInbox.loading && !state.metaInbox.refreshing && state.metaInbox.retryToken === requestToken && currentMetaRequestSignature() === requestSignature) loadMetaIntake(true, retryAttempt + 1);
+        }, retryDelay);
+      } else {
+        state.metaInbox.retrying = false;
       }
-    } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
+    } catch (error) {
+      if (requestToken === state.metaInbox.requestToken) {
+        state.metaInbox.error = error.message;
+        state.metaInbox.retrying = false;
+      }
+    } finally {
+      if (requestToken === state.metaInbox.requestToken) {
+        state.metaInbox.loading = false;
+        state.metaInbox.refreshing = false;
+        if (state.screen === 'meta-inbox') renderMetaIntakeState();
+      }
+    }
   }
 
   async function openMetaStaging(id) {
@@ -217,5 +262,33 @@
     });
   }
   window.setTimeout(() => { if (state.authUser && state.ready && state.screen === 'meta-inbox' && !state.metaInbox.startupLoadTriggered) { state.metaInbox.startupLoadTriggered = true; loadMetaIntake(); } }, 1000);
+  async function checkMetaIntakeVersion() {
+    if (!state.authUser || state.screen !== 'meta-inbox' || state.metaInbox.loading || state.metaInbox.refreshing || state.metaInbox.checking || document.visibilityState === 'hidden') return;
+    state.metaInbox.checking = true;
+    try {
+      const filters = state.metaInbox.filters || {};
+      const requestSignature = currentMetaRequestSignature();
+      const query = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([, value]) => value)));
+      const result = await apiFetch(`/api/meta/staging/version?${query.toString()}`, { cacheTtl: 0, force: true });
+      if (state.screen !== 'meta-inbox' || state.metaInbox.loading || state.metaInbox.refreshing || requestSignature !== currentMetaRequestSignature()) return;
+      state.metaInbox.lastCheckedAt = Date.now();
+      const version = String(result.data?.version || '');
+      if (!state.metaInbox.version || version !== state.metaInbox.version) await loadMetaIntake(true, 3, { silent: true });
+    } catch {
+      // Keep the last confirmed list visible. The next scheduled check retries.
+    } finally {
+      state.metaInbox.checking = false;
+    }
+  }
+  const revalidateMetaIntake = () => {
+    if (Date.now() - Number(state.metaInbox.lastCheckedAt || 0) < 5000) return;
+    void checkMetaIntakeVersion();
+  };
+  if (!window.__aureumMetaRefreshBound) {
+    window.__aureumMetaRefreshBound = true;
+    window.addEventListener('focus', revalidateMetaIntake);
+    document.addEventListener('visibilitychange', revalidateMetaIntake);
+    window.setInterval(revalidateMetaIntake, 15000);
+  }
   if (state.authUser && state.ready && state.screen === 'meta-inbox') { render(); loadMetaIntake(); }
 })();
