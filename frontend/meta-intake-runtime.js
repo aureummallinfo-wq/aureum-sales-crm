@@ -126,11 +126,29 @@
     </aside>`;
   }
 
-  async function loadMetaIntake(force = false) {
+  async function loadMetaIntake(force = false, retryAttempt = false) {
     if (!state.authUser || state.screen !== 'meta-inbox' || state.metaInbox.loading) return;
     state.metaInbox.startupLoadTriggered = true;
     state.metaInbox.loading = true; state.metaInbox.error = ''; render();
-    try { const filters = state.metaInbox.filters || {}; const pagination = state.metaInbox.pagination = { page: 1, pageSize: 25, ...(state.metaInbox.pagination || {}) }; const query = new URLSearchParams(Object.fromEntries(Object.entries({ ...filters, page: pagination.page, pageSize: pagination.pageSize }).filter(([, value]) => value))); const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { cacheTtl: 30 * 1000, ...(force ? { force: true } : {}) }); state.metaInbox.items = result.data || []; state.metaInbox.summary = result.summary || {}; state.metaInbox.meta = result.meta || { page: pagination.page, pageSize: pagination.pageSize, total: state.metaInbox.items.length, totalPages: Math.ceil(state.metaInbox.items.length / pagination.pageSize) }; const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id))); state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id))); } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
+    try {
+      const filters = state.metaInbox.filters || {};
+      const hasFilters = Object.values(filters).some(value => String(value || '').trim());
+      const pagination = state.metaInbox.pagination = { page: 1, pageSize: 25, ...(state.metaInbox.pagination || {}) };
+      const query = new URLSearchParams(Object.fromEntries(Object.entries({ ...filters, page: pagination.page, pageSize: pagination.pageSize }).filter(([, value]) => value)));
+      // Meta Intake is a live staging queue. It must not cache an empty response
+      // while Zapier/Meta is writing or committing a new record.
+      const result = await apiFetch(`/api/meta/staging?${query.toString()}`, { cacheTtl: 0, ...(force ? { force: true } : {}) });
+      state.metaInbox.items = result.data || [];
+      state.metaInbox.summary = result.summary || {};
+      state.metaInbox.meta = result.meta || { page: pagination.page, pageSize: pagination.pageSize, total: state.metaInbox.items.length, totalPages: Math.ceil(state.metaInbox.items.length / pagination.pageSize) };
+      const selectableIds = new Set(state.metaInbox.items.filter(canBulkSend).map(item => String(item.id)));
+      state.metaInbox.selectedIds = (state.metaInbox.selectedIds || []).filter(id => selectableIds.has(String(id)));
+      if (!state.metaInbox.items.length && !hasFilters && !retryAttempt) {
+        window.setTimeout(() => {
+          if (state.authUser && state.screen === 'meta-inbox') loadMetaIntake(true, true);
+        }, 350);
+      }
+    } catch (error) { state.metaInbox.error = error.message; } finally { state.metaInbox.loading = false; render(); }
   }
 
   async function openMetaStaging(id) {

@@ -31,6 +31,10 @@
   const followupTags = item => [...new Set((item.followup_tags || (item.followup_tag ? [item.followup_tag] : [])).map(canonicalTag).filter(Boolean))];
   const businessTags = item => { const selected = followupTags(item); const fallback = canonicalTag(value(item, 'lead_status')); return (selected.length ? selected : fallback ? [fallback] : []).map(tag => badge(tag)).join(' '); };
   const customerTagChips = item => followupTags(item).map(tag => `<span class="customer-tag">${esc(tag)}</span>`).join('');
+  const customerListNote = item => {
+    const note = String(item?.notes || '').trim();
+    return /^Created automatically from the Follow-up status tag\.?$/i.test(note) ? '' : note;
+  };
   const statusBadge = item => status(item) === 'Contacted' ? '<span class="badge followup-contacted-badge">Contacted</span>' : badge(status(item));
   const stateForModule = () => { state.followupModule = state.followupModule || { date: 'all', customStart: '', customEnd: '', selectedDate: '', status: '', search: '', agentId: '', type: '', leadStatus: '', priority: '', calendarMonth: currentDate().slice(0, 7), tab: 'overview', form: '', pagination: { page: 1, pageSize: 25 } }; state.followupModule.pagination = { page: 1, pageSize: 25, ...(state.followupModule.pagination || {}) }; return state.followupModule; };
   const items = () => (state.followups?.items || []).filter(item => !window.AureumCRMStatusTags?.isTerminal(item.lead_status || item.customer_status, item.followup_tags) && !item.cancelled_by_closure).map(item => ({ ...item, status: status(item), customer: value(item, 'customer', 'customer_name'), phone: value(item, 'phone', 'customer_phone'), agent: value(item, 'agent', 'assigned_agent'), type: value(item, 'type', 'follow_up_type') }));
@@ -86,11 +90,11 @@
 
   function table(itemsToRender) {
     if (!itemsToRender.length) return '<div class="empty-state"><strong>No follow-ups match this view.</strong><br/>Clear a filter or schedule the next contact.</div>';
-    return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Phone / WhatsApp</th><th>Type</th><th>Assigned agent</th><th>Status tags</th><th>Due date</th><th>Due time</th><th>Priority</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => `<tr data-followup-module-open="${esc(item.id)}" tabindex="0" aria-label="Schedule follow-up for ${esc(item.customer)}">
-      <td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b><span>${esc(item.notes || 'No note added')}</span></button>${customerTagChips(item)}</td>
+    return `<div class="table-wrap followup-table-wrap"><table><thead><tr><th>Customer</th><th>Phone / WhatsApp</th><th>Type</th><th>Assigned agent</th><th>Status tags</th><th>Due date</th><th>Due time</th><th>Priority</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead><tbody>${itemsToRender.map(item => { const note = customerListNote(item); return `<tr data-followup-module-open="${esc(item.id)}" tabindex="0" aria-label="Schedule follow-up for ${esc(item.customer)}">
+      <td><button class="followup-customer-button" data-followup-module-open="${esc(item.id)}"><b>${esc(item.customer)}</b>${note ? `<span>${esc(note)}</span>` : ''}</button>${customerTagChips(item)}</td>
       <td>${esc(item.phone)}</td><td>${esc(item.type)}</td><td>${esc(item.agent)}</td><td>${businessTags(item)}</td>
       <td>${esc(item.due_date)}</td><td>${esc(item.due_time)}</td><td>${badge(value(item, 'priority'))}</td><td>${statusBadge(item)}</td>
-      <td>${window.AureumFollowUpNoteUI.activity(item, { dateTimeOnly: true })}</td><td>${actionMenu(item)}</td></tr>`).join('')}</tbody></table></div>`;
+      <td>${window.AureumFollowUpNoteUI.activity(item, { dateTimeOnly: true })}</td><td>${actionMenu(item)}</td></tr>`; }).join('')}</tbody></table></div>`;
   }
 
   function calendar(itemsToRender) {
